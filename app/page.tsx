@@ -4,9 +4,11 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   connectMicrosoft365,
   createMicrosoftMeeting,
+  describeMicrosoftCalendarError,
   disconnectMicrosoft365,
   prepareMicrosoftMeeting,
   readMicrosoftCalendar,
+  repairMicrosoftCalendarAccess,
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
@@ -156,6 +158,7 @@ const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
   "Hey Nick—I’m Ara. I’m really excited to work with you. Think of me as the calm, connected friend who helps you cut through the noise and keep work moving. What would make today feel like a win?";
+const demoIntroductionInstruction = `This is the demo opening. Say exactly: "${defaultIntroduction}" Do not say anything before or after it.`;
 const capabilityIntroduction =
   "Nick asked what he can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make his day easier right now.";
 const startupPhrases = [
@@ -265,6 +268,12 @@ export default function Home() {
     microsoftSnapshotRef.current = snapshot;
     setMicrosoftSnapshot(snapshot);
   };
+
+  const noteForMicrosoftSnapshot = (snapshot: MicrosoftSnapshot) =>
+    snapshot.capabilities.calendar === "ready"
+      ? "Read access is live · calendar actions need your approval"
+      : snapshot.calendarIssue?.message ??
+        "Microsoft is connected, but Calendar needs attention.";
 
   const moveToStage = (nextStage: Stage) => {
     stageRef.current = nextStage;
@@ -586,15 +595,41 @@ export default function Home() {
           online_meeting: event.isOnlineMeeting === true,
         })),
         instruction:
-          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If there are no events, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
+          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If Nick asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no events, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
       };
-    } catch {
+    } catch (error) {
+      const issue = describeMicrosoftCalendarError(error);
+      const currentSnapshot = microsoftSnapshotRef.current;
+      if (currentSnapshot) {
+        rememberMicrosoftSnapshot({
+          ...currentSnapshot,
+          calendarIssue: issue,
+          capabilities: {
+            ...currentSnapshot.capabilities,
+            calendar: issue.kind,
+          },
+        });
+      }
+      setMicrosoftStatus("connected");
+      setMicrosoftNote(issue.message);
       return {
         connected: true,
         calendar_window: calendarPeriod,
-        temporarily_unavailable: true,
+        calendar_access: false,
+        calendar_issue: issue.kind,
+        calendar_diagnostic_code: issue.code,
+        repair_action:
+          issue.kind === "permission_required"
+            ? "Open Today and choose Repair calendar access."
+            : issue.kind === "mailbox_not_ready"
+              ? "Confirm this Microsoft user has an active Exchange Online mailbox and license."
+              : "Refresh Microsoft 365 and try once more.",
         instruction:
-          "Tell Nick briefly that the requested calendar window could not be read just now and suggest refreshing Microsoft 365.",
+          issue.kind === "permission_required"
+            ? "Tell Nick the Microsoft connection is present, but Calendar permission needs one repair. Direct him to Repair calendar access on Today."
+            : issue.kind === "mailbox_not_ready"
+              ? "Tell Nick Microsoft is connected, but the Exchange calendar is not provisioned for this account yet. An Exchange Online mailbox and license must be active before Ara can read it."
+              : "Tell Nick briefly that Microsoft Calendar is temporarily unavailable and suggest one refresh.",
       };
     }
   };
@@ -1358,6 +1393,9 @@ export default function Home() {
         },
       });
       streamRef.current = stream;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
       startLevelVisualizer(
         stream,
@@ -1382,7 +1420,7 @@ export default function Home() {
         const opening =
           initialResponseRef.current ??
           (firstVisit
-            ? `Introduce yourself by saying this naturally in your own voice: "${defaultIntroduction}"`
+            ? demoIntroductionInstruction
             : "Greet Nick warmly in one brief sentence, then invite him to tell you what needs his attention.");
         channel.send(
           JSON.stringify({
@@ -1466,9 +1504,7 @@ export default function Home() {
 
   const meetAra = () => {
     setActiveNav("ara");
-    void startVoiceSession(
-      `Introduce yourself by saying this naturally in your own voice: "${defaultIntroduction}"`,
-    );
+    void startVoiceSession(demoIntroductionInstruction);
   };
 
   useEffect(() => {
@@ -1533,7 +1569,7 @@ export default function Home() {
         if (snapshot) {
           rememberMicrosoftSnapshot(snapshot);
           setMicrosoftStatus("connected");
-          setMicrosoftNote("Read access is live · calendar actions need your approval");
+          setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
         } else {
           setMicrosoftStatus("disconnected");
           setMicrosoftNote("Ready for your approval");
@@ -1716,10 +1752,25 @@ export default function Home() {
       const snapshot = await refreshMicrosoft365();
       rememberMicrosoftSnapshot(snapshot);
       setMicrosoftStatus("connected");
-      setMicrosoftNote("Read access is live · calendar actions need your approval");
+      setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
     } catch {
       setMicrosoftStatus("error");
       setMicrosoftNote("Microsoft 365 needs your attention to reconnect");
+    }
+  };
+
+  const repairMicrosoftCalendar = async () => {
+    if (microsoftActionPending) return;
+    setMicrosoftStatus("connecting");
+    setMicrosoftNote("Opening Microsoft to renew Calendar permission");
+    try {
+      await repairMicrosoftCalendarAccess();
+    } catch {
+      setMicrosoftStatus("connected");
+      setMicrosoftNote(
+        microsoftSnapshotRef.current?.calendarIssue?.message ??
+          "Calendar permission was not changed. You can try again when ready.",
+      );
     }
   };
 
@@ -1736,6 +1787,11 @@ export default function Home() {
     microsoftStatus === "checking" ||
     microsoftStatus === "connecting" ||
     microsoftStatus === "refreshing";
+  const calendarNeedsPermission =
+    microsoftSnapshot?.capabilities.calendar === "permission_required";
+  const calendarNeedsAttention =
+    Boolean(microsoftSnapshot) &&
+    microsoftSnapshot?.capabilities.calendar !== "ready";
 
   return (
     <>
@@ -1919,7 +1975,9 @@ export default function Home() {
             <p>MICROSOFT 365 · GOVERNED ACCESS</p>
             <h2>
               {microsoftConnected && microsoftSnapshot
-                ? `${microsoftSnapshot.account.name} is connected`
+                ? calendarNeedsAttention
+                  ? `${microsoftSnapshot.account.name} is connected · calendar needs attention`
+                  : `${microsoftSnapshot.account.name} is connected`
                 : microsoftStatus === "connecting"
                   ? "Waiting for Microsoft"
                   : "Give Ara a window into your work"}
@@ -1954,7 +2012,16 @@ export default function Home() {
                 <small>
                   {microsoftSnapshot.capabilities.calendar === "ready"
                     ? `${microsoftSnapshot.upcomingEvents.length} upcoming`
-                    : "Provisioning"}
+                    : microsoftSnapshot.capabilities.calendar ===
+                        "permission_required"
+                      ? "Reconnect access"
+                      : microsoftSnapshot.capabilities.calendar ===
+                          "mailbox_not_ready"
+                        ? "Mailbox not ready"
+                        : microsoftSnapshot.capabilities.calendar ===
+                            "unavailable"
+                          ? "Try refresh"
+                          : "Provisioning"}
                 </small>
               </span>
               <span
@@ -1996,6 +2063,15 @@ export default function Home() {
           <div className="connection-actions">
             {microsoftConnected ? (
               <>
+                {calendarNeedsPermission && (
+                  <button
+                    className="connector-primary"
+                    onClick={repairMicrosoftCalendar}
+                    disabled={microsoftActionPending}
+                  >
+                    Repair calendar access
+                  </button>
+                )}
                 <button
                   className="connector-refresh"
                   onClick={refreshMicrosoft}

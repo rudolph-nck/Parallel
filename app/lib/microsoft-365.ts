@@ -13,6 +13,10 @@ import {
   resolveCalendarReadWindow,
   resolveSchedulingWindow,
 } from "./calendar-window";
+import {
+  describeMicrosoftCalendarError,
+  type MicrosoftCalendarAccessIssue,
+} from "./microsoft-access";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -53,7 +57,7 @@ type GraphMessage = {
   };
 };
 
-type GraphEvent = {
+export type GraphEvent = {
   id: string;
   subject?: string;
   start?: { dateTime?: string; timeZone?: string };
@@ -113,7 +117,12 @@ type GraphSearchResponse = {
   }>;
 };
 
-export type MicrosoftCapabilityState = "ready" | "provisioning";
+export type MicrosoftCapabilityState =
+  | "ready"
+  | "provisioning"
+  | "permission_required"
+  | "mailbox_not_ready"
+  | "unavailable";
 
 export type MicrosoftSnapshot = {
   account: {
@@ -124,6 +133,7 @@ export type MicrosoftSnapshot = {
   upcomingEvents: GraphEvent[];
   sharePointSite: GraphSite | null;
   directoryPeople: number;
+  calendarIssue: MicrosoftCalendarAccessIssue | null;
   capabilities: {
     mail: MicrosoftCapabilityState;
     calendar: MicrosoftCapabilityState;
@@ -187,6 +197,16 @@ let directoryPeopleCache:
   | null = null;
 const DIRECTORY_CACHE_MS = 5 * 60 * 1000;
 
+class MicrosoftGraphError extends Error {
+  constructor(
+    public status: number,
+    public code: string | null,
+  ) {
+    super(`Microsoft 365 returned ${status}.`);
+    this.name = "MicrosoftGraphError";
+  }
+}
+
 function getRedirectUri() {
   return `${window.location.origin}/`;
 }
@@ -247,11 +267,21 @@ async function graphRequest<T>(
     },
   });
 
+  const responseText = await response.text();
   if (!response.ok) {
-    throw new Error(`Microsoft 365 returned ${response.status}.`);
+    let code: string | null = null;
+    try {
+      const body = JSON.parse(responseText) as {
+        error?: { code?: string };
+      };
+      code = body.error?.code ?? null;
+    } catch {
+      // Status remains enough to select a safe recovery path.
+    }
+    throw new MicrosoftGraphError(response.status, code);
   }
 
-  return (await response.json()) as T;
+  return (responseText ? JSON.parse(responseText) : {}) as T;
 }
 
 function parseGraphDateTime(
@@ -400,6 +430,11 @@ async function readMicrosoftSnapshot(
     };
   }
 
+  const calendarIssue =
+    calendarResult.status === "rejected"
+      ? describeMicrosoftCalendarError(calendarResult.reason)
+      : null;
+
   return {
     account: {
       name: profile.displayName ?? account.name ?? "Microsoft 365 user",
@@ -423,10 +458,13 @@ async function readMicrosoftSnapshot(
           directoryResult.value.value?.length ??
           0
         : 0,
+    calendarIssue,
     capabilities: {
       mail: mailResult.status === "fulfilled" ? "ready" : "provisioning",
       calendar:
-        calendarResult.status === "fulfilled" ? "ready" : "provisioning",
+        calendarResult.status === "fulfilled"
+          ? "ready"
+          : calendarIssue?.kind ?? "unavailable",
       sharePoint:
         sharePointResult.status === "fulfilled" ? "ready" : "provisioning",
       directory:
@@ -443,6 +481,17 @@ export async function connectMicrosoft365() {
     prompt: "select_account",
   });
 }
+
+export async function repairMicrosoftCalendarAccess() {
+  const client = await getMicrosoftClient();
+  await client.loginRedirect({
+    scopes: [...MICROSOFT_GRAPH_SCOPES],
+    redirectUri: getRedirectUri(),
+    prompt: "consent",
+  });
+}
+
+export { describeMicrosoftCalendarError };
 
 export async function restoreMicrosoft365() {
   const client = await getMicrosoftClient();

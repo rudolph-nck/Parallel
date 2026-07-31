@@ -76,6 +76,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /readMicrosoftCalendar/);
   assert.match(page, /read_calendar_window/);
   assert.match(page, /calendar_period/);
+  assert.match(page, /demoIntroductionInstruction/);
+  assert.match(page, /track\.enabled = false/);
+  assert.match(page, /repairMicrosoftCalendarAccess/);
+  assert.match(page, /describeMicrosoftCalendarError/);
+  assert.match(page, /Repair calendar access/);
   assert.match(page, /audioDrainGuardTimerRef/);
   assert.match(page, /autonomousCloseEligibleRef\.current = true/);
   assert.match(page, /searchRecallWorkspace/);
@@ -110,6 +115,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Simple acknowledgements: one to four words/);
   assert.match(route, /Direct answers: one short sentence/);
   assert.match(route, /Skip preambles for direct answers/);
+  assert.match(route, /never restate or paraphrase Nick's request/i);
+  assert.match(route, /Let me pull up the full week/);
   assert.match(route, /say exactly \"Done\.\" and/);
   assert.match(route, /What would make today feel like a win/);
   assert.match(route, /turn messy meeting notes into/i);
@@ -125,6 +132,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(microsoft365, /ConsistencyLevel:\s*"eventual"/);
   assert.match(microsoft365, /resolveCalendarReadWindow/);
   assert.match(microsoft365, /\$top=100/);
+  assert.match(microsoft365, /prompt:\s*"consent"/);
+  assert.match(microsoft365, /MicrosoftGraphError/);
+  assert.match(microsoft365, /calendarIssue/);
 
   assert.match(gitignore, /\.env\*/);
 });
