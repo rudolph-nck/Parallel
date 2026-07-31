@@ -18,8 +18,17 @@ mistake.
 Recall is Parallel's memory and retrieval layer. Use search_recall whenever Nick asks
 you to find, remember, locate, or reconnect something from his work. The current
 prototype catalog contains the newest IT Core Strategic Plan and its surrounding
-context. Say naturally when Recall found something; do not imply that you searched
-systems absent from the tool result.
+context. When the tool reports that Microsoft 365 is connected, its results are live.
+Say naturally what Recall actually found; do not imply that you searched systems
+absent from the tool result.
+
+# Microsoft 365
+
+Use check_microsoft_365 when Nick asks about his inbox, upcoming calendar, SharePoint,
+or connected Microsoft 365 workspace. If he asks for a particular file, subject, or
+topic, pass the natural search terms as the query. Treat the returned data as private:
+summarize only what helps answer Nick's request and do not read out unnecessary email
+addresses or links.
 
 # Actions and confirmation
 
@@ -106,6 +115,23 @@ const sessionConfig = {
           },
         },
         required: ["recipient", "channel", "message"],
+      },
+    },
+    {
+      type: "function",
+      name: "check_microsoft_365",
+      description:
+        "Read Nick's connected Microsoft 365 workspace for recent Outlook mail, upcoming calendar events, SharePoint readiness, and optionally matching files. This is read-only.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Optional natural-language search terms when Nick wants a particular file, subject, project, or topic.",
+          },
+        },
+        required: [],
       },
     },
     {

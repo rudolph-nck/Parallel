@@ -1,10 +1,35 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  connectMicrosoft365,
+  disconnectMicrosoft365,
+  refreshMicrosoft365,
+  restoreMicrosoft365,
+  searchMicrosoft365Files,
+  type MicrosoftSnapshot,
+} from "./lib/microsoft-365";
 
 type Stage = "briefing" | "searching" | "found" | "ready" | "approved";
 type VoiceState = "idle" | "connecting" | "listening" | "speaking" | "synced";
 type ApprovalMethod = "voice" | "button" | null;
+type MicrosoftStatus =
+  | "checking"
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "refreshing"
+  | "error";
+
+type RecallDocument = {
+  title: string;
+  location: string;
+  confidence: number;
+  edited: string;
+  context: string;
+  status: string;
+  webUrl?: string | null;
+};
 
 type RealtimeFunctionCall = {
   type: "function_call";
@@ -61,6 +86,15 @@ const dailyQuotes = [
   { quote: "You do not rise to the level of your goals. You fall to the level of your systems.", author: "James Clear" },
 ];
 
+const prototypeDocument: RecallDocument = {
+  title: "IT Core Strategic Plan 2027–2030",
+  location: "IT Operations / Strategy / 2027 Planning",
+  confidence: 0.94,
+  edited: "Edited by you Monday at 4:18 PM",
+  context: "Discussed with Matt last week",
+  status: "Most recent approved version",
+};
+
 const subscribeToLocalDate = () => () => {};
 const getLocalDay = () => new Date().getDay();
 const getServerDay = () => 0;
@@ -81,6 +115,15 @@ export default function Home() {
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [fridayTranscript, setFridayTranscript] = useState("");
   const [approvalMethod, setApprovalMethod] = useState<ApprovalMethod>(null);
+  const [microsoftStatus, setMicrosoftStatus] =
+    useState<MicrosoftStatus>("checking");
+  const [microsoftSnapshot, setMicrosoftSnapshot] =
+    useState<MicrosoftSnapshot | null>(null);
+  const [microsoftNote, setMicrosoftNote] = useState(
+    "Checking your Microsoft 365 connection",
+  );
+  const [foundDocument, setFoundDocument] =
+    useState<RecallDocument>(prototypeDocument);
   const quoteIndex = useSyncExternalStore(
     subscribeToLocalDate,
     getLocalDay,
@@ -97,10 +140,16 @@ export default function Home() {
   const inputAnimationRef = useRef<number | null>(null);
   const outputAnimationRef = useRef<number | null>(null);
   const transcriptRef = useRef("");
+  const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
   const copy = conversations[stage];
+
+  const rememberMicrosoftSnapshot = (snapshot: MicrosoftSnapshot | null) => {
+    microsoftSnapshotRef.current = snapshot;
+    setMicrosoftSnapshot(snapshot);
+  };
 
   const moveToStage = (nextStage: Stage) => {
     stageRef.current = nextStage;
@@ -204,21 +253,134 @@ export default function Home() {
           ? args.query
           : "Nick's current strategic plan";
       moveToStage("searching");
-      setVoiceNote("Friday is consulting Recall");
+      setVoiceNote(
+        microsoftSnapshotRef.current
+          ? "Friday is checking Microsoft 365"
+          : "Friday is consulting Recall",
+      );
+
+      if (microsoftSnapshotRef.current) {
+        try {
+          const files = await searchMicrosoft365Files(query);
+          if (files.length === 0) {
+            moveToStage("briefing");
+            return {
+              query,
+              matches: [],
+              source: "Connected Microsoft 365 workspace",
+              instruction:
+                "Tell Nick briefly that you checked his connected Microsoft 365 workspace but did not find a matching file yet. Do not invent a result.",
+            };
+          }
+
+          const bestMatch = files[0];
+          const liveDocument: RecallDocument = {
+            title: bestMatch.name,
+            location: bestMatch.location ?? "Microsoft 365",
+            confidence: 1,
+            edited: bestMatch.lastModifiedDateTime
+              ? `Updated ${new Date(bestMatch.lastModifiedDateTime).toLocaleString()}`
+              : "Found in the connected workspace",
+            context: "Live Microsoft 365 search result",
+            status: "Available to you now",
+            webUrl: bestMatch.webUrl,
+          };
+          setFoundDocument(liveDocument);
+          moveToStage("found");
+          return {
+            query,
+            match: liveDocument,
+            source: "Connected Microsoft 365 workspace",
+          };
+        } catch {
+          moveToStage("briefing");
+          return {
+            query,
+            matches: [],
+            source: "Connected Microsoft 365 workspace",
+            temporarily_unavailable: true,
+            instruction:
+              "Tell Nick briefly that Microsoft 365 is connected but the search could not complete just now, and suggest trying again.",
+          };
+        }
+      }
+
       await new Promise((resolve) => window.setTimeout(resolve, 850));
+      setFoundDocument(prototypeDocument);
       moveToStage("found");
       return {
         query,
         match: {
-          title: "IT Core Strategic Plan 2027–2030",
-          location: "IT Operations / Strategy / 2027 Planning",
-          confidence: 0.94,
+          ...prototypeDocument,
           edited: "Monday at 4:18 PM",
-          context: "Discussed with Matt last week",
-          status: "Most recent approved version",
         },
         source: "Parallel Recall prototype workspace catalog",
       };
+    }
+
+    if (call.name === "check_microsoft_365") {
+      if (!microsoftSnapshotRef.current) {
+        return {
+          connected: false,
+          instruction:
+            "Tell Nick Microsoft 365 still needs to be connected from the dashboard before you can check it.",
+        };
+      }
+
+      try {
+        const snapshot = await refreshMicrosoft365();
+        rememberMicrosoftSnapshot(snapshot);
+        const query =
+          typeof args.query === "string" && args.query.trim()
+            ? args.query.trim()
+            : null;
+        const files = query ? await searchMicrosoft365Files(query) : [];
+
+        return {
+          connected: true,
+          account: snapshot.account.name,
+          recent_mail: snapshot.recentMessages.slice(0, 5).map((message) => ({
+            subject: message.subject || "(No subject)",
+            sender:
+              message.from?.emailAddress?.name ??
+              message.from?.emailAddress?.address ??
+              "Unknown sender",
+            received: message.receivedDateTime,
+            importance: message.importance,
+            unread: message.isRead === false,
+          })),
+          upcoming_calendar: snapshot.upcomingEvents
+            .slice(0, 5)
+            .map((event) => ({
+              subject: event.subject || "(No title)",
+              start: event.start?.dateTime,
+              organizer:
+                event.organizer?.emailAddress?.name ??
+                event.organizer?.emailAddress?.address ??
+                "Unknown organizer",
+              online_meeting: event.isOnlineMeeting === true,
+            })),
+          sharepoint: {
+            ready: snapshot.capabilities.sharePoint === "ready",
+            site: snapshot.sharePointSite?.displayName ?? null,
+          },
+          file_search: files.map((file) => ({
+            name: file.name,
+            webUrl: file.webUrl,
+            updated: file.lastModifiedDateTime,
+            location: file.location,
+          })),
+          instruction:
+            "Summarize only what is relevant to Nick's request. Keep the spoken response concise and do not claim to have sent, changed, or deleted anything.",
+        };
+      } catch {
+        return {
+          connected: true,
+          temporarily_unavailable: true,
+          instruction:
+            "Tell Nick briefly that Microsoft 365 is connected but could not be refreshed just now.",
+        };
+      }
     }
 
     if (call.name === "prepare_message_for_approval") {
@@ -505,6 +667,32 @@ export default function Home() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    void restoreMicrosoft365()
+      .then((snapshot) => {
+        if (!active) return;
+        if (snapshot) {
+          rememberMicrosoftSnapshot(snapshot);
+          setMicrosoftStatus("connected");
+          setMicrosoftNote("Friday has read-only access");
+        } else {
+          setMicrosoftStatus("disconnected");
+          setMicrosoftNote("Ready for your approval");
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setMicrosoftStatus("disconnected");
+        setMicrosoftNote("Ready to reconnect securely");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       channelRef.current?.close();
@@ -543,6 +731,57 @@ export default function Home() {
     moveToStage("approved");
   };
 
+  const connectMicrosoft = async () => {
+    if (
+      microsoftStatus === "connecting" ||
+      microsoftStatus === "refreshing"
+    ) {
+      return;
+    }
+
+    setMicrosoftStatus("connecting");
+    setMicrosoftNote("Complete the Microsoft sign-in window");
+    try {
+      const snapshot = await connectMicrosoft365();
+      rememberMicrosoftSnapshot(snapshot);
+      setMicrosoftStatus("connected");
+      setMicrosoftNote("Friday has read-only access");
+    } catch {
+      setMicrosoftStatus("error");
+      setMicrosoftNote(
+        "The connection was not completed. Nothing was changed—try again when ready.",
+      );
+    }
+  };
+
+  const refreshMicrosoft = async () => {
+    setMicrosoftStatus("refreshing");
+    setMicrosoftNote("Refreshing Outlook, Calendar, and SharePoint");
+    try {
+      const snapshot = await refreshMicrosoft365();
+      rememberMicrosoftSnapshot(snapshot);
+      setMicrosoftStatus("connected");
+      setMicrosoftNote("Friday has read-only access");
+    } catch {
+      setMicrosoftStatus("error");
+      setMicrosoftNote("Microsoft 365 needs your attention to reconnect");
+    }
+  };
+
+  const disconnectMicrosoft = async () => {
+    await disconnectMicrosoft365();
+    rememberMicrosoftSnapshot(null);
+    setMicrosoftStatus("disconnected");
+    setMicrosoftNote("Disconnected from this browser");
+  };
+
+  const microsoftConnected =
+    microsoftStatus === "connected" || microsoftStatus === "refreshing";
+  const microsoftActionPending =
+    microsoftStatus === "checking" ||
+    microsoftStatus === "connecting" ||
+    microsoftStatus === "refreshing";
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -551,8 +790,8 @@ export default function Home() {
           <span>PARALLEL</span>
         </a>
         <div className="status-pill">
-          <span className="status-dot" />
-          Workspace connected
+          <span className={`status-dot ${microsoftConnected ? "" : "waiting"}`} />
+          {microsoftConnected ? "Microsoft 365 connected" : "Workspace ready"}
         </div>
         <button className="avatar" aria-label="Open profile">NR</button>
       </header>
@@ -566,7 +805,19 @@ export default function Home() {
         </nav>
         <div className="sidebar-foot">
           <p>Connected systems</p>
-          <div className="system-row"><span className="ms-icon">M</span>Microsoft 365 <i>Live</i></div>
+          <button
+            className="system-row system-button"
+            onClick={
+              microsoftConnected
+                ? refreshMicrosoft
+                : connectMicrosoft
+            }
+            disabled={microsoftActionPending}
+          >
+            <span className="ms-icon">M</span>
+            Microsoft 365
+            <i>{microsoftConnected ? "Live" : "Connect"}</i>
+          </button>
           <div className="system-row"><span className="sn-icon">S</span>ServiceNow <i>Demo</i></div>
         </div>
       </aside>
@@ -583,6 +834,111 @@ export default function Home() {
             <cite>— {dailyQuotes[quoteIndex].author}</cite>
           </aside>
         </div>
+
+        <section
+          className={`microsoft-connection microsoft-${microsoftStatus}`}
+          aria-live="polite"
+        >
+          <div className="connection-symbol">
+            <span className="ms-icon">M</span>
+            <span className="connection-pulse" />
+          </div>
+          <div className="connection-copy">
+            <p>MICROSOFT 365 · READ ONLY</p>
+            <h2>
+              {microsoftConnected && microsoftSnapshot
+                ? `${microsoftSnapshot.account.name} is connected`
+                : microsoftStatus === "connecting"
+                  ? "Waiting for Microsoft"
+                  : "Give Friday a window into your work"}
+            </h2>
+            <span>{microsoftNote}</span>
+          </div>
+
+          {microsoftConnected && microsoftSnapshot ? (
+            <div className="connection-capabilities">
+              <span
+                className={
+                  microsoftSnapshot.capabilities.mail === "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                Outlook
+                <small>
+                  {microsoftSnapshot.capabilities.mail === "ready"
+                    ? `${microsoftSnapshot.recentMessages.length} recent`
+                    : "Provisioning"}
+                </small>
+              </span>
+              <span
+                className={
+                  microsoftSnapshot.capabilities.calendar === "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                Calendar
+                <small>
+                  {microsoftSnapshot.capabilities.calendar === "ready"
+                    ? `${microsoftSnapshot.upcomingEvents.length} upcoming`
+                    : "Provisioning"}
+                </small>
+              </span>
+              <span
+                className={
+                  microsoftSnapshot.capabilities.sharePoint === "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                SharePoint
+                <small>
+                  {microsoftSnapshot.capabilities.sharePoint === "ready"
+                    ? "Ready"
+                    : "Provisioning"}
+                </small>
+              </span>
+            </div>
+          ) : (
+            <p className="connection-boundary">
+              Friday can read what you can see. Sending, editing, and deleting
+              remain off.
+            </p>
+          )}
+
+          <div className="connection-actions">
+            {microsoftConnected ? (
+              <>
+                <button
+                  className="connector-refresh"
+                  onClick={refreshMicrosoft}
+                  disabled={microsoftActionPending}
+                >
+                  {microsoftStatus === "refreshing" ? "Refreshing…" : "Refresh"}
+                </button>
+                <button
+                  className="connector-disconnect"
+                  onClick={disconnectMicrosoft}
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                className="connector-primary"
+                onClick={connectMicrosoft}
+                disabled={microsoftActionPending}
+              >
+                {microsoftStatus === "checking"
+                  ? "Checking…"
+                  : microsoftStatus === "connecting"
+                    ? "Connecting…"
+                    : "Connect Microsoft 365"}
+              </button>
+            )}
+          </div>
+        </section>
 
         <section className={`friday-panel stage-${stage}`}>
           <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
@@ -662,16 +1018,29 @@ export default function Home() {
               <article className="document-card">
                 <div className="file-icon">P</div>
                 <div className="file-info">
-                  <div className="confidence">94% CONFIDENCE</div>
-                  <h3>IT Core Strategic Plan 2027–2030</h3>
-                  <p>IT Operations / Strategy / 2027 Planning</p>
+                  <div className="confidence">
+                    {Math.round(foundDocument.confidence * 100)}% CONFIDENCE
+                  </div>
+                  <h3>{foundDocument.title}</h3>
+                  <p>{foundDocument.location}</p>
                   <div className="evidence">
-                    <span>Edited by you Monday at 4:18 PM</span>
-                    <span>Discussed with Matt last week</span>
-                    <span>Most recent approved version</span>
+                    <span>{foundDocument.edited}</span>
+                    <span>{foundDocument.context}</span>
+                    <span>{foundDocument.status}</span>
                   </div>
                 </div>
-                <button className="open-file">Preview ↗</button>
+                {foundDocument.webUrl ? (
+                  <a
+                    className="open-file"
+                    href={foundDocument.webUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open ↗
+                  </a>
+                ) : (
+                  <button className="open-file">Preview ↗</button>
+                )}
               </article>
             )}
 
