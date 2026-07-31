@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type Stage = "briefing" | "searching" | "found" | "ready" | "sent";
 type VoiceState = "idle" | "listening" | "speaking" | "synced";
@@ -33,6 +33,16 @@ const conversations = {
   },
 };
 
+const dailyQuotes = [
+  { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { quote: "Great things are done by a series of small things brought together.", author: "Vincent van Gogh" },
+  { quote: "Focus on being productive instead of busy.", author: "Tim Ferriss" },
+  { quote: "Success is the sum of small efforts, repeated day in and day out.", author: "Robert Collier" },
+  { quote: "The future depends on what you do today.", author: "Mahatma Gandhi" },
+  { quote: "Clarity comes from engagement, not thought.", author: "Marie Forleo" },
+  { quote: "You do not rise to the level of your goals. You fall to the level of your systems.", author: "James Clear" },
+];
+
 function ParallelMark() {
   return (
     <span className="parallel-mark" aria-hidden="true">
@@ -45,6 +55,10 @@ function ParallelMark() {
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceNote, setVoiceNote] = useState("Tap to let Friday hear your voice");
+  const visualRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationRef = useRef<number | null>(null);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -55,12 +69,73 @@ export default function Home() {
     window.setTimeout(() => setStage("found"), 1250);
   };
 
-  const startVoiceMoment = () => {
+  const stopMicrophone = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (animationRef.current) window.cancelAnimationFrame(animationRef.current);
+    animationRef.current = null;
+    visualRef.current?.style.setProperty("--human-height", "46px");
+  };
+
+  const letFridaySpeak = () => {
+    setVoiceState("speaking");
+    setVoiceNote("Friday is responding");
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const response = new SpeechSynthesisUtterance(
+        "I’m with you, Nick. Tell me what needs your attention, and we’ll work through it together."
+      );
+      response.rate = 0.94;
+      response.pitch = 0.93;
+      response.onend = () => {
+        setVoiceState("synced");
+        setVoiceNote("Conversation understood");
+        window.setTimeout(() => {
+          setVoiceState("idle");
+          setVoiceNote("Tap to talk again");
+        }, 1800);
+      };
+      window.speechSynthesis.speak(response);
+    } else {
+      window.setTimeout(() => setVoiceState("synced"), 2600);
+      window.setTimeout(() => setVoiceState("idle"), 4400);
+    }
+  };
+
+  const startVoiceMoment = async () => {
     if (voiceState === "listening" || voiceState === "speaking") return;
-    setVoiceState("listening");
-    window.setTimeout(() => setVoiceState("speaking"), 2800);
-    window.setTimeout(() => setVoiceState("synced"), 6300);
-    window.setTimeout(() => setVoiceState("idle"), 8200);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      setVoiceState("listening");
+      setVoiceNote("Speak naturally — Friday is listening");
+
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.72;
+      source.connect(analyser);
+      const levels = new Uint8Array(analyser.frequencyBinCount);
+
+      const readVoice = () => {
+        analyser.getByteFrequencyData(levels);
+        const average = levels.reduce((total, level) => total + level, 0) / levels.length;
+        const energy = Math.min(1, average / 72);
+        visualRef.current?.style.setProperty("--human-height", `${46 + energy * 52}px`);
+        animationRef.current = window.requestAnimationFrame(readVoice);
+      };
+      readVoice();
+
+      window.setTimeout(() => {
+        stopMicrophone();
+        audioContext.close();
+        letFridaySpeak();
+      }, 4200);
+    } catch {
+      setVoiceNote("Microphone access is needed to hear you");
+      setVoiceState("idle");
+    }
   };
 
   const voiceLabel = {
@@ -104,11 +179,15 @@ export default function Home() {
             <p>THURSDAY · JULY 30</p>
             <h1>Move through work with clarity.</h1>
           </div>
-          <button className="quiet-button">•••</button>
+          <aside className="daily-quote">
+            <span>Today’s perspective</span>
+            <blockquote>“{dailyQuotes[new Date().getDay()].quote}”</blockquote>
+            <cite>— {dailyQuotes[new Date().getDay()].author}</cite>
+          </aside>
         </div>
 
         <section className={`friday-panel stage-${stage}`}>
-          <div className={`friday-visual voice-${voiceState}`}>
+          <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
             <div className="voice-stage" aria-hidden="true">
               <div className="signal-ring ring-one" />
               <div className="signal-ring ring-two" />
@@ -136,6 +215,7 @@ export default function Home() {
               <span><i className="key-human" />You</span>
               <span><i className="key-friday" />Friday</span>
             </p>
+            <p className="voice-note">{voiceNote}</p>
           </div>
 
           <div className="conversation">

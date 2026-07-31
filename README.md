@@ -14,3 +14,9 @@ This first prototype demonstrates the core relationship:
 The initial workflow finds a strategic plan through Recall, explains the
 evidence behind the result, prepares a Microsoft Teams message, and waits for
 human approval before sending.
+
+The voice prototype responds to live microphone volume, distinguishes the user
+from Friday visually, and demonstrates a spoken response using the device's
+available system voice. Production speech-to-speech will use a secure
+server-issued OpenAI Realtime session rather than exposing API credentials in
+the browser.

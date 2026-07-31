@@ -126,6 +126,15 @@ button { color: inherit; }
 .date-row p, .eyebrow { margin: 0 0 10px; font-size: 10px; letter-spacing: .16em; color: #687789; font-weight: 700; }
 .date-row h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.03em; }
 .quiet-button { background: transparent; border: 0; color: #677486; cursor: pointer; letter-spacing: .2em; }
+.daily-quote {
+  width: min(360px, 36vw);
+  border-left: 1px solid rgba(119,227,213,.2);
+  padding: 2px 0 2px 22px;
+  margin-left: 34px;
+}
+.daily-quote span { display: block; color: #5e6c7c; font-size: 8px; text-transform: uppercase; letter-spacing: .16em; margin-bottom: 9px; }
+.daily-quote blockquote { margin: 0 0 7px; color: #aeb8c4; font-family: Georgia, "Times New Roman", serif; font-size: 14px; line-height: 1.5; }
+.daily-quote cite { color: #5f6d7d; font-size: 9px; font-style: normal; }
 
 .friday-panel {
   min-height: 475px;
@@ -240,9 +249,10 @@ button { color: inherit; }
 .voice-key i { width: 4px; height: 9px; border-radius: 5px; }
 .key-human { background: #69a9ff; }
 .key-friday { background: #72e1d3; }
+.voice-note { margin: -5px 0 0; color: #465464; font-size: 8px; letter-spacing: .04em; }
 
 .voice-listening .human-bar {
-  animation: humanVoice .62s cubic-bezier(.4,0,.25,1) infinite alternate;
+  height: var(--human-height, 46px);
   filter: brightness(1.35);
 }
 .voice-listening .friday-bar { height: 48px; opacity: .58; }
@@ -386,6 +396,8 @@ button { color: inherit; }
   .status-pill { display: none; }
   .sidebar { display: none; }
   .workspace { padding: 28px 16px 38px; }
+  .date-row { display: block; }
+  .daily-quote { width: 100%; margin: 22px 0 0; }
   .friday-panel { grid-template-columns: 1fr; }
   .friday-visual { min-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); }
   .voice-stage { width: 155px; height: 155px; transform: scale(.88); margin: -10px 0; }
