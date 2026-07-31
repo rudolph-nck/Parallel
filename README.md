@@ -28,7 +28,8 @@ Friday currently requests delegated access for the signed-in user:
 - `User.Read`, `Mail.Read`, and `Sites.Read.All` for connected context.
 - `Calendars.Read` and `Calendars.ReadWrite` for availability and approved
   meeting creation.
-- `People.Read` to resolve names from the user's relevant people list.
+- `User.ReadBasic.All` to resolve internal attendees from the tenant's basic
+  user directory, with `People.Read` as a fallback for relevant contacts.
 
 Calendar creation is the only live write action. Sending messages, editing
 files, and deleting content remain off.

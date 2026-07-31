@@ -468,7 +468,7 @@ export default function Home() {
             status: "needs_attendee_details",
             unresolved_attendees: preparation.unresolvedAttendees,
             instruction:
-              "Ask Nick naturally for the work email address of each unresolved attendee. Explain briefly that they are not yet in this new tenant's people directory. Do not claim the meeting is scheduled.",
+              "Ask Nick naturally for the work email address of each unresolved attendee. Explain briefly that you could not find one unambiguous match in the Microsoft 365 directory or his relevant people. Do not guess and do not claim the meeting is scheduled.",
           };
         }
 

@@ -14,6 +14,7 @@ export const MICROSOFT_GRAPH_SCOPES = [
   "Calendars.Read",
   "Calendars.ReadWrite",
   "People.Read",
+  "User.ReadBasic.All",
   "Sites.Read.All",
 ] as const;
 
@@ -67,6 +68,14 @@ type GraphPerson = {
     address?: string;
     relevanceScore?: number;
   }>;
+};
+
+type GraphDirectoryUser = {
+  displayName?: string;
+  givenName?: string | null;
+  surname?: string | null;
+  mail?: string | null;
+  userPrincipalName?: string;
 };
 
 type GraphSite = {
@@ -502,6 +511,86 @@ export async function searchMicrosoft365Files(query: string) {
   );
 }
 
+function normalizePersonName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function attendeeFromDirectoryUsers(
+  requestedName: string,
+  users: GraphDirectoryUser[],
+) {
+  const requested = normalizePersonName(requestedName);
+  const candidates = users
+    .map((user) => ({
+      displayName:
+        user.displayName?.trim() ||
+        [user.givenName, user.surname].filter(Boolean).join(" ").trim(),
+      email: user.mail?.trim() || user.userPrincipalName?.trim() || "",
+    }))
+    .filter((user) => user.displayName && user.email);
+
+  const exact = candidates.filter(
+    (user) => normalizePersonName(user.displayName) === requested,
+  );
+  if (exact.length === 1) return exact[0];
+
+  const prefix = candidates.filter((user) => {
+    const displayName = normalizePersonName(user.displayName);
+    return (
+      displayName.startsWith(`${requested} `) ||
+      displayName.split(" ").some((part) => part === requested)
+    );
+  });
+  return prefix.length === 1 ? prefix[0] : null;
+}
+
+async function resolveDirectoryAttendee(
+  accessToken: string,
+  requestedName: string,
+) {
+  const safeName = requestedName.replaceAll('"', "").trim();
+  if (!safeName) return null;
+
+  const directory = await graphRequest<GraphCollection<GraphDirectoryUser>>(
+    accessToken,
+    `/users?$search=${encodeURIComponent(`"displayName:${safeName}"`)}&$select=displayName,givenName,surname,mail,userPrincipalName&$top=10&$count=true`,
+    {
+      headers: {
+        ConsistencyLevel: "eventual",
+      },
+    },
+  );
+
+  return attendeeFromDirectoryUsers(requestedName, directory.value ?? []);
+}
+
+async function resolveRelevantPerson(
+  accessToken: string,
+  requestedName: string,
+) {
+  const safeName = requestedName.replaceAll('"', "").trim();
+  if (!safeName) return null;
+
+  const people = await graphRequest<GraphCollection<GraphPerson>>(
+    accessToken,
+    `/me/people?$search=${encodeURIComponent(`"${safeName}"`)}&$top=5&$select=displayName,scoredEmailAddresses`,
+  );
+  const candidates = (people.value ?? [])
+    .map((person) => ({
+      displayName: person.displayName?.trim() || requestedName,
+      email: person.scoredEmailAddresses?.[0]?.address?.trim() || "",
+    }))
+    .filter((person) => person.email);
+
+  const exact = candidates.filter(
+    (person) =>
+      normalizePersonName(person.displayName) ===
+      normalizePersonName(requestedName),
+  );
+  if (exact.length === 1) return exact[0];
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 export async function prepareMicrosoftMeeting({
   subject,
   attendeeNames,
@@ -544,25 +633,25 @@ export async function prepareMicrosoftMeeting({
       continue;
     }
 
+    let match: MicrosoftMeetingAttendee | null = null;
     try {
-      const people = await graphRequest<GraphCollection<GraphPerson>>(
-        token.accessToken,
-        `/me/people?$search=${encodeURIComponent(`"${attendee.replaceAll('"', "")}"`)}&$top=5&$select=displayName,scoredEmailAddresses`,
-      );
-      const match = (people.value ?? []).find(
-        (person) => person.scoredEmailAddresses?.[0]?.address,
-      );
-      const email = match?.scoredEmailAddresses?.[0]?.address;
-
-      if (email) {
-        attendees.push({
-          displayName: match?.displayName ?? attendee,
-          email,
-        });
-      } else {
-        unresolvedAttendees.push(attendee);
-      }
+      match = await resolveDirectoryAttendee(token.accessToken, attendee);
     } catch {
+      // The relevant-people fallback still works if directory access is
+      // temporarily unavailable or has not been consented yet.
+    }
+
+    if (!match) {
+      try {
+        match = await resolveRelevantPerson(token.accessToken, attendee);
+      } catch {
+        // Friday will ask for an email instead of guessing.
+      }
+    }
+
+    if (match) {
+      attendees.push(match);
+    } else {
       unresolvedAttendees.push(attendee);
     }
   }

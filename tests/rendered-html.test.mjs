@@ -39,9 +39,10 @@ test("server-renders the Parallel Friday dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, route, gitignore] = await Promise.all([
+  const [page, route, microsoft365, gitignore] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/microsoft-365.ts", import.meta.url), "utf8"),
     readFile(new URL("../.gitignore", import.meta.url), "utf8"),
   ]);
 
@@ -84,6 +85,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
   assert.match(route, /cannot send chat messages/);
+
+  assert.match(microsoft365, /User\.ReadBasic\.All/);
+  assert.match(microsoft365, /resolveDirectoryAttendee/);
+  assert.match(microsoft365, /ConsistencyLevel:\s*"eventual"/);
 
   assert.match(gitignore, /\.env\*/);
 });
