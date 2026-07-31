@@ -13,19 +13,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Parallel — Your professional counterpart",
+  title: "Parallel — Move through work with clarity",
   description:
     "Meet Friday, the conversational chief of staff powered by Recall.",
   openGraph: {
-    title: "Parallel — Your attention, clarified.",
+    title: "Parallel — Move through work with clarity.",
     description: "Friday, powered by Recall.",
-    images: [{ url: "/og.png", width: 1200, height: 630 }],
+    images: [{ url: "/og-v2.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Parallel — Your attention, clarified.",
+    title: "Parallel — Move through work with clarity.",
     description: "Friday, powered by Recall.",
-    images: ["/og.png"],
+    images: ["/og-v2.png"],
   },
   icons: {
     icon: "/favicon.svg",

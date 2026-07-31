@@ -3,6 +3,8 @@
 Parallel is a trusted professional counterpart that turns overwhelming
 workplace information into clear, controlled action.
 
+**Slogan:** Move through work with clarity.
+
 This first prototype demonstrates the core relationship:
 
 - **Friday** is the conversational chief of staff.

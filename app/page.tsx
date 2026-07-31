@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 type Stage = "briefing" | "searching" | "found" | "ready" | "sent";
+type VoiceState = "idle" | "listening" | "speaking" | "synced";
 
 const conversations = {
   briefing: {
@@ -43,6 +44,7 @@ function ParallelMark() {
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -52,6 +54,21 @@ export default function Home() {
     setStage("searching");
     window.setTimeout(() => setStage("found"), 1250);
   };
+
+  const startVoiceMoment = () => {
+    if (voiceState === "listening" || voiceState === "speaking") return;
+    setVoiceState("listening");
+    window.setTimeout(() => setVoiceState("speaking"), 2800);
+    window.setTimeout(() => setVoiceState("synced"), 6300);
+    window.setTimeout(() => setVoiceState("idle"), 8200);
+  };
+
+  const voiceLabel = {
+    idle: "Friday is ready",
+    listening: "I’m listening",
+    speaking: "Friday is responding",
+    synced: "In sync",
+  }[voiceState];
 
   return (
     <main className="app-shell">
@@ -85,17 +102,40 @@ export default function Home() {
         <div className="date-row">
           <div>
             <p>THURSDAY · JULY 30</p>
-            <h1>Your attention, clarified.</h1>
+            <h1>Move through work with clarity.</h1>
           </div>
           <button className="quiet-button">•••</button>
         </div>
 
         <section className={`friday-panel stage-${stage}`}>
-          <div className="friday-visual" aria-hidden="true">
-            <div className="orb">
-              <div className="orb-core"><ParallelMark /></div>
+          <div className={`friday-visual voice-${voiceState}`}>
+            <div className="voice-stage" aria-hidden="true">
+              <div className="signal-ring ring-one" />
+              <div className="signal-ring ring-two" />
+              <div className="voice-glow human-glow" />
+              <div className="voice-glow friday-glow" />
+              <div className="voice-bars">
+                <i className="human-bar" />
+                <i className="friday-bar" />
+              </div>
             </div>
-            <span>{stage === "searching" ? "Consulting Recall" : stage === "sent" ? "Listening" : "Friday is ready"}</span>
+            <div className="voice-status">
+              <span className="voice-status-dot" />
+              {stage === "searching" ? "Consulting Recall" : voiceLabel}
+            </div>
+            <button
+              className="talk-button"
+              onClick={startVoiceMoment}
+              disabled={voiceState === "listening" || voiceState === "speaking"}
+              aria-label="Demonstrate a voice conversation with Friday"
+            >
+              <span className="mic-icon">●</span>
+              {voiceState === "idle" || voiceState === "synced" ? "Talk to Friday" : voiceState === "listening" ? "Listening…" : "Friday is speaking…"}
+            </button>
+            <p className="voice-key">
+              <span><i className="key-human" />You</span>
+              <span><i className="key-friday" />Friday</span>
+            </p>
           </div>
 
           <div className="conversation">
