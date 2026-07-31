@@ -73,12 +73,18 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /approve_calendar_meeting/);
   assert.match(page, /Book Teams meeting/);
   assert.match(page, /createMicrosoftMeeting/);
+  assert.match(page, /readMicrosoftCalendar/);
+  assert.match(page, /read_calendar_window/);
+  assert.match(page, /calendar_period/);
+  assert.match(page, /audioDrainGuardTimerRef/);
+  assert.match(page, /autonomousCloseEligibleRef\.current = true/);
   assert.match(page, /searchRecallWorkspace/);
   assert.match(page, /Say exactly \"Done\.\" and nothing else/);
   assert.doesNotMatch(page, /scrollIntoView/);
   assert.doesNotMatch(page, /YOUR APPROVAL IS REQUIRED/);
   assert.doesNotMatch(page, /say 'I approve'/i);
   assert.doesNotMatch(page, /OPENAI_API_KEY/);
+  assert.doesNotMatch(page, /ara-welcomed/);
 
   assert.match(route, /process\.env\.OPENAI_API_KEY/);
   assert.match(route, /https:\/\/api\.openai\.com\/v1\/realtime\/calls/);
@@ -88,7 +94,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"search_recall"/);
   assert.match(route, /type:\s*"server_vad"/);
   assert.match(route, /threshold:\s*0\.75/);
+  assert.match(route, /silence_duration_ms:\s*450/);
   assert.match(route, /interrupt_response:\s*false/);
+  assert.match(route, /calendar_period/);
+  assert.match(route, /name:\s*"read_calendar_window"/);
+  assert.match(route, /following Monday through Friday/);
   assert.match(route, /name:\s*"prepare_message_for_approval"/);
   assert.match(route, /name:\s*"approve_pending_action"/);
   assert.match(route, /name:\s*"prepare_calendar_meeting"/);
@@ -113,6 +123,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(microsoft365, /splitAttendeeNames/);
   assert.match(microsoft365, /directoryPeopleChecked/);
   assert.match(microsoft365, /ConsistencyLevel:\s*"eventual"/);
+  assert.match(microsoft365, /resolveCalendarReadWindow/);
+  assert.match(microsoft365, /\$top=100/);
 
   assert.match(gitignore, /\.env\*/);
 });

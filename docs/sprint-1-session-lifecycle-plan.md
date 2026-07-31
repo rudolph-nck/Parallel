@@ -12,7 +12,7 @@ When Ara successfully completes an approved action, she says `Done.`, finishes s
 - idempotent session cleanup;
 - tool-pending and action-success tracking;
 - output-audio-drained detection before closing;
-- a two-second interruption window;
+- a short interruption window after Ara finishes speaking;
 - session duration, model tier/model ID, close reason, tool outcomes, errors, and returned token usage;
 - a small in-product last-session receipt;
 - unit tests for completion policy and transitions;
@@ -39,7 +39,7 @@ When Ara successfully completes an approved action, she says `Done.`, finishes s
 
 ## Acceptance scenarios
 
-- **Successful meeting:** prepare → await approval → create → Microsoft success → Ara says `Done.` → audio drains → two-second window → clean close.
+- **Successful meeting:** prepare → await approval → create → Microsoft success → Ara says `Done.` → audio drains → brief interruption window → clean close.
 - **Interrupted close:** same flow, but Nick speaks during the window → close timer is cancelled → Ara listens.
 - **Failed creation:** Microsoft returns an error → Ara explains the next step → session stays open.
 - **Missing attendee:** proposal cannot resolve someone → Ara asks for the email → session stays open.

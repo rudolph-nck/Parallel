@@ -6,6 +6,7 @@ import {
   createMicrosoftMeeting,
   disconnectMicrosoft365,
   prepareMicrosoftMeeting,
+  readMicrosoftCalendar,
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
@@ -152,10 +153,9 @@ const prototypeDocument: RecallDocument = {
 };
 
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
-const WELCOME_STORAGE_KEY = "parallel:ara-welcomed";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
-  "Hey Nick—I’m Ara. I’m genuinely excited to start working with you. Think of me as the calm, connected friend who helps you make sense of the noise and get the right things moving. Before we dive in, what would make today feel like a win?";
+  "Hey Nick—I’m Ara. I’m really excited to work with you. Think of me as the calm, connected friend who helps you cut through the noise and keep work moving. What would make today feel like a win?";
 const capabilityIntroduction =
   "Nick asked what he can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make his day easier right now.";
 const startupPhrases = [
@@ -247,6 +247,7 @@ export default function Home() {
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
+  const audioDrainGuardTimerRef = useRef<number | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const toolPendingCountRef = useRef(0);
   const approvalPendingRef = useRef(false);
@@ -368,6 +369,10 @@ export default function Home() {
     if (closingTimerRef.current !== null) {
       window.clearTimeout(closingTimerRef.current);
       closingTimerRef.current = null;
+    }
+    if (audioDrainGuardTimerRef.current !== null) {
+      window.clearTimeout(audioDrainGuardTimerRef.current);
+      audioDrainGuardTimerRef.current = null;
     }
     if (idleTimerRef.current !== null) {
       window.clearTimeout(idleTimerRef.current);
@@ -550,8 +555,60 @@ export default function Home() {
     }
   };
 
+  const readCalendarWindowForAra = async (calendarPeriod: string) => {
+    if (!microsoftSnapshotRef.current) {
+      return {
+        connected: false,
+        instruction:
+          "Tell Nick Microsoft 365 still needs to be connected from the dashboard before you can check it.",
+      };
+    }
+
+    setVoiceNote(`Ara is reading your calendar for ${calendarPeriod}`);
+    try {
+      const calendar = await readMicrosoftCalendar(calendarPeriod);
+      return {
+        connected: true,
+        calendar_window: {
+          label: calendar.label,
+          start: calendar.start,
+          end: calendar.end,
+        },
+        calendar_event_count: calendar.events.length,
+        upcoming_calendar: calendar.events.map((event) => ({
+          subject: event.subject || "(No title)",
+          start: event.start?.dateTime,
+          end: event.end?.dateTime,
+          organizer:
+            event.organizer?.emailAddress?.name ??
+            event.organizer?.emailAddress?.address ??
+            "Unknown organizer",
+          online_meeting: event.isOnlineMeeting === true,
+        })),
+        instruction:
+          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If there are no events, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
+      };
+    } catch {
+      return {
+        connected: true,
+        calendar_window: calendarPeriod,
+        temporarily_unavailable: true,
+        instruction:
+          "Tell Nick briefly that the requested calendar window could not be read just now and suggest refreshing Microsoft 365.",
+      };
+    }
+  };
+
   const runFridayFunction = async (call: RealtimeFunctionCall) => {
     const args = parseFunctionArguments(call);
+
+    if (call.name === "read_calendar_window") {
+      const period =
+        typeof args.period === "string" && args.period.trim()
+          ? args.period.trim()
+          : "the next two weeks";
+      return readCalendarWindowForAra(period);
+    }
 
     if (call.name === "search_recall") {
       const query =
@@ -633,6 +690,16 @@ export default function Home() {
         };
       }
 
+      const calendarPeriod =
+        typeof args.calendar_period === "string" &&
+        args.calendar_period.trim()
+          ? args.calendar_period.trim()
+          : null;
+
+      if (calendarPeriod) {
+        return readCalendarWindowForAra(calendarPeriod);
+      }
+
       try {
         const snapshot = await refreshMicrosoft365();
         rememberMicrosoftSnapshot(snapshot);
@@ -665,7 +732,7 @@ export default function Home() {
             unread: message.isRead === false,
           })),
           upcoming_calendar: snapshot.upcomingEvents
-            .slice(0, 5)
+            .slice(0, 10)
             .map((event) => ({
               subject: event.subject || "(No title)",
               start: event.start?.dateTime,
@@ -1178,6 +1245,12 @@ export default function Home() {
           moveConversationState("BEGIN_WRAP_UP");
           setVoiceState("wrapping");
           setVoiceNote("Ara is finishing up");
+          audioDrainGuardTimerRef.current = window.setTimeout(() => {
+            audioDrainGuardTimerRef.current = null;
+            if (conversationStateRef.current !== "WRAP_UP") return;
+            outputAudioDrainedRef.current = true;
+            scheduleAutonomousDisconnect();
+          }, conversationPolicy.maxAudioDrainWaitMs);
         } else {
           setVoiceState("synced");
           setVoiceNote(
@@ -1189,6 +1262,10 @@ export default function Home() {
         break;
       }
       case "output_audio_buffer.stopped":
+        if (audioDrainGuardTimerRef.current !== null) {
+          window.clearTimeout(audioDrainGuardTimerRef.current);
+          audioDrainGuardTimerRef.current = null;
+        }
         outputAudioDrainedRef.current = true;
         if (conversationStateRef.current === "WRAP_UP") {
           scheduleAutonomousDisconnect();
@@ -1320,7 +1397,6 @@ export default function Home() {
         );
         initialResponseRef.current = null;
         if (firstVisit) {
-          window.localStorage.setItem(WELCOME_STORAGE_KEY, "true");
           setFirstVisit(false);
         }
       };
@@ -1405,10 +1481,8 @@ export default function Home() {
     );
 
     const hydrateTimer = window.setTimeout(() => {
-      const shouldWelcome =
-        window.localStorage.getItem(WELCOME_STORAGE_KEY) !== "true";
-      setFirstVisit(shouldWelcome);
-      if (shouldWelcome) setActiveNav("ara");
+      setFirstVisit(true);
+      setActiveNav("ara");
       setTodayLabel(
         new Intl.DateTimeFormat(undefined, {
           weekday: "long",
@@ -1490,6 +1564,9 @@ export default function Home() {
       if (closingTimerRef.current !== null) {
         window.clearTimeout(closingTimerRef.current);
       }
+      if (audioDrainGuardTimerRef.current !== null) {
+        window.clearTimeout(audioDrainGuardTimerRef.current);
+      }
       if (idleTimerRef.current !== null) {
         window.clearTimeout(idleTimerRef.current);
       }
@@ -1567,6 +1644,13 @@ export default function Home() {
       setBookedMeeting(result);
       setApprovalMethod("button");
       moveToStage("meetingBooked");
+      approvalPendingRef.current = false;
+      autonomousCloseEligibleRef.current = true;
+      recoverableErrorRef.current = false;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_calendar_meeting",
+        succeeded: true,
+      });
       setVoiceNote("The Teams meeting is on your calendar");
       if (channelRef.current?.readyState === "open") {
         setMicrophoneEnabled(false);
@@ -1583,6 +1667,13 @@ export default function Home() {
       const snapshot = await refreshMicrosoft365().catch(() => null);
       if (snapshot) rememberMicrosoftSnapshot(snapshot);
     } catch {
+      autonomousCloseEligibleRef.current = false;
+      recoverableErrorRef.current = true;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_calendar_meeting",
+        succeeded: false,
+      });
+      if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
       setVoiceNote(
         "The meeting was not created. Reconnect Microsoft 365 and try again.",
       );

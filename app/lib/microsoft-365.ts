@@ -9,6 +9,10 @@ import {
   splitAttendeeNames,
   type DirectoryPerson,
 } from "./people";
+import {
+  resolveCalendarReadWindow,
+  resolveSchedulingWindow,
+} from "./calendar-window";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -170,7 +174,18 @@ export type MicrosoftMeetingResult = {
   attendees: MicrosoftMeetingAttendee[];
 };
 
+export type MicrosoftCalendarWindow = {
+  label: string;
+  start: string;
+  end: string;
+  events: GraphEvent[];
+};
+
 let microsoftClientPromise: Promise<PublicClientApplication> | null = null;
+let directoryPeopleCache:
+  | { people: DirectoryPerson[]; expiresAt: number }
+  | null = null;
+const DIRECTORY_CACHE_MS = 5 * 60 * 1000;
 
 function getRedirectUri() {
   return `${window.location.origin}/`;
@@ -252,46 +267,6 @@ function parseGraphDateTime(
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function resolveDeadline(description: string, now = new Date()) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(description)) {
-    const [year, month, day] = description.split("-").map(Number);
-    return new Date(year, month - 1, day, 17, 0, 0, 0);
-  }
-
-  const directDate = new Date(description);
-  if (!Number.isNaN(directDate.getTime())) return directDate;
-
-  const weekdays = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-  ];
-  const weekdayMatch = description
-    .toLowerCase()
-    .match(/\b(next|this)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
-
-  if (weekdayMatch) {
-    const targetDay = weekdays.indexOf(weekdayMatch[2]);
-    let daysAhead = (targetDay - now.getDay() + 7) % 7;
-    if (weekdayMatch[1] === "next" || daysAhead === 0) {
-      daysAhead = daysAhead === 0 ? 7 : daysAhead;
-    }
-    const deadline = new Date(now);
-    deadline.setDate(deadline.getDate() + daysAhead);
-    deadline.setHours(17, 0, 0, 0);
-    return deadline;
-  }
-
-  const fallback = new Date(now);
-  fallback.setDate(fallback.getDate() + 7);
-  fallback.setHours(17, 0, 0, 0);
-  return fallback;
-}
-
 function roundUpToHalfHour(value: Date) {
   const rounded = new Date(value);
   rounded.setSeconds(0, 0);
@@ -320,10 +295,13 @@ function moveIntoWorkingHours(value: Date) {
 
 function findAvailableMeetingTime(
   events: GraphEvent[],
-  deadline: Date,
+  windowStart: Date,
+  windowEnd: Date,
   durationMinutes: number,
 ) {
-  const earliest = new Date(Date.now() + 30 * 60 * 1000);
+  const earliest = new Date(
+    Math.max(Date.now() + 30 * 60 * 1000, windowStart.getTime()),
+  );
   let candidate = moveIntoWorkingHours(roundUpToHalfHour(earliest));
 
   const busyWindows = events
@@ -336,7 +314,7 @@ function findAvailableMeetingTime(
         window.start !== null && window.end !== null,
     );
 
-  while (candidate < deadline) {
+  while (candidate < windowEnd) {
     candidate = moveIntoWorkingHours(candidate);
     const end = new Date(candidate.getTime() + durationMinutes * 60 * 1000);
     const leavesWorkingHours =
@@ -344,7 +322,7 @@ function findAvailableMeetingTime(
       end.getHours() > 17 ||
       (end.getHours() === 17 && end.getMinutes() > 0);
 
-    if (end > deadline) break;
+    if (end > windowEnd) break;
     if (leavesWorkingHours) {
       candidate.setDate(candidate.getDate() + 1);
       candidate.setHours(9, 0, 0, 0);
@@ -383,7 +361,7 @@ async function readMicrosoftSnapshot(
   const token = await acquireGraphToken(client, account);
   const now = new Date();
   const calendarEnd = new Date(now);
-  calendarEnd.setDate(calendarEnd.getDate() + 7);
+  calendarEnd.setDate(calendarEnd.getDate() + 14);
 
   const profile = await graphRequest<GraphProfile>(
     token.accessToken,
@@ -398,7 +376,7 @@ async function readMicrosoftSnapshot(
       ),
       graphRequest<GraphCollection<GraphEvent>>(
         token.accessToken,
-        `/me/calendarView?startDateTime=${encodeURIComponent(now.toISOString())}&endDateTime=${encodeURIComponent(calendarEnd.toISOString())}&$top=10&$select=id,subject,start,end,organizer,isOnlineMeeting,onlineMeetingUrl,webLink&$orderby=start/dateTime`,
+        `/me/calendarView?startDateTime=${encodeURIComponent(now.toISOString())}&endDateTime=${encodeURIComponent(calendarEnd.toISOString())}&$top=50&$select=id,subject,start,end,organizer,isOnlineMeeting,onlineMeetingUrl,webLink&$orderby=start/dateTime`,
       ),
       graphRequest<GraphSite>(
         token.accessToken,
@@ -414,6 +392,13 @@ async function readMicrosoftSnapshot(
         },
       ),
     ]);
+
+  if (directoryResult.status === "fulfilled") {
+    directoryPeopleCache = {
+      people: directoryResult.value.value ?? [],
+      expiresAt: Date.now() + DIRECTORY_CACHE_MS,
+    };
+  }
 
   return {
     account: {
@@ -472,6 +457,27 @@ export async function refreshMicrosoft365() {
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
   return readMicrosoftSnapshot(client, account);
+}
+
+export async function readMicrosoftCalendar(
+  periodDescription: string,
+): Promise<MicrosoftCalendarWindow> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+  const window = resolveCalendarReadWindow(periodDescription);
+  const calendar = await graphRequest<GraphCollection<GraphEvent>>(
+    token.accessToken,
+    `/me/calendarView?startDateTime=${encodeURIComponent(window.start.toISOString())}&endDateTime=${encodeURIComponent(window.end.toISOString())}&$top=100&$select=id,subject,start,end,organizer,isOnlineMeeting,onlineMeetingUrl,webLink&$orderby=start/dateTime`,
+  );
+
+  return {
+    label: window.label,
+    start: window.start.toISOString(),
+    end: window.end.toISOString(),
+    events: calendar.value ?? [],
+  };
 }
 
 export async function disconnectMicrosoft365() {
@@ -612,18 +618,27 @@ export async function prepareMicrosoftMeeting({
     };
   }
 
-  let directoryPeople: DirectoryPerson[] = [];
+  let directoryPeople: DirectoryPerson[] =
+    directoryPeopleCache && directoryPeopleCache.expiresAt > Date.now()
+      ? directoryPeopleCache.people
+      : [];
   let directoryStatus: MicrosoftMeetingPreparation["directoryStatus"] =
     "ready";
-  try {
-    const directory = await graphRequest<GraphCollection<DirectoryPerson>>(
-      token.accessToken,
-      "/users?$select=displayName,givenName,surname,mail,userPrincipalName&$top=999&$count=true",
-      { headers: { ConsistencyLevel: "eventual" } },
-    );
-    directoryPeople = directory.value ?? [];
-  } catch {
-    directoryStatus = "unavailable";
+  if (directoryPeople.length === 0) {
+    try {
+      const directory = await graphRequest<GraphCollection<DirectoryPerson>>(
+        token.accessToken,
+        "/users?$select=displayName,givenName,surname,mail,userPrincipalName&$top=999&$count=true",
+        { headers: { ConsistencyLevel: "eventual" } },
+      );
+      directoryPeople = directory.value ?? [];
+      directoryPeopleCache = {
+        people: directoryPeople,
+        expiresAt: Date.now() + DIRECTORY_CACHE_MS,
+      };
+    } catch {
+      directoryStatus = "unavailable";
+    }
   }
 
   for (const rawAttendee of splitAttendeeNames(attendeeNames)) {
@@ -672,19 +687,23 @@ export async function prepareMicrosoftMeeting({
     };
   }
 
-  const deadline = resolveDeadline(deadlineDescription);
   const now = new Date();
-  if (deadline <= now) {
+  const schedulingWindow = resolveSchedulingWindow(deadlineDescription, now);
+  if (schedulingWindow.end <= now) {
     throw new Error("The requested deadline has already passed.");
   }
+  const calendarStart = new Date(
+    Math.max(now.getTime(), schedulingWindow.start.getTime()),
+  );
 
   const calendar = await graphRequest<GraphCollection<GraphEvent>>(
     token.accessToken,
-    `/me/calendarView?startDateTime=${encodeURIComponent(now.toISOString())}&endDateTime=${encodeURIComponent(deadline.toISOString())}&$top=100&$select=id,subject,start,end&$orderby=start/dateTime`,
+    `/me/calendarView?startDateTime=${encodeURIComponent(calendarStart.toISOString())}&endDateTime=${encodeURIComponent(schedulingWindow.end.toISOString())}&$top=100&$select=id,subject,start,end&$orderby=start/dateTime`,
   );
   const available = findAvailableMeetingTime(
     calendar.value ?? [],
-    deadline,
+    schedulingWindow.start,
+    schedulingWindow.end,
     normalizedDuration,
   );
 
@@ -699,7 +718,7 @@ export async function prepareMicrosoftMeeting({
       attendees,
       start: available.start.toISOString(),
       end: available.end.toISOString(),
-      deadline: deadline.toISOString(),
+      deadline: schedulingWindow.end.toISOString(),
       durationMinutes: normalizedDuration,
       displayTime: formatMeetingTime(available.start, available.end),
     },

@@ -68,13 +68,18 @@ absent from the tool result.
 
 # Microsoft 365
 
-Use check_microsoft_365 when Nick asks about his inbox, upcoming calendar, SharePoint,
-or connected Microsoft 365 workspace. If he asks for a particular file, subject, or
-topic, pass the natural search terms as the query. Treat the returned data as private:
-summarize only what helps answer Nick's request and do not read out unnecessary email
-addresses or links. If the connected demo tenant contains zero messages or events,
-say that it is connected but currently empty; do not describe an empty tenant as a
-failed connection.
+Use read_calendar_window whenever Nick asks about his calendar for a named period,
+including "next week," "tomorrow," "this week," a weekday, or a date range. Pass his
+exact words as period. Always summarize the complete returned window; never substitute
+the first few upcoming events for the period he requested.
+
+Use check_microsoft_365 when Nick asks about his inbox, SharePoint, a file, or the
+connected workspace generally. If he asks for a particular file, subject, or topic,
+pass the natural search terms as the query. Treat returned data as private: summarize
+only what helps answer Nick's request and do not read out unnecessary email addresses
+or links. If the connected demo tenant contains zero messages or events, say that it
+is connected but currently empty; do not describe an empty tenant as a failed
+connection.
 
 # Calendar meetings
 
@@ -83,6 +88,10 @@ prepare_calendar_meeting. Include every named attendee, the subject, the request
 deadline in Nick's own words, and a short purpose. If he did not specify a duration,
 use 30 minutes. The tool resolves people and checks Nick's calendar for a working-hours
 opening before the deadline.
+
+Interpret "next week" as the following Monday through Friday, not as seven rolling
+days and never as the current Friday. Preserve phrases such as "before next Wednesday"
+so the scheduling tool can treat them as a deadline.
 
 If the tool cannot resolve someone in the new tenant, ask naturally for that person's
 work email address. When a proposal is ready, summarize the subject, attendees, and
@@ -111,12 +120,14 @@ the message you just summarized.
 
 # Current capability boundary
 
-You can read the connected workspace and create a Teams calendar meeting after Nick's
-explicit approval. The prototype still cannot send chat messages or email, modify
-files, or delete anything. After recording approval for a message draft, acknowledge
-it with exactly "Got it." but never claim the message was sent. Meeting creation is
-different: when approve_calendar_meeting confirms success, say exactly "Done." and
-nothing else.
+You have live read access to Nick's connected Outlook calendar across the exact date
+window he requests, and you can create a Teams calendar meeting after his explicit
+approval. The prototype still cannot send chat messages or email, modify files, or
+delete anything. After recording approval for a message draft, acknowledge it with
+exactly "Got it." but never claim the message was sent. Meeting creation is different:
+when approve_calendar_meeting confirms success, say exactly "Done." and nothing else.
+Treat that successful "Done." as the natural end of the call; do not ask another
+question or reopen the conversation unless Nick speaks again.
 
 # Guardrail
 
@@ -136,8 +147,8 @@ const sessionConfig = {
       turn_detection: {
         type: "server_vad",
         threshold: 0.75,
-        prefix_padding_ms: 320,
-        silence_duration_ms: 650,
+        prefix_padding_ms: 250,
+        silence_duration_ms: 450,
         create_response: true,
         interrupt_response: false,
       },
@@ -147,6 +158,23 @@ const sessionConfig = {
     },
   },
   tools: [
+    {
+      type: "function",
+      name: "read_calendar_window",
+      description:
+        "Read Nick's live Outlook calendar for the complete date window he requested. Use this instead of the general workspace tool whenever a time period is named.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: {
+            type: "string",
+            description:
+              "Nick's exact calendar period, such as 'next week', 'tomorrow', 'this week', 'next Wednesday', or 'next 14 days'.",
+          },
+        },
+        required: ["period"],
+      },
+    },
     {
       type: "function",
       name: "search_recall",
@@ -199,6 +227,11 @@ const sessionConfig = {
             type: "string",
             description:
               "Optional natural-language search terms when Nick wants a particular file, subject, project, or topic.",
+          },
+          calendar_period: {
+            type: "string",
+            description:
+              "The exact calendar window Nick requested, such as 'next week', 'tomorrow', 'this week', or 'next 14 days'. Omit when he did not ask about a calendar period.",
           },
         },
         required: [],

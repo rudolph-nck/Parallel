@@ -8,7 +8,7 @@ Updated: 2026-07-31
 | Ara claims an action succeeded when it did not | High | Medium | prompt boundary and result fields | typed outcome contract and audit |
 | Audio is cut off during autonomous close | High | Medium | none | wait for `output_audio_buffer.stopped` |
 | Background noise is treated as approval | High | Medium | strict prompt and paused mic | deterministic approval state plus confirmation tests |
-| Closing speech cannot be interrupted | Medium | Medium | none | two-second mic-enabled interruption window |
+| Closing speech cannot be interrupted | Medium | Medium | none | short mic-enabled interruption window |
 | Orphaned microphone/peer after errors | High | Medium | shared cleanup function | idempotent cleanup, timers, and final session receipt |
 | Device-local audit exposes private metadata | Medium | Low | bounded browser storage | minimize content; migrate to encrypted tenant store |
 | Prototype IDs are mistaken for tenant enforcement | High | Medium | documented placeholders | derive IDs from authenticated tenancy before multi-user release |

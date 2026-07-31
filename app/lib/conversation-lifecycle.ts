@@ -33,7 +33,8 @@ export type ConversationLifecycleEvent =
   | "RECOVERABLE_ERROR";
 
 export const conversationPolicy = {
-  closingInterruptionWindowMs: 2_000,
+  closingInterruptionWindowMs: 1_500,
+  maxAudioDrainWaitMs: 6_000,
   maxIdleMs: 45_000,
   maxStoredSessions: 25,
   requireSuccessfulAction: true,
