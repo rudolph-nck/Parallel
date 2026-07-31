@@ -13,6 +13,23 @@ import {
   type MicrosoftMeetingResult,
   type MicrosoftSnapshot,
 } from "./lib/microsoft-365";
+import {
+  addRealtimeUsage,
+  canBeginAutonomousWrapUp,
+  canScheduleAutonomousDisconnect,
+  conversationPolicy,
+  finishConversationSession,
+  formatSessionDuration,
+  normalizeRealtimeUsage,
+  responseEndsWithQuestion,
+  startConversationSession,
+  transitionConversationState,
+  type ConversationLifecycleEvent,
+  type ConversationLifecycleState,
+  type ConversationSessionDraft,
+  type ConversationSessionRecord,
+  type SessionCloseReason,
+} from "./lib/conversation-lifecycle";
 
 type Stage =
   | "briefing"
@@ -22,7 +39,13 @@ type Stage =
   | "approved"
   | "meetingReady"
   | "meetingBooked";
-type VoiceState = "idle" | "connecting" | "listening" | "speaking" | "synced";
+type VoiceState =
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "speaking"
+  | "synced"
+  | "wrapping";
 type ApprovalMethod = "voice" | "button" | null;
 type MicrosoftStatus =
   | "checking"
@@ -62,7 +85,11 @@ type RealtimeEvent = {
   error?: { message?: string };
   delta?: string;
   transcript?: string;
+  response_id?: string;
   response?: {
+    id?: string;
+    status?: "completed" | "cancelled" | "failed" | "incomplete";
+    usage?: unknown;
     output?: Array<RealtimeFunctionCall | { type: string }>;
   };
 };
@@ -126,6 +153,7 @@ const prototypeDocument: RecallDocument = {
 
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const WELCOME_STORAGE_KEY = "parallel:ara-welcomed";
+const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
   "Hey Nick—I’m Ara. I’m genuinely excited to start working with you. Think of me as the calm, connected friend who helps you make sense of the noise and get the right things moving. Before we dive in, what would make today feel like a win?";
 const capabilityIntroduction =
@@ -169,9 +197,13 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<UserProfile>({});
   const [todayLabel, setTodayLabel] = useState("TODAY");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [conversationState, setConversationState] =
+    useState<ConversationLifecycleState>("IDLE");
   const [voiceNote, setVoiceNote] = useState("Tap to let Ara hear your voice");
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [fridayTranscript, setFridayTranscript] = useState("");
+  const [lastSession, setLastSession] =
+    useState<ConversationSessionRecord | null>(null);
   const [approvalMethod, setApprovalMethod] = useState<ApprovalMethod>(null);
   const [microsoftStatus, setMicrosoftStatus] =
     useState<MicrosoftStatus>("checking");
@@ -212,6 +244,17 @@ export default function Home() {
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
   const initialResponseRef = useRef<string | null>(null);
+  const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
+  const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
+  const closingTimerRef = useRef<number | null>(null);
+  const idleTimerRef = useRef<number | null>(null);
+  const toolPendingCountRef = useRef(0);
+  const approvalPendingRef = useRef(false);
+  const autonomousCloseEligibleRef = useRef(false);
+  const responseCompletedRef = useRef(false);
+  const outputAudioDrainedRef = useRef(false);
+  const unresolvedQuestionRef = useRef(false);
+  const recoverableErrorRef = useRef(false);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -311,7 +354,59 @@ export default function Home() {
       });
   };
 
-  const stopVoiceSession = (note = "Tap to start a new conversation") => {
+  const moveConversationState = (event: ConversationLifecycleEvent) => {
+    const nextState = transitionConversationState(
+      conversationStateRef.current,
+      event,
+    );
+    conversationStateRef.current = nextState;
+    setConversationState(nextState);
+    return nextState;
+  };
+
+  const clearVoiceTimers = () => {
+    if (closingTimerRef.current !== null) {
+      window.clearTimeout(closingTimerRef.current);
+      closingTimerRef.current = null;
+    }
+    if (idleTimerRef.current !== null) {
+      window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  };
+
+  const persistSessionReceipt = (closeReason: SessionCloseReason) => {
+    const draft = sessionAuditRef.current;
+    if (!draft) return;
+
+    const record = finishConversationSession(draft, closeReason);
+    sessionAuditRef.current = null;
+    setLastSession(record);
+
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem(SESSION_AUDIT_STORAGE_KEY) ?? "[]",
+      ) as unknown;
+      const records = Array.isArray(saved)
+        ? (saved as ConversationSessionRecord[])
+        : [];
+      window.localStorage.setItem(
+        SESSION_AUDIT_STORAGE_KEY,
+        JSON.stringify(
+          [record, ...records].slice(0, conversationPolicy.maxStoredSessions),
+        ),
+      );
+    } catch {
+      // A session can still close safely when browser storage is unavailable.
+    }
+  };
+
+  const stopVoiceSession = (
+    note = "Tap to start a new conversation",
+    closeReason: SessionCloseReason = "manual",
+  ) => {
+    clearVoiceTimers();
+    if (sessionAuditRef.current) moveConversationState("BEGIN_DISCONNECT");
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     const channel = channelRef.current;
@@ -343,9 +438,78 @@ export default function Home() {
     visualRef.current?.style.setProperty("--human-height", "46px");
     visualRef.current?.style.setProperty("--friday-height", "50px");
     transcriptRef.current = "";
+    toolPendingCountRef.current = 0;
+    approvalPendingRef.current = false;
+    autonomousCloseEligibleRef.current = false;
+    responseCompletedRef.current = false;
+    outputAudioDrainedRef.current = false;
+    unresolvedQuestionRef.current = false;
+    recoverableErrorRef.current = false;
     setVoiceConnected(false);
     setVoiceState("idle");
     setVoiceNote(note);
+    persistSessionReceipt(closeReason);
+    conversationStateRef.current = transitionConversationState(
+      conversationStateRef.current,
+      "SESSION_CLOSED",
+    );
+    setConversationState(conversationStateRef.current);
+  };
+
+  const scheduleAutonomousDisconnect = () => {
+    if (
+      !canScheduleAutonomousDisconnect({
+        state: conversationStateRef.current,
+        outputAudioDrained: outputAudioDrainedRef.current,
+        toolPendingCount: toolPendingCountRef.current,
+        approvalPending: approvalPendingRef.current,
+      })
+    ) {
+      return;
+    }
+
+    if (closingTimerRef.current !== null) {
+      window.clearTimeout(closingTimerRef.current);
+    }
+    setMicrophoneEnabled(true);
+    setVoiceState("wrapping");
+    setVoiceNote("All set — speak now if you need Ara to stay");
+    closingTimerRef.current = window.setTimeout(() => {
+      closingTimerRef.current = null;
+      if (conversationStateRef.current !== "WRAP_UP") return;
+      stopVoiceSession(
+        "Done. Tap to start a new conversation",
+        "completed_action",
+      );
+    }, conversationPolicy.closingInterruptionWindowMs);
+  };
+
+  const scheduleIdleDisconnect = () => {
+    if (
+      conversationStateRef.current !== "LISTENING" ||
+      approvalPendingRef.current ||
+      unresolvedQuestionRef.current ||
+      toolPendingCountRef.current > 0
+    ) {
+      return;
+    }
+
+    if (idleTimerRef.current !== null) {
+      window.clearTimeout(idleTimerRef.current);
+    }
+    idleTimerRef.current = window.setTimeout(() => {
+      idleTimerRef.current = null;
+      if (
+        conversationStateRef.current === "LISTENING" &&
+        !approvalPendingRef.current &&
+        !unresolvedQuestionRef.current
+      ) {
+        stopVoiceSession(
+          "Ara stepped away after a quiet moment. Tap to talk again",
+          "idle_timeout",
+        );
+      }
+    }, conversationPolicy.maxIdleMs);
   };
 
   const startLevelVisualizer = (
@@ -793,21 +957,96 @@ export default function Home() {
     channel: RTCDataChannel,
   ) => {
     for (const call of calls) {
-      const result = await runFridayFunction(call);
-      if (channel.readyState !== "open") return;
-      channel.send(
-        JSON.stringify({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: call.call_id,
-            output: JSON.stringify(result),
-          },
-        }),
-      );
+      toolPendingCountRef.current += 1;
+      moveConversationState("TOOL_STARTED");
+      setMicrophoneEnabled(false);
+      clearVoiceTimers();
+
+      try {
+        const result = await runFridayFunction(call);
+        const outcome = result as Record<string, unknown>;
+        const status = typeof outcome.status === "string" ? outcome.status : "";
+        const failed =
+          Boolean(outcome.error) ||
+          outcome.temporarily_unavailable === true ||
+          outcome.meeting_created === false ||
+          outcome.approval_recorded === false ||
+          [
+            "not_connected",
+            "needs_attendee_details",
+            "could_not_prepare",
+          ].includes(status);
+
+        sessionAuditRef.current?.tools.push({
+          name: call.name,
+          succeeded: !failed,
+        });
+
+        if (
+          outcome.approval_required === true ||
+          status === "pending_approval"
+        ) {
+          approvalPendingRef.current = true;
+        }
+
+        if (call.name === "approve_calendar_meeting") {
+          if (outcome.meeting_created === true) {
+            approvalPendingRef.current = false;
+            autonomousCloseEligibleRef.current = true;
+            recoverableErrorRef.current = false;
+          } else {
+            autonomousCloseEligibleRef.current = false;
+            approvalPendingRef.current = Boolean(pendingMeetingRef.current);
+          }
+        }
+
+        if (
+          call.name === "approve_pending_action" &&
+          outcome.approval_recorded === true
+        ) {
+          approvalPendingRef.current = false;
+        }
+
+        if (
+          Boolean(outcome.error) ||
+          outcome.temporarily_unavailable === true ||
+          status === "could_not_prepare"
+        ) {
+          recoverableErrorRef.current = true;
+          if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+        }
+
+        if (channel.readyState !== "open") return;
+        channel.send(
+          JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: call.call_id,
+              output: JSON.stringify(result),
+            },
+          }),
+        );
+      } catch (error) {
+        sessionAuditRef.current?.tools.push({
+          name: call.name,
+          succeeded: false,
+        });
+        if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+        recoverableErrorRef.current = true;
+        throw error;
+      } finally {
+        toolPendingCountRef.current = Math.max(
+          0,
+          toolPendingCountRef.current - 1,
+        );
+      }
     }
 
     if (channel.readyState === "open") {
+      moveConversationState("TOOL_COMPLETED");
+      responseCompletedRef.current = false;
+      outputAudioDrainedRef.current = false;
       channel.send(JSON.stringify({ type: "response.create" }));
     }
   };
@@ -824,20 +1063,45 @@ export default function Home() {
     }
 
     switch (event.type) {
-      case "input_audio_buffer.speech_started":
+      case "input_audio_buffer.speech_started": {
+        if (idleTimerRef.current !== null) {
+          window.clearTimeout(idleTimerRef.current);
+          idleTimerRef.current = null;
+        }
+        if (
+          closingTimerRef.current !== null ||
+          conversationStateRef.current === "WRAP_UP"
+        ) {
+          if (closingTimerRef.current !== null) {
+            window.clearTimeout(closingTimerRef.current);
+            closingTimerRef.current = null;
+          }
+          autonomousCloseEligibleRef.current = false;
+          moveConversationState("INTERRUPT_WRAP_UP");
+        } else {
+          moveConversationState("USER_SPEECH_STARTED");
+        }
         transcriptRef.current = "";
+        unresolvedQuestionRef.current = false;
         setFridayTranscript("");
         setVoiceState("listening");
         setVoiceNote("Speak naturally — Ara is listening");
         break;
+      }
       case "input_audio_buffer.speech_stopped":
+        moveConversationState("USER_SPEECH_STOPPED");
         setMicrophoneEnabled(false);
         setVoiceNote("Ara is thinking");
         break;
       case "response.created":
+        clearVoiceTimers();
+        moveConversationState("RESPONSE_STARTED");
+        responseCompletedRef.current = false;
+        outputAudioDrainedRef.current = false;
         setMicrophoneEnabled(false);
         setVoiceNote("Ara is thinking");
         break;
+      case "output_audio_buffer.started":
       case "response.output_audio.delta":
         setMicrophoneEnabled(false);
         setVoiceState("speaking");
@@ -852,8 +1116,32 @@ export default function Home() {
           transcriptRef.current = event.transcript;
           setFridayTranscript(event.transcript);
         }
+        unresolvedQuestionRef.current = responseEndsWithQuestion(
+          transcriptRef.current,
+        );
         break;
       case "response.done": {
+        if (event.response?.usage && sessionAuditRef.current) {
+          sessionAuditRef.current.usage = addRealtimeUsage(
+            sessionAuditRef.current.usage,
+            normalizeRealtimeUsage(event.response.usage),
+          );
+        }
+
+        if (
+          event.response?.status &&
+          event.response.status !== "completed"
+        ) {
+          recoverableErrorRef.current = true;
+          autonomousCloseEligibleRef.current = false;
+          if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+          moveConversationState("RECOVERABLE_ERROR");
+          setMicrophoneEnabled(true);
+          setVoiceState("listening");
+          setVoiceNote("Ara's response was interrupted. Please try again.");
+          return;
+        }
+
         const functionCalls = (event.response?.output ?? []).filter(
           (item): item is RealtimeFunctionCall =>
             item.type === "function_call" &&
@@ -872,18 +1160,61 @@ export default function Home() {
           return;
         }
 
-        setVoiceState("synced");
-        setVoiceNote("Ara is ready when you are");
-        window.setTimeout(() => {
-          if (peerRef.current?.connectionState === "connected") {
-            setMicrophoneEnabled(true);
-            setVoiceState("listening");
-          }
-        }, 900);
+        responseCompletedRef.current = true;
+        unresolvedQuestionRef.current = responseEndsWithQuestion(
+          transcriptRef.current,
+        );
+
+        if (
+          canBeginAutonomousWrapUp({
+            successfulAction: autonomousCloseEligibleRef.current,
+            toolPendingCount: toolPendingCountRef.current,
+            approvalPending: approvalPendingRef.current,
+            responseCompleted: responseCompletedRef.current,
+            unresolvedQuestion: unresolvedQuestionRef.current,
+            recoverableError: recoverableErrorRef.current,
+          })
+        ) {
+          moveConversationState("BEGIN_WRAP_UP");
+          setVoiceState("wrapping");
+          setVoiceNote("Ara is finishing up");
+        } else {
+          setVoiceState("synced");
+          setVoiceNote(
+            approvalPendingRef.current
+              ? "Your call — Ara is waiting for your decision"
+              : "Ara is ready when you are",
+          );
+        }
         break;
       }
+      case "output_audio_buffer.stopped":
+        outputAudioDrainedRef.current = true;
+        if (conversationStateRef.current === "WRAP_UP") {
+          scheduleAutonomousDisconnect();
+          break;
+        }
+
+        if (approvalPendingRef.current) {
+          moveConversationState("APPROVAL_REQUIRED");
+        } else {
+          moveConversationState("AUDIO_DRAINED");
+        }
+        setMicrophoneEnabled(true);
+        setVoiceState("listening");
+        setVoiceNote(
+          approvalPendingRef.current
+            ? "How does that sound?"
+            : "Speak naturally — Ara is listening",
+        );
+        scheduleIdleDisconnect();
+        break;
       case "error":
         console.error("Realtime voice event error.", event.error);
+        recoverableErrorRef.current = true;
+        autonomousCloseEligibleRef.current = false;
+        if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+        moveConversationState("RECOVERABLE_ERROR");
         setMicrophoneEnabled(true);
         setVoiceNote("Ara missed that. Please try saying it again.");
         setVoiceState("listening");
@@ -894,6 +1225,16 @@ export default function Home() {
   const startVoiceSession = async (openingInstruction?: string) => {
     if (peerRef.current || voiceState === "connecting") return;
 
+    clearVoiceTimers();
+    toolPendingCountRef.current = 0;
+    approvalPendingRef.current = false;
+    autonomousCloseEligibleRef.current = false;
+    responseCompletedRef.current = false;
+    outputAudioDrainedRef.current = false;
+    unresolvedQuestionRef.current = false;
+    recoverableErrorRef.current = false;
+    sessionAuditRef.current = startConversationSession(crypto.randomUUID());
+    moveConversationState("START_CONNECTING");
     initialResponseRef.current = openingInstruction ?? null;
     setVoiceState("connecting");
     setVoiceNote("Opening a private voice connection");
@@ -924,7 +1265,10 @@ export default function Home() {
 
       peer.onconnectionstatechange = () => {
         if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
-          stopVoiceSession("The voice connection ended. Tap to reconnect.");
+          stopVoiceSession(
+            "The voice connection ended. Tap to reconnect.",
+            "connection_ended",
+          );
         }
       };
 
@@ -949,6 +1293,7 @@ export default function Home() {
       channelRef.current = channel;
       channel.onmessage = (event) => handleRealtimeEvent(event, channel);
       channel.onopen = () => {
+        moveConversationState("CONNECTION_OPEN");
         setMicrophoneEnabled(false);
         setVoiceConnected(true);
         setVoiceState("speaking");
@@ -1010,13 +1355,13 @@ export default function Home() {
           : error instanceof Error
             ? error.message
             : "Ara couldn't start a voice conversation. Please try again.";
-      stopVoiceSession(note);
+      stopVoiceSession(note, "start_failed");
     }
   };
 
   const toggleVoiceSession = () => {
     if (voiceConnected || peerRef.current) {
-      stopVoiceSession();
+      stopVoiceSession("Tap to start a new conversation", "manual");
     } else {
       void startVoiceSession();
     }
@@ -1081,6 +1426,16 @@ export default function Home() {
       } catch {
         setUserProfile({});
       }
+      try {
+        const savedSessions = JSON.parse(
+          window.localStorage.getItem(SESSION_AUDIT_STORAGE_KEY) ?? "[]",
+        ) as unknown;
+        if (Array.isArray(savedSessions) && savedSessions[0]) {
+          setLastSession(savedSessions[0] as ConversationSessionRecord);
+        }
+      } catch {
+        setLastSession(null);
+      }
     }, 0);
 
     return () => {
@@ -1132,6 +1487,12 @@ export default function Home() {
       if (outputAnimationRef.current) {
         window.cancelAnimationFrame(outputAnimationRef.current);
       }
+      if (closingTimerRef.current !== null) {
+        window.clearTimeout(closingTimerRef.current);
+      }
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current);
+      }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();
     };
@@ -1153,7 +1514,30 @@ export default function Home() {
     listening: "I’m listening",
     speaking: "Ara is responding",
     synced: "In sync",
+    wrapping: "Wrapping up",
   }[voiceState];
+  const conversationStateLabel: Record<ConversationLifecycleState, string> = {
+    IDLE: "Ready",
+    CONNECTING: "Opening",
+    GREETING: "Greeting",
+    LISTENING: "Listening",
+    THINKING: "Thinking",
+    TOOL_PENDING: "Working",
+    RESPONDING: "Responding",
+    AWAITING_CONFIRMATION: "Waiting for you",
+    WRAP_UP: "Wrapping up",
+    DISCONNECTING: "Closing",
+    CLOSED: "Closed cleanly",
+  };
+  const sessionCloseLabel = lastSession
+    ? {
+        completed_action: "completed cleanly",
+        idle_timeout: "closed after a quiet moment",
+        manual: "ended by you",
+        connection_ended: "connection ended",
+        start_failed: "couldn’t start",
+      }[lastSession.closeReason]
+    : "";
 
   const approveWithButton = () => {
     setApprovalMethod("button");
@@ -1592,6 +1976,17 @@ export default function Home() {
               <span aria-hidden="true">◇</span>
               Noise filter on · mic pauses while Ara speaks
             </p>
+            {voiceConnected ? (
+              <p className="session-receipt session-live">
+                Session · {conversationStateLabel[conversationState]}
+              </p>
+            ) : lastSession ? (
+              <p className="session-receipt">
+                Last session · {formatSessionDuration(lastSession.durationMs)} ·{" "}
+                {lastSession.tools.length} {lastSession.tools.length === 1 ? "tool" : "tools"} ·{" "}
+                {lastSession.usage.totalTokens} tokens · {sessionCloseLabel}
+              </p>
+            ) : null}
             <p className="voice-note">{voiceNote}</p>
             {fridayTranscript && (
               <p className="voice-transcript" aria-live="polite">
