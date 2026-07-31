@@ -61,6 +61,35 @@ button { color: inherit; }
   font-weight: 700;
 }
 
+.parallel-wordmark {
+  display: inline-flex;
+  align-items: center;
+  letter-spacing: .22em;
+  line-height: 1;
+}
+
+.ara-signature {
+  position: relative;
+  color: #d9fffa;
+  text-shadow:
+    0 0 12px rgba(119, 227, 213, .42),
+    0 0 28px rgba(101, 167, 255, .22);
+}
+
+.ara-signature::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: .22em;
+  bottom: -7px;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cyan) 24%, var(--blue) 76%, transparent);
+  box-shadow: 0 0 10px rgba(119, 227, 213, .48);
+  opacity: .82;
+  animation: araSignature 4.8s ease-in-out infinite;
+}
+
 .parallel-mark { display: inline-flex; gap: 5px; align-items: center; justify-content: center; }
 .parallel-mark i {
   display: block;
@@ -443,6 +472,10 @@ button { color: inherit; }
 }
 @keyframes humanGlow { to { opacity: .24; transform: translateX(-26px) scale(.86); } }
 @keyframes fridayGlow { to { opacity: .25; transform: translateX(26px) scale(.86); } }
+@keyframes araSignature {
+  0%, 100% { opacity: .5; transform: scaleX(.72); }
+  50% { opacity: .95; transform: scaleX(1); }
+}
 @keyframes statusPulse { 50% { opacity: .4; } }
 @keyframes listeningRing { from { transform: scale(.78); opacity: .8; } to { transform: scale(1.25); opacity: 0; } }
 @keyframes speakingRing { from { transform: scale(.82); opacity: .8; } to { transform: scale(1.28); opacity: 0; } }

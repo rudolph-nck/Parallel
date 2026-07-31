@@ -61,12 +61,12 @@ type RealtimeEvent = {
 
 const conversations = {
   briefing: {
-    eyebrow: "Friday · Morning briefing",
+    eyebrow: "Ara · Morning briefing",
     title: "Good morning, Nick.",
     body: "I reviewed your workspace. You have three decisions that deserve your attention, but we can start wherever you need.",
   },
   searching: {
-    eyebrow: "Friday is consulting Recall",
+    eyebrow: "Ara is consulting Recall",
     title: "I’m looking for your strategic plan.",
     body: "Recall is connecting the people, timing, conversations, and files around your request—not just matching a filename.",
   },
@@ -76,22 +76,22 @@ const conversations = {
     body: "It’s the newest version, you edited it Monday, and it appeared in your recent conversation with Matt.",
   },
   ready: {
-    eyebrow: "Friday · Ready when you are",
+    eyebrow: "Ara · Ready when you are",
     title: "I have it ready for Matt.",
     body: "I found the right plan and drafted a short Teams note. Take a look—how does that sound?",
   },
   approved: {
-    eyebrow: "Friday · In sync",
+    eyebrow: "Ara · In sync",
     title: "Perfect—I’ve got it.",
-    body: "Your go-ahead is recorded. Once Teams is connected, Friday will take it from here.",
+    body: "Your go-ahead is recorded. Once Teams is connected, Ara will take it from here.",
   },
   meetingReady: {
-    eyebrow: "Friday · Calendar proposal",
+    eyebrow: "Ara · Calendar proposal",
     title: "I found a clear opening.",
     body: "I resolved the attendees and checked your calendar. Review the Teams meeting below—how does that sound?",
   },
   meetingBooked: {
-    eyebrow: "Friday · Meeting booked",
+    eyebrow: "Ara · Meeting booked",
     title: "Done—it’s on the calendar.",
     body: "The Teams meeting is live and invitations have been sent to everyone listed below.",
   },
@@ -129,10 +129,20 @@ function ParallelMark() {
   );
 }
 
+function ParallelWordmark() {
+  return (
+    <span className="parallel-wordmark" aria-hidden="true">
+      <span>P</span>
+      <span className="ara-signature">ARA</span>
+      <span>LLEL</span>
+    </span>
+  );
+}
+
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
-  const [voiceNote, setVoiceNote] = useState("Tap to let Friday hear your voice");
+  const [voiceNote, setVoiceNote] = useState("Tap to let Ara hear your voice");
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [fridayTranscript, setFridayTranscript] = useState("");
   const [approvalMethod, setApprovalMethod] = useState<ApprovalMethod>(null);
@@ -282,8 +292,8 @@ export default function Home() {
       moveToStage("searching");
       setVoiceNote(
         microsoftSnapshotRef.current
-          ? "Friday is checking Microsoft 365"
-          : "Friday is consulting Recall",
+          ? "Ara is checking Microsoft 365"
+          : "Ara is consulting Recall",
       );
 
       if (microsoftSnapshotRef.current) {
@@ -450,7 +460,7 @@ export default function Home() {
           ? args.duration_minutes
           : 30;
 
-      setVoiceNote("Friday is resolving people and checking your calendar");
+      setVoiceNote("Ara is resolving people and checking your calendar");
       try {
         const preparation = await prepareMicrosoftMeeting({
           subject,
@@ -536,7 +546,7 @@ export default function Home() {
       }
 
       setMeetingActionPending(true);
-      setVoiceNote("Friday is creating the Teams meeting");
+      setVoiceNote("Ara is creating the Teams meeting");
       try {
         const result = await createMicrosoftMeeting(
           pendingMeetingRef.current,
@@ -633,7 +643,7 @@ export default function Home() {
     }
 
     return {
-      error: `Unsupported Friday capability: ${call.name}`,
+      error: `Unsupported Ara capability: ${call.name}`,
     };
   };
 
@@ -677,20 +687,20 @@ export default function Home() {
         transcriptRef.current = "";
         setFridayTranscript("");
         setVoiceState("listening");
-        setVoiceNote("Speak naturally — Friday is listening");
+        setVoiceNote("Speak naturally — Ara is listening");
         break;
       case "input_audio_buffer.speech_stopped":
         setMicrophoneEnabled(false);
-        setVoiceNote("Friday is thinking");
+        setVoiceNote("Ara is thinking");
         break;
       case "response.created":
         setMicrophoneEnabled(false);
-        setVoiceNote("Friday is thinking");
+        setVoiceNote("Ara is thinking");
         break;
       case "response.output_audio.delta":
         setMicrophoneEnabled(false);
         setVoiceState("speaking");
-        setVoiceNote("Friday is responding — your mic is paused");
+        setVoiceNote("Ara is responding — your mic is paused");
         break;
       case "response.output_audio_transcript.delta":
         transcriptRef.current += event.delta ?? "";
@@ -713,16 +723,16 @@ export default function Home() {
 
         if (functionCalls.length > 0) {
           void completeFunctionCalls(functionCalls, channel).catch((error) => {
-            console.error("Friday capability failed.", error);
+            console.error("Ara capability failed.", error);
             setMicrophoneEnabled(true);
             setVoiceState("listening");
-            setVoiceNote("Friday couldn't complete that step. Please try again.");
+            setVoiceNote("Ara couldn't complete that step. Please try again.");
           });
           return;
         }
 
         setVoiceState("synced");
-        setVoiceNote("Friday is ready when you are");
+        setVoiceNote("Ara is ready when you are");
         window.setTimeout(() => {
           if (peerRef.current?.connectionState === "connected") {
             setMicrophoneEnabled(true);
@@ -734,7 +744,7 @@ export default function Home() {
       case "error":
         console.error("Realtime voice event error.", event.error);
         setMicrophoneEnabled(true);
-        setVoiceNote("Friday missed that. Please try saying it again.");
+        setVoiceNote("Ara missed that. Please try saying it again.");
         setVoiceState("listening");
         break;
     }
@@ -800,7 +810,7 @@ export default function Home() {
         setMicrophoneEnabled(false);
         setVoiceConnected(true);
         setVoiceState("speaking");
-        setVoiceNote("Friday is joining you");
+        setVoiceNote("Ara is joining you");
         channel.send(
           JSON.stringify({
             type: "response.create",
@@ -828,7 +838,7 @@ export default function Home() {
           | { error?: string }
           | null;
         throw new Error(
-          failure?.error ?? "Friday couldn't open a live voice session.",
+          failure?.error ?? "Ara couldn't open a live voice session.",
         );
       }
 
@@ -842,7 +852,7 @@ export default function Home() {
           ? "Microphone access is needed to hear you"
           : error instanceof Error
             ? error.message
-            : "Friday couldn't start a voice conversation. Please try again.";
+            : "Ara couldn't start a voice conversation. Please try again.";
       stopVoiceSession(note);
     }
   };
@@ -914,10 +924,10 @@ export default function Home() {
   };
 
   const voiceLabel = {
-    idle: "Friday is ready",
+    idle: "Ara is ready",
     connecting: "Connecting privately",
     listening: "I’m listening",
-    speaking: "Friday is responding",
+    speaking: "Ara is responding",
     synced: "In sync",
   }[voiceState];
 
@@ -930,7 +940,7 @@ export default function Home() {
     if (!pendingMeetingRef.current || meetingActionPending) return;
 
     setMeetingActionPending(true);
-    setVoiceNote("Friday is creating the Teams meeting");
+    setVoiceNote("Ara is creating the Teams meeting");
     try {
       const result = await createMicrosoftMeeting(pendingMeetingRef.current);
       setBookedMeeting(result);
@@ -1008,7 +1018,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Parallel home">
           <ParallelMark />
-          <span>PARALLEL</span>
+          <ParallelWordmark />
         </a>
         <div className="status-pill">
           <span className={`status-dot ${microsoftConnected ? "" : "waiting"}`} />
@@ -1020,7 +1030,7 @@ export default function Home() {
       <aside className="sidebar">
         <nav aria-label="Primary navigation">
           <button className="nav-item active"><span>◫</span>Today</button>
-          <button className="nav-item"><span>◉</span>Friday</button>
+          <button className="nav-item"><span>◉</span>Ara</button>
           <button className="nav-item"><span>⌕</span>Recall</button>
           <button className="nav-item"><span>✓</span>Approvals <b>2</b></button>
         </nav>
@@ -1071,7 +1081,7 @@ export default function Home() {
                 ? `${microsoftSnapshot.account.name} is connected`
                 : microsoftStatus === "connecting"
                   ? "Waiting for Microsoft"
-                  : "Give Friday a window into your work"}
+                  : "Give Ara a window into your work"}
             </h2>
             <span>{microsoftNote}</span>
           </div>
@@ -1123,7 +1133,7 @@ export default function Home() {
             </div>
           ) : (
             <p className="connection-boundary">
-              Friday can read what you can see and book calendar meetings after
+              Ara can read what you can see and book calendar meetings after
               you approve them. Messages, file edits, and deletions remain off.
             </p>
           )}
@@ -1183,8 +1193,8 @@ export default function Home() {
               disabled={voiceState === "connecting"}
               aria-label={
                 voiceConnected
-                  ? "End voice conversation with Friday"
-                  : "Start voice conversation with Friday"
+                  ? "End voice conversation with Ara"
+                  : "Start voice conversation with Ara"
               }
             >
               <span className="mic-icon">●</span>
@@ -1192,15 +1202,15 @@ export default function Home() {
                 ? "Connecting…"
                 : voiceConnected
                   ? "End conversation"
-                  : "Talk to Friday"}
+                  : "Talk to Ara"}
             </button>
             <p className="voice-key">
               <span><i className="key-human" />You</span>
-              <span><i className="key-friday" />Friday</span>
+              <span><i className="key-friday" />Ara</span>
             </p>
             <p className="noise-filter">
               <span aria-hidden="true">◇</span>
-              Noise filter on · mic pauses while Friday speaks
+              Noise filter on · mic pauses while Ara speaks
             </p>
             <p className="voice-note">{voiceNote}</p>
             {fridayTranscript && (
@@ -1217,7 +1227,7 @@ export default function Home() {
 
             {stage === "briefing" && (
               <div className="prompt-card">
-                <p>Try asking Friday</p>
+                <p>Try asking Ara</p>
                 <button onClick={askFriday}>
                   “Find my strategic plan in SharePoint and send the link to Matt through Teams.”
                   <span>↗</span>
@@ -1386,8 +1396,8 @@ export default function Home() {
               <article className={`approval-card ${stage === "approved" ? "approved" : ""}`}>
                 <div className="approval-head">
                   <div>
-                    <p>{stage === "approved" ? "FRIDAY · READY TO TAKE IT FROM HERE" : "HOW DOES THAT SOUND?"}</p>
-                    <h3>{stage === "approved" ? "Friday has your go-ahead" : "Friday has the message ready"}</h3>
+                    <p>{stage === "approved" ? "ARA · READY TO TAKE IT FROM HERE" : "HOW DOES THAT SOUND?"}</p>
+                    <h3>{stage === "approved" ? "Ara has your go-ahead" : "Ara has the message ready"}</h3>
                   </div>
                   <span className="teams-badge">T</span>
                 </div>
@@ -1429,7 +1439,7 @@ export default function Home() {
           <div><span className="strip-number">03</span><p><b>Decisions</b><small>need your judgment</small></p></div>
           <div><span className="strip-number">02</span><p><b>Approvals</b><small>waiting safely</small></p></div>
           <div><span className="strip-number">47m</span><p><b>Focus window</b><small>before your next meeting</small></p></div>
-          <div className="principle"><ParallelMark /><p>Friday proposes.<br/><b>You decide.</b></p></div>
+          <div className="principle"><ParallelMark /><p>Ara proposes.<br/><b>You decide.</b></p></div>
         </section>
       </section>
     </main>

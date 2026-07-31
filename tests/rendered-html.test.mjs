@@ -23,7 +23,7 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the Parallel Friday dashboard", async () => {
+test("server-renders the Parallel Ara dashboard", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -32,8 +32,9 @@ test("server-renders the Parallel Friday dashboard", async () => {
   assert.match(html, /<title>Parallel — Move through work with clarity<\/title>/i);
   assert.match(html, /Move through work with clarity\./);
   assert.match(html, /Good morning, Nick\./);
-  assert.match(html, /Talk to Friday/);
-  assert.match(html, /Friday proposes\./);
+  assert.match(html, /Talk to Ara/);
+  assert.match(html, /Ara proposes\./);
+  assert.match(html, /class="ara-signature">ARA<\/span>/);
   assert.match(html, /You decide\./);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });

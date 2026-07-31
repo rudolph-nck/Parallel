@@ -7,8 +7,9 @@ workplace information into clear, controlled action.
 
 This first prototype demonstrates the core relationship:
 
-- **Friday** is the conversational chief of staff.
-- **Recall** is the memory and context engine Friday consults.
+- **Ara** is the conversational chief of staff, named for the A-R-A at the
+  heart of PARALLEL.
+- **Recall** is the memory and context engine Ara consults.
 - **Nick** remains in control of every external action.
 
 The current workflow connects to a Microsoft 365 demo tenant, reads Outlook,
@@ -17,13 +18,13 @@ working-hours calendar slot, and creates a real Teams meeting only after Nick's
 clear voice or button approval. Message drafts remain non-sending prototypes.
 
 The voice experience uses an OpenAI Realtime session created through the
-server, responds to live microphone volume, distinguishes the user from Friday
-visually, pauses the microphone while Friday speaks, and accepts natural
+server, responds to live microphone volume, distinguishes the user from Ara
+visually, pauses the microphone while Ara speaks, and accepts natural
 approval language.
 
 ## Microsoft 365 permissions
 
-Friday currently requests delegated access for the signed-in user:
+Ara currently requests delegated access for the signed-in user:
 
 - `User.Read`, `Mail.Read`, and `Sites.Read.All` for connected context.
 - `Calendars.Read` and `Calendars.ReadWrite` for availability and approved
@@ -47,7 +48,7 @@ browser:
 3. Extract commitments, owners, due dates, and dependencies into a reviewable
    action queue.
 4. Resolve people and check the calendar using the same meeting proposal logic
-   already used by Friday.
+   already used by Ara.
 5. Apply a user policy: default to proposing an action for approval; allow
    automatic scheduling only when Nick explicitly opts in and the transcript
    contains unambiguous attendees, timing, and intent.

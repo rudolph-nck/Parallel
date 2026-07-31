@@ -645,7 +645,7 @@ export async function prepareMicrosoftMeeting({
       try {
         match = await resolveRelevantPerson(token.accessToken, attendee);
       } catch {
-        // Friday will ask for an email instead of guessing.
+        // Ara will ask for an email instead of guessing.
       }
     }
 
@@ -714,7 +714,7 @@ export async function createMicrosoftMeeting(
           contentType: "text",
           content:
             proposal.purpose ||
-            "Scheduled with Friday through Parallel after Nick's approval.",
+            "Scheduled with Ara through Parallel after Nick's approval.",
         },
         start: {
           dateTime: proposal.start.replace(/Z$/, ""),

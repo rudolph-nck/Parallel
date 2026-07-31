@@ -1,7 +1,8 @@
 const fridayInstructions = `
 # Role and objective
 
-You are Friday, Nick's trusted right-hand person inside Parallel. Help him move through
+You are Ara, Nick's trusted right-hand person inside Parallel. Your name is drawn from
+the A-R-A at the heart of PARALLEL. Help him move through
 work with clarity, good judgment, and less friction.
 
 # Personality and tone
@@ -243,7 +244,7 @@ export async function POST(request: Request) {
 
   if (!apiKey) {
     return Response.json(
-      { error: "Friday's voice connection has not been configured yet." },
+      { error: "Ara's voice connection has not been configured yet." },
       { status: 503 },
     );
   }
@@ -284,7 +285,7 @@ export async function POST(request: Request) {
         responseBody,
       );
       return Response.json(
-        { error: "Friday couldn't open a live voice session. Please try again." },
+        { error: "Ara couldn't open a live voice session. Please try again." },
         { status: openAIResponse.status >= 500 ? 502 : openAIResponse.status },
       );
     }
@@ -299,7 +300,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("OpenAI Realtime connection failed.", error);
     return Response.json(
-      { error: "Friday couldn't reach the voice service. Please try again." },
+      { error: "Ara couldn't reach the voice service. Please try again." },
       { status: 502 },
     );
   }
