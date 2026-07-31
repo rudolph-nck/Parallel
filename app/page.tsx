@@ -129,7 +129,13 @@ const WELCOME_STORAGE_KEY = "parallel:ara-welcomed";
 const defaultIntroduction =
   "Hey Nick—I’m Ara. I’m genuinely excited to start working with you. Think of me as the calm, connected friend who helps you make sense of the noise and get the right things moving. Before we dive in, what would make today feel like a win?";
 const capabilityIntroduction =
-  "Nick asked what he can ask you. Give him an energizing, conversational tour of four or five surprisingly useful ways you can help across his work, grounded in your actual capabilities. End by asking which one would make his day easier right now.";
+  "Nick asked what he can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make his day easier right now.";
+const startupPhrases = [
+  "Move through work with clarity.",
+  "Find the signal in the noise.",
+  "Turn decisions into momentum.",
+  "Take control of your workday.",
+];
 
 const subscribeToLocalDate = () => () => {};
 const getLocalDay = () => new Date().getDay();
@@ -176,6 +182,12 @@ export default function Home() {
   );
   const [foundDocument, setFoundDocument] =
     useState<RecallDocument>(prototypeDocument);
+  const [recallQuery, setRecallQuery] = useState("");
+  const [recallResults, setRecallResults] = useState<RecallDocument[]>([]);
+  const [recallSearching, setRecallSearching] = useState(false);
+  const [recallMessage, setRecallMessage] = useState(
+    "Search across the work Ara can currently see.",
+  );
   const [pendingMeeting, setPendingMeeting] =
     useState<MicrosoftMeetingProposal | null>(null);
   const [bookedMeeting, setBookedMeeting] =
@@ -233,14 +245,62 @@ export default function Home() {
 
   const moveToSection = (section: NavSection) => {
     setActiveNav(section);
-    document
-      .getElementById(section)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setProfileOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const askFriday = () => {
     moveToStage("searching");
     window.setTimeout(() => moveToStage("found"), 1250);
+  };
+
+  const searchRecallWorkspace = async () => {
+    const query = recallQuery.trim();
+    if (!query || recallSearching) return;
+
+    setRecallSearching(true);
+    setRecallMessage("Ara is checking your connected workspace.");
+    try {
+      if (microsoftSnapshotRef.current) {
+        const files = await searchMicrosoft365Files(query);
+        const results = files.slice(0, 6).map<RecallDocument>((file) => ({
+          title: file.name,
+          location: file.location ?? "Microsoft 365",
+          confidence: 1,
+          edited: file.lastModifiedDateTime
+            ? `Updated ${new Date(file.lastModifiedDateTime).toLocaleString()}`
+            : "Found in Microsoft 365",
+          context: "Live connected-workspace result",
+          status: "Available now",
+          webUrl: file.webUrl,
+        }));
+        setRecallResults(results);
+        if (results[0]) setFoundDocument(results[0]);
+        setRecallMessage(
+          results.length > 0
+            ? `${results.length} relevant ${results.length === 1 ? "item" : "items"} found.`
+            : "Nothing matched yet. Try a project name, person, or phrase from the document.",
+        );
+        return;
+      }
+
+      const matchesPrototype = /strategic|plan|core|matt/i.test(query);
+      const results = matchesPrototype ? [prototypeDocument] : [];
+      setRecallResults(results);
+      if (results[0]) setFoundDocument(results[0]);
+      setRecallMessage(
+        results.length > 0
+          ? "I found one item in the demo workspace."
+          : "Connect Microsoft 365 from Today to search your live workspace.",
+      );
+    } catch {
+      setRecallResults([]);
+      setRecallMessage(
+        "The search could not finish. Refresh Microsoft 365 from Today, then try again.",
+      );
+    } finally {
+      setRecallSearching(false);
+    }
   };
 
   const setMicrophoneEnabled = (enabled: boolean) => {
@@ -613,8 +673,7 @@ export default function Home() {
           attendees: result.attendees.map((attendee) => attendee.displayName),
           teams_join_url_available: Boolean(result.joinUrl),
           calendar_link_available: Boolean(result.webLink),
-          instruction:
-            "Confirm naturally in one brief sentence that the Teams meeting is now on Nick's calendar and the invitations were sent.",
+          instruction: 'Say exactly "Done." and nothing else.',
         };
       } catch (error) {
         const detail =
@@ -688,7 +747,7 @@ export default function Home() {
         confirmation,
         execution_status: "not_sent_prototype",
         instruction:
-          "Respond naturally in one sentence: confirm you have Nick's go-ahead and say you'll take it from here once Teams is connected. Do not say an external message was sent.",
+          'Say exactly "Got it." and nothing else. Do not imply that an external message was sent.',
       };
     }
 
@@ -997,13 +1056,14 @@ export default function Home() {
     ).matches;
     const startupTimer = window.setTimeout(
       () => setShowStartup(false),
-      prefersReducedMotion ? 250 : 2300,
+      prefersReducedMotion ? 450 : 6800,
     );
 
     const hydrateTimer = window.setTimeout(() => {
-      setFirstVisit(
-        window.localStorage.getItem(WELCOME_STORAGE_KEY) !== "true",
-      );
+      const shouldWelcome =
+        window.localStorage.getItem(WELCOME_STORAGE_KEY) !== "true";
+      setFirstVisit(shouldWelcome);
+      if (shouldWelcome) setActiveNav("ara");
       setTodayLabel(
         new Intl.DateTimeFormat(undefined, {
           weekday: "long",
@@ -1098,6 +1158,19 @@ export default function Home() {
   const approveWithButton = () => {
     setApprovalMethod("button");
     moveToStage("approved");
+    if (channelRef.current?.readyState === "open") {
+      setMicrophoneEnabled(false);
+      channelRef.current.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            input: [],
+            instructions:
+              'Say exactly "Got it." and nothing else. Do not imply that an external message was sent.',
+          },
+        }),
+      );
+    }
   };
 
   const approveMeetingWithButton = async () => {
@@ -1111,6 +1184,18 @@ export default function Home() {
       setApprovalMethod("button");
       moveToStage("meetingBooked");
       setVoiceNote("The Teams meeting is on your calendar");
+      if (channelRef.current?.readyState === "open") {
+        setMicrophoneEnabled(false);
+        channelRef.current.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions: 'Say exactly "Done." and nothing else.',
+            },
+          }),
+        );
+      }
       const snapshot = await refreshMicrosoft365().catch(() => null);
       if (snapshot) rememberMicrosoftSnapshot(snapshot);
     } catch {
@@ -1190,15 +1275,29 @@ export default function Home() {
             <i />
             <i />
           </div>
-          <p>Thoughtful work, already in motion.</p>
+          <div className="startup-copy" aria-live="polite">
+            {startupPhrases.map((phrase, index) => (
+              <span
+                key={phrase}
+                style={{ animationDelay: `${0.55 + index * 1.3}s` }}
+              >
+                {phrase}
+              </span>
+            ))}
+          </div>
         </div>
       )}
       <main className={`app-shell ${showStartup ? "app-loading" : "app-ready"}`}>
       <header className="topbar">
-        <a className="brand" href="#" aria-label="Parallel home">
+        <button
+          className="brand"
+          type="button"
+          aria-label="Parallel home"
+          onClick={() => moveToSection("today")}
+        >
           <ParallelMark />
           <ParallelWordmark />
-        </a>
+        </button>
         <div className="status-pill">
           <span className={`status-dot ${microsoftConnected ? "" : "waiting"}`} />
           {microsoftConnected ? "Microsoft 365 connected" : "Workspace ready"}
@@ -1260,7 +1359,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className="workspace" id="today">
+      <section className={`workspace view-${activeNav}`}>
         {profileOpen && (
           <aside className="profile-panel" aria-label="Ara preferences">
             <div className="profile-heading">
@@ -1321,7 +1420,7 @@ export default function Home() {
             </p>
           </aside>
         )}
-        <div className="date-row">
+        <div className="date-row view-panel today-view">
           <div>
             <p>{todayLabel}</p>
             <h1>Move through work with clarity.</h1>
@@ -1334,7 +1433,7 @@ export default function Home() {
         </div>
 
         <section
-          className={`microsoft-connection microsoft-${microsoftStatus}`}
+          className={`microsoft-connection microsoft-${microsoftStatus} view-panel today-view`}
           aria-live="polite"
         >
           <div className="connection-symbol">
@@ -1452,7 +1551,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className={`friday-panel stage-${stage}`} id="ara">
+        <section className={`friday-panel stage-${stage} view-panel ara-view`}>
           <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
             <div className="voice-stage" aria-hidden="true">
               <div className="signal-ring ring-one" />
@@ -1752,8 +1851,161 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="platform-grid" aria-label="Parallel workspace">
-          <article className="platform-card recall-card" id="recall">
+        <section className="workspace-view view-panel recall-view" aria-label="Recall workspace">
+          <header className="view-heading">
+            <div>
+              <p>RECALL · CONNECTED WORKING MEMORY</p>
+              <h1>Find the context behind the work.</h1>
+            </div>
+            <span>
+              Search by project, person, topic, or a phrase you remember.
+            </span>
+          </header>
+
+          <form
+            className="recall-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchRecallWorkspace();
+            }}
+          >
+            <label htmlFor="recall-query">What are you looking for?</label>
+            <div>
+              <input
+                id="recall-query"
+                value={recallQuery}
+                onChange={(event) => setRecallQuery(event.target.value)}
+                placeholder="Try “failover notes,” “Matt’s strategic plan,” or a project name"
+              />
+              <button type="submit" disabled={!recallQuery.trim() || recallSearching}>
+                {recallSearching ? "Searching…" : "Search Recall"}
+              </button>
+            </div>
+            <p aria-live="polite">{recallMessage}</p>
+          </form>
+
+          <div className="recall-source-grid">
+            <article>
+              <span>O</span>
+              <div><b>Outlook</b><small>{microsoftConnected ? "Connected" : "Connect from Today"}</small></div>
+            </article>
+            <article>
+              <span>C</span>
+              <div><b>Calendar</b><small>{microsoftConnected ? "Connected" : "Connect from Today"}</small></div>
+            </article>
+            <article>
+              <span>S</span>
+              <div><b>SharePoint</b><small>{microsoftConnected ? "Ready to search" : "Connect from Today"}</small></div>
+            </article>
+            <article>
+              <span>P</span>
+              <div><b>People</b><small>{microsoftSnapshot?.directoryPeople ?? 0} available</small></div>
+            </article>
+          </div>
+
+          <div className="recall-results" aria-live="polite">
+            {recallResults.length > 0 ? (
+              recallResults.map((result) => (
+                <article key={`${result.location}-${result.title}`}>
+                  <div className="file-icon">P</div>
+                  <div>
+                    <p>{result.location}</p>
+                    <h2>{result.title}</h2>
+                    <span>{result.edited}</span>
+                  </div>
+                  {result.webUrl && (
+                    <a href={result.webUrl} target="_blank" rel="noreferrer">
+                      Open ↗
+                    </a>
+                  )}
+                </article>
+              ))
+            ) : (
+              <div className="recall-empty">
+                <ParallelMark />
+                <div>
+                  <h2>Recall is ready when you are.</h2>
+                  <p>
+                    Search directly here, or talk to Ara when you want help
+                    connecting the people and decisions around a result.
+                  </p>
+                </div>
+                <button onClick={() => moveToSection("ara")}>Talk to Ara</button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="workspace-view view-panel approvals-view" aria-label="Approvals workspace">
+          <header className="view-heading">
+            <div>
+              <p>APPROVALS · YOUR CONTROL LAYER</p>
+              <h1>Review the work. Make the call.</h1>
+            </div>
+            <span>Ara prepares the action; nothing important moves without you.</span>
+          </header>
+
+          <div className="approval-workspace-grid">
+            <article className="approval-queue-card">
+              <div className="queue-card-head">
+                <div>
+                  <p>WAITING FOR YOU</p>
+                  <h2>
+                    {stage === "meetingReady" || stage === "ready"
+                      ? "One item needs your judgment."
+                      : "You’re all caught up."}
+                  </h2>
+                </div>
+                <span className="queue-count">
+                  {stage === "meetingReady" || stage === "ready" ? "1" : "0"}
+                </span>
+              </div>
+
+              {stage === "meetingReady" && pendingMeeting ? (
+                <div className="queue-item">
+                  <span className="teams-badge">T</span>
+                  <div>
+                    <p>TEAMS MEETING</p>
+                    <h3>{pendingMeeting.subject}</h3>
+                    <span>{pendingMeeting.displayTime} · {pendingMeeting.attendees.length} attendees</span>
+                  </div>
+                  <button onClick={() => moveToSection("ara")}>Review</button>
+                </div>
+              ) : stage === "ready" ? (
+                <div className="queue-item">
+                  <span className="teams-badge">T</span>
+                  <div>
+                    <p>MESSAGE DRAFT</p>
+                    <h3>Message for Matt Walsh</h3>
+                    <span>Prepared by Ara · not sent</span>
+                  </div>
+                  <button onClick={() => moveToSection("ara")}>Review</button>
+                </div>
+              ) : (
+                <div className="queue-empty">
+                  <span>✓</span>
+                  <div>
+                    <h3>Nothing is waiting on you.</h3>
+                    <p>New proposals will appear here with the context needed to decide quickly.</p>
+                  </div>
+                </div>
+              )}
+            </article>
+
+            <article className="control-card">
+              <p>HOW PARALLEL WORKS</p>
+              <h2>Fast, without giving up control.</h2>
+              <ol>
+                <li><span>01</span><div><b>Ara prepares</b><small>She gathers context and recommends the next move.</small></div></li>
+                <li><span>02</span><div><b>You decide</b><small>Approve naturally by voice or with a tap.</small></div></li>
+                <li><span>03</span><div><b>Ara confirms</b><small>After success, you hear one word: “Done.”</small></div></li>
+              </ol>
+            </article>
+          </div>
+        </section>
+
+        <section className="platform-grid view-panel today-view" aria-label="Parallel workspace">
+          <article className="platform-card recall-card">
             <div className="platform-card-head">
               <span>⌕</span>
               <div>
@@ -1774,12 +2026,12 @@ export default function Home() {
                 {microsoftSnapshot?.directoryPeople ?? 0} directory people
               </span>
             </div>
-            <button className="card-link" onClick={askFriday}>
-              Ask Ara to find the missing context <span>↗</span>
+            <button className="card-link" onClick={() => moveToSection("recall")}>
+              Open Recall workspace <span>↗</span>
             </button>
           </article>
 
-          <article className="platform-card approvals-card" id="approvals">
+          <article className="platform-card approvals-card">
             <div className="platform-card-head">
               <span>✓</span>
               <div>
@@ -1815,18 +2067,18 @@ export default function Home() {
               onClick={() =>
                 stage === "meetingReady" || stage === "ready"
                   ? moveToSection("ara")
-                  : askAraWhatSheCanDo()
+                  : moveToSection("approvals")
               }
             >
               {stage === "meetingReady" || stage === "ready"
                 ? "Review with Ara"
-                : "See what Ara can prepare"}{" "}
+                : "Open approvals workspace"}{" "}
               <span>↗</span>
             </button>
           </article>
         </section>
 
-        <section className="attention-strip">
+        <section className="attention-strip view-panel today-view">
           <div><span className="strip-number">03</span><p><b>Decisions</b><small>need your judgment</small></p></div>
           <div><span className="strip-number">02</span><p><b>Approvals</b><small>waiting safely</small></p></div>
           <div><span className="strip-number">47m</span><p><b>Focus window</b><small>before your next meeting</small></p></div>

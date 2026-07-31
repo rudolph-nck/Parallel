@@ -12,9 +12,11 @@ This first prototype demonstrates the core relationship:
 - **Recall** is the memory and context engine Ara consults.
 - **Nick** remains in control of every external action.
 
-The experience includes a cinematic startup, a first-conversation welcome, a
-practical "what can I ask?" guide, device-local working preferences, and
-functional Today, Ara, Recall, Approvals, and profile navigation.
+The experience includes an extended cinematic startup with rotating product
+promises, a first-conversation welcome, a practical "what can I ask?" guide,
+device-local working preferences, and distinct Today, Ara, Recall, and
+Approvals workspaces. Recall includes direct connected-workspace search, while
+Approvals provides a dedicated review queue.
 
 The current workflow connects to a Microsoft 365 demo tenant, reads Outlook,
 Calendar, and SharePoint context, resolves relevant people, proposes an open
@@ -24,7 +26,8 @@ clear voice or button approval. Message drafts remain non-sending prototypes.
 The voice experience uses an OpenAI Realtime session created through the
 server, responds to live microphone volume, distinguishes the user from Ara
 visually, pauses the microphone while Ara speaks, and accepts natural
-approval language.
+approval language. Ara uses task-specific response limits to keep routine voice
+turns fast and economical, and says only "Done." after a successful action.
 
 ## Microsoft 365 permissions
 

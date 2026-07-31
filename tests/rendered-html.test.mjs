@@ -34,9 +34,13 @@ test("server-renders the Parallel Ara dashboard", async () => {
   assert.match(html, /Hey Nick—I’m really glad you’re here\./);
   assert.match(html, /Talk to Ara/);
   assert.match(html, /What can I ask you/);
-  assert.match(html, /Thoughtful work, already in motion/);
+  assert.match(html, /Find the signal in the noise/);
+  assert.match(html, /Turn decisions into momentum/);
   assert.match(html, /Recall · Working Memory/i);
   assert.match(html, /Approvals · You Stay in Control/i);
+  assert.match(html, /Find the context behind the work/i);
+  assert.match(html, /Review the work. Make the call./i);
+  assert.match(html, /Search Recall/i);
   assert.match(html, /Ara proposes\./);
   assert.match(html, /class="ara-signature">ARA<\/span>/);
   assert.match(html, /You decide\./);
@@ -69,6 +73,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /approve_calendar_meeting/);
   assert.match(page, /Book Teams meeting/);
   assert.match(page, /createMicrosoftMeeting/);
+  assert.match(page, /searchRecallWorkspace/);
+  assert.match(page, /Say exactly \"Done\.\" and nothing else/);
+  assert.doesNotMatch(page, /scrollIntoView/);
   assert.doesNotMatch(page, /YOUR APPROVAL IS REQUIRED/);
   assert.doesNotMatch(page, /say 'I approve'/i);
   assert.doesNotMatch(page, /OPENAI_API_KEY/);
@@ -76,6 +83,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /process\.env\.OPENAI_API_KEY/);
   assert.match(route, /https:\/\/api\.openai\.com\/v1\/realtime\/calls/);
   assert.match(route, /gpt-realtime-2\.1/);
+  assert.match(route, /reasoning:\s*\{\s*effort:\s*"low"/);
   assert.match(route, /voice:\s*"marin"/);
   assert.match(route, /name:\s*"search_recall"/);
   assert.match(route, /type:\s*"server_vad"/);
@@ -89,6 +97,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who knows Nick well/);
+  assert.match(route, /Simple acknowledgements: one to four words/);
+  assert.match(route, /Direct answers: one short sentence/);
+  assert.match(route, /Skip preambles for direct answers/);
+  assert.match(route, /say exactly \"Done\.\" and/);
   assert.match(route, /What would make today feel like a win/);
   assert.match(route, /turn messy meeting notes into/i);
   assert.match(route, /How does that sound/);
