@@ -57,6 +57,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /How does that sound/);
   assert.match(page, /Looks good/);
   assert.match(page, /Once Teams is connected/);
+  assert.match(page, /prepare_calendar_meeting/);
+  assert.match(page, /approve_calendar_meeting/);
+  assert.match(page, /Book Teams meeting/);
+  assert.match(page, /createMicrosoftMeeting/);
   assert.doesNotMatch(page, /YOUR APPROVAL IS REQUIRED/);
   assert.doesNotMatch(page, /say 'I approve'/i);
   assert.doesNotMatch(page, /OPENAI_API_KEY/);
@@ -71,13 +75,15 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /interrupt_response:\s*false/);
   assert.match(route, /name:\s*"prepare_message_for_approval"/);
   assert.match(route, /name:\s*"approve_pending_action"/);
+  assert.match(route, /name:\s*"prepare_calendar_meeting"/);
+  assert.match(route, /name:\s*"approve_calendar_meeting"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who knows Nick well/);
   assert.match(route, /How does that sound/);
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
-  assert.match(route, /cannot yet send messages/);
+  assert.match(route, /cannot send chat messages/);
 
   assert.match(gitignore, /\.env\*/);
 });

@@ -28,11 +28,32 @@ Use check_microsoft_365 when Nick asks about his inbox, upcoming calendar, Share
 or connected Microsoft 365 workspace. If he asks for a particular file, subject, or
 topic, pass the natural search terms as the query. Treat the returned data as private:
 summarize only what helps answer Nick's request and do not read out unnecessary email
-addresses or links.
+addresses or links. If the connected demo tenant contains zero messages or events,
+say that it is connected but currently empty; do not describe an empty tenant as a
+failed connection.
+
+# Calendar meetings
+
+When Nick asks you to schedule, book, arrange, or set up a meeting, use
+prepare_calendar_meeting. Include every named attendee, the subject, the requested
+deadline in Nick's own words, and a short purpose. If he did not specify a duration,
+use 30 minutes. The tool resolves people and checks Nick's calendar for a working-hours
+opening before the deadline.
+
+If the tool cannot resolve someone in the new tenant, ask naturally for that person's
+work email address. When a proposal is ready, summarize the subject, attendees, and
+time, then end with "How does that sound?" Do not call the meeting scheduled yet.
+
+Use approve_calendar_meeting only when the meeting proposal is visible and Nick
+clearly tells you to proceed. Natural confirmations include "that works, book it,"
+"that sounds good," "schedule it," "put it on my calendar," and "go ahead." A bare
+"yes," silence, background sound, a partial phrase, or unrelated speech is not
+confirmation. Only say the meeting is on the calendar when the tool reports
+meeting_created true.
 
 # Actions and confirmation
 
-When Nick asks to share or send something, use prepare_message_for_approval to create
+When Nick asks to share or send a message, use prepare_message_for_approval to create
 the visible pending action. Then give him a brief, conversational summary and end with
 "How does that sound?" Do not tell him to recite an approval phrase, and avoid robotic
 language such as "your approval is required."
@@ -46,10 +67,12 @@ the message you just summarized.
 
 # Current capability boundary
 
-You can prepare and recommend actions, but this prototype cannot yet send messages,
-modify files, or take external actions. After recording Nick's go-ahead, respond
-naturally in one sentence: acknowledge it and say you will take it from here once
-Teams is connected. Never claim the message was sent.
+You can read the connected workspace and create a Teams calendar meeting after Nick's
+explicit approval. The prototype still cannot send chat messages or email, modify
+files, or delete anything. After recording approval for a message draft, acknowledge
+it naturally but never claim the message was sent. Meeting creation is different:
+when approve_calendar_meeting confirms success, say it was booked and invitations
+were sent.
 
 # Guardrail
 
@@ -136,6 +159,66 @@ const sessionConfig = {
     },
     {
       type: "function",
+      name: "prepare_calendar_meeting",
+      description:
+        "Resolve attendees, check Nick's connected Microsoft calendar, and prepare a Teams meeting proposal for his review. This does not create the event.",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: {
+            type: "string",
+            description: "A concise meeting title.",
+          },
+          attendees: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Every attendee Nick named. Use work email addresses when he provides them; otherwise use names.",
+          },
+          deadline: {
+            type: "string",
+            description:
+              "Nick's deadline in his own words, such as 'before next Wednesday', or an ISO date when known.",
+          },
+          duration_minutes: {
+            type: "number",
+            description:
+              "Requested meeting duration in minutes. Use 30 when Nick does not specify one.",
+          },
+          purpose: {
+            type: "string",
+            description:
+              "One short sentence explaining what the meeting is for.",
+          },
+        },
+        required: [
+          "subject",
+          "attendees",
+          "deadline",
+          "duration_minutes",
+          "purpose",
+        ],
+      },
+    },
+    {
+      type: "function",
+      name: "approve_calendar_meeting",
+      description:
+        "Create the currently visible Teams calendar meeting and send invitations, but only after Nick gives a clear natural go-ahead.",
+      parameters: {
+        type: "object",
+        properties: {
+          confirmation: {
+            type: "string",
+            description:
+              "Nick's exact words showing clear intent to book the proposed meeting.",
+          },
+        },
+        required: ["confirmation"],
+      },
+    },
+    {
+      type: "function",
       name: "approve_pending_action",
       description:
         "Record Nick's clear, natural go-ahead for the currently visible pending action. Only call when he clearly says to proceed; this does not execute the external action.",
@@ -176,7 +259,13 @@ export async function POST(request: Request) {
 
   const form = new FormData();
   form.set("sdp", sdp);
-  form.set("session", JSON.stringify(sessionConfig));
+  form.set(
+    "session",
+    JSON.stringify({
+      ...sessionConfig,
+      instructions: `${fridayInstructions}\n\n# Current date and time\n\nIt is ${new Date().toISOString()}. Use this when interpreting relative deadlines.`,
+    }),
+  );
 
   try {
     const openAIResponse = await fetch("https://api.openai.com/v1/realtime/calls", {

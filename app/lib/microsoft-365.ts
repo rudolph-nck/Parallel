@@ -12,6 +12,8 @@ export const MICROSOFT_GRAPH_SCOPES = [
   "User.Read",
   "Mail.Read",
   "Calendars.Read",
+  "Calendars.ReadWrite",
+  "People.Read",
   "Sites.Read.All",
 ] as const;
 
@@ -53,7 +55,18 @@ type GraphEvent = {
   };
   isOnlineMeeting?: boolean;
   onlineMeetingUrl?: string | null;
+  onlineMeeting?: {
+    joinUrl?: string | null;
+  } | null;
   webLink?: string;
+};
+
+type GraphPerson = {
+  displayName?: string;
+  scoredEmailAddresses?: Array<{
+    address?: string;
+    relevanceScore?: number;
+  }>;
 };
 
 type GraphSite = {
@@ -113,6 +126,37 @@ export type MicrosoftFileResult = {
   lastModifiedDateTime: string | null;
   location: string | null;
   summary: string | null;
+};
+
+export type MicrosoftMeetingAttendee = {
+  displayName: string;
+  email: string;
+};
+
+export type MicrosoftMeetingProposal = {
+  subject: string;
+  purpose: string;
+  attendees: MicrosoftMeetingAttendee[];
+  start: string;
+  end: string;
+  deadline: string;
+  durationMinutes: number;
+  displayTime: string;
+};
+
+export type MicrosoftMeetingPreparation = {
+  proposal: MicrosoftMeetingProposal | null;
+  unresolvedAttendees: string[];
+};
+
+export type MicrosoftMeetingResult = {
+  id: string;
+  subject: string;
+  start: string;
+  end: string;
+  webLink: string | null;
+  joinUrl: string | null;
+  attendees: MicrosoftMeetingAttendee[];
 };
 
 let microsoftClientPromise: Promise<PublicClientApplication> | null = null;
@@ -182,6 +226,143 @@ async function graphRequest<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function parseGraphDateTime(
+  value?: { dateTime?: string; timeZone?: string },
+) {
+  if (!value?.dateTime) return null;
+  const isUtc = value.timeZone?.toUpperCase() === "UTC";
+  const dateTime =
+    isUtc && !/[zZ]|[+-]\d{2}:\d{2}$/.test(value.dateTime)
+      ? `${value.dateTime}Z`
+      : value.dateTime;
+  const parsed = new Date(dateTime);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function resolveDeadline(description: string, now = new Date()) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(description)) {
+    const [year, month, day] = description.split("-").map(Number);
+    return new Date(year, month - 1, day, 17, 0, 0, 0);
+  }
+
+  const directDate = new Date(description);
+  if (!Number.isNaN(directDate.getTime())) return directDate;
+
+  const weekdays = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const weekdayMatch = description
+    .toLowerCase()
+    .match(/\b(next|this)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+
+  if (weekdayMatch) {
+    const targetDay = weekdays.indexOf(weekdayMatch[2]);
+    let daysAhead = (targetDay - now.getDay() + 7) % 7;
+    if (weekdayMatch[1] === "next" || daysAhead === 0) {
+      daysAhead = daysAhead === 0 ? 7 : daysAhead;
+    }
+    const deadline = new Date(now);
+    deadline.setDate(deadline.getDate() + daysAhead);
+    deadline.setHours(17, 0, 0, 0);
+    return deadline;
+  }
+
+  const fallback = new Date(now);
+  fallback.setDate(fallback.getDate() + 7);
+  fallback.setHours(17, 0, 0, 0);
+  return fallback;
+}
+
+function roundUpToHalfHour(value: Date) {
+  const rounded = new Date(value);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  rounded.setMinutes(minutes <= 30 ? 30 : 60);
+  return rounded;
+}
+
+function moveIntoWorkingHours(value: Date) {
+  const next = new Date(value);
+
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1);
+    next.setHours(9, 0, 0, 0);
+  }
+
+  if (next.getHours() < 9) next.setHours(9, 0, 0, 0);
+  if (next.getHours() >= 17) {
+    next.setDate(next.getDate() + 1);
+    next.setHours(9, 0, 0, 0);
+    return moveIntoWorkingHours(next);
+  }
+
+  return next;
+}
+
+function findAvailableMeetingTime(
+  events: GraphEvent[],
+  deadline: Date,
+  durationMinutes: number,
+) {
+  const earliest = new Date(Date.now() + 30 * 60 * 1000);
+  let candidate = moveIntoWorkingHours(roundUpToHalfHour(earliest));
+
+  const busyWindows = events
+    .map((event) => ({
+      start: parseGraphDateTime(event.start),
+      end: parseGraphDateTime(event.end),
+    }))
+    .filter(
+      (window): window is { start: Date; end: Date } =>
+        window.start !== null && window.end !== null,
+    );
+
+  while (candidate < deadline) {
+    candidate = moveIntoWorkingHours(candidate);
+    const end = new Date(candidate.getTime() + durationMinutes * 60 * 1000);
+    const leavesWorkingHours =
+      end.getDate() !== candidate.getDate() ||
+      end.getHours() > 17 ||
+      (end.getHours() === 17 && end.getMinutes() > 0);
+
+    if (end > deadline) break;
+    if (leavesWorkingHours) {
+      candidate.setDate(candidate.getDate() + 1);
+      candidate.setHours(9, 0, 0, 0);
+      continue;
+    }
+
+    const overlaps = busyWindows.some(
+      (window) => candidate < window.end && end > window.start,
+    );
+    if (!overlaps) return { start: candidate, end };
+
+    candidate = new Date(candidate.getTime() + 30 * 60 * 1000);
+  }
+
+  return null;
+}
+
+function formatMeetingTime(start: Date, end: Date) {
+  const day = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(start);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return `${day}, ${time.format(start)}–${time.format(end)}`;
 }
 
 async function readMicrosoftSnapshot(
@@ -319,4 +500,166 @@ export async function searchMicrosoft365Files(query: string) {
       summary: hit.summary ?? null,
     }),
   );
+}
+
+export async function prepareMicrosoftMeeting({
+  subject,
+  attendeeNames,
+  deadlineDescription,
+  durationMinutes = 30,
+  purpose,
+}: {
+  subject: string;
+  attendeeNames: string[];
+  deadlineDescription: string;
+  durationMinutes?: number;
+  purpose: string;
+}): Promise<MicrosoftMeetingPreparation> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+
+  const attendees: MicrosoftMeetingAttendee[] = [];
+  const unresolvedAttendees: string[] = [];
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const normalizedDuration = Math.max(
+    15,
+    Math.min(Number.isFinite(durationMinutes) ? durationMinutes : 30, 120),
+  );
+
+  if (attendeeNames.length === 0) {
+    return {
+      proposal: null,
+      unresolvedAttendees: ["the attendee"],
+    };
+  }
+
+  for (const rawAttendee of attendeeNames) {
+    const attendee = rawAttendee.trim();
+    if (!attendee) continue;
+
+    if (emailPattern.test(attendee)) {
+      attendees.push({ displayName: attendee, email: attendee });
+      continue;
+    }
+
+    try {
+      const people = await graphRequest<GraphCollection<GraphPerson>>(
+        token.accessToken,
+        `/me/people?$search=${encodeURIComponent(`"${attendee.replaceAll('"', "")}"`)}&$top=5&$select=displayName,scoredEmailAddresses`,
+      );
+      const match = (people.value ?? []).find(
+        (person) => person.scoredEmailAddresses?.[0]?.address,
+      );
+      const email = match?.scoredEmailAddresses?.[0]?.address;
+
+      if (email) {
+        attendees.push({
+          displayName: match?.displayName ?? attendee,
+          email,
+        });
+      } else {
+        unresolvedAttendees.push(attendee);
+      }
+    } catch {
+      unresolvedAttendees.push(attendee);
+    }
+  }
+
+  if (unresolvedAttendees.length > 0) {
+    return { proposal: null, unresolvedAttendees };
+  }
+
+  const deadline = resolveDeadline(deadlineDescription);
+  const now = new Date();
+  if (deadline <= now) {
+    throw new Error("The requested deadline has already passed.");
+  }
+
+  const calendar = await graphRequest<GraphCollection<GraphEvent>>(
+    token.accessToken,
+    `/me/calendarView?startDateTime=${encodeURIComponent(now.toISOString())}&endDateTime=${encodeURIComponent(deadline.toISOString())}&$top=100&$select=id,subject,start,end&$orderby=start/dateTime`,
+  );
+  const available = findAvailableMeetingTime(
+    calendar.value ?? [],
+    deadline,
+    normalizedDuration,
+  );
+
+  if (!available) {
+    throw new Error("No open working-hours slot was found before the deadline.");
+  }
+
+  return {
+    proposal: {
+      subject,
+      purpose,
+      attendees,
+      start: available.start.toISOString(),
+      end: available.end.toISOString(),
+      deadline: deadline.toISOString(),
+      durationMinutes: normalizedDuration,
+      displayTime: formatMeetingTime(available.start, available.end),
+    },
+    unresolvedAttendees: [],
+  };
+}
+
+export async function createMicrosoftMeeting(
+  proposal: MicrosoftMeetingProposal,
+): Promise<MicrosoftMeetingResult> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+
+  const graphEvent = await graphRequest<GraphEvent>(
+    token.accessToken,
+    "/me/events",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        subject: proposal.subject,
+        body: {
+          contentType: "text",
+          content:
+            proposal.purpose ||
+            "Scheduled with Friday through Parallel after Nick's approval.",
+        },
+        start: {
+          dateTime: proposal.start.replace(/Z$/, ""),
+          timeZone: "UTC",
+        },
+        end: {
+          dateTime: proposal.end.replace(/Z$/, ""),
+          timeZone: "UTC",
+        },
+        attendees: proposal.attendees.map((attendee) => ({
+          emailAddress: {
+            address: attendee.email,
+            name: attendee.displayName,
+          },
+          type: "required",
+        })),
+        allowNewTimeProposals: true,
+        isOnlineMeeting: true,
+        onlineMeetingProvider: "teamsForBusiness",
+        transactionId: crypto.randomUUID(),
+      }),
+    },
+  );
+
+  return {
+    id: graphEvent.id,
+    subject: graphEvent.subject ?? proposal.subject,
+    start: proposal.start,
+    end: proposal.end,
+    webLink: graphEvent.webLink ?? null,
+    joinUrl:
+      graphEvent.onlineMeeting?.joinUrl ??
+      graphEvent.onlineMeetingUrl ??
+      null,
+    attendees: proposal.attendees,
+  };
 }

@@ -3,14 +3,25 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   connectMicrosoft365,
+  createMicrosoftMeeting,
   disconnectMicrosoft365,
+  prepareMicrosoftMeeting,
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
+  type MicrosoftMeetingProposal,
+  type MicrosoftMeetingResult,
   type MicrosoftSnapshot,
 } from "./lib/microsoft-365";
 
-type Stage = "briefing" | "searching" | "found" | "ready" | "approved";
+type Stage =
+  | "briefing"
+  | "searching"
+  | "found"
+  | "ready"
+  | "approved"
+  | "meetingReady"
+  | "meetingBooked";
 type VoiceState = "idle" | "connecting" | "listening" | "speaking" | "synced";
 type ApprovalMethod = "voice" | "button" | null;
 type MicrosoftStatus =
@@ -74,6 +85,16 @@ const conversations = {
     title: "Perfect—I’ve got it.",
     body: "Your go-ahead is recorded. Once Teams is connected, Friday will take it from here.",
   },
+  meetingReady: {
+    eyebrow: "Friday · Calendar proposal",
+    title: "I found a clear opening.",
+    body: "I resolved the attendees and checked your calendar. Review the Teams meeting below—how does that sound?",
+  },
+  meetingBooked: {
+    eyebrow: "Friday · Meeting booked",
+    title: "Done—it’s on the calendar.",
+    body: "The Teams meeting is live and invitations have been sent to everyone listed below.",
+  },
 };
 
 const dailyQuotes = [
@@ -124,6 +145,11 @@ export default function Home() {
   );
   const [foundDocument, setFoundDocument] =
     useState<RecallDocument>(prototypeDocument);
+  const [pendingMeeting, setPendingMeeting] =
+    useState<MicrosoftMeetingProposal | null>(null);
+  const [bookedMeeting, setBookedMeeting] =
+    useState<MicrosoftMeetingResult | null>(null);
+  const [meetingActionPending, setMeetingActionPending] = useState(false);
   const quoteIndex = useSyncExternalStore(
     subscribeToLocalDate,
     getLocalDay,
@@ -141,6 +167,7 @@ export default function Home() {
   const outputAnimationRef = useRef<number | null>(null);
   const transcriptRef = useRef("");
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
+  const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -334,7 +361,16 @@ export default function Home() {
           typeof args.query === "string" && args.query.trim()
             ? args.query.trim()
             : null;
-        const files = query ? await searchMicrosoft365Files(query) : [];
+        let files: Awaited<ReturnType<typeof searchMicrosoft365Files>> = [];
+        let fileSearchAvailable = true;
+
+        if (query) {
+          try {
+            files = await searchMicrosoft365Files(query);
+          } catch {
+            fileSearchAvailable = false;
+          }
+        }
 
         return {
           connected: true,
@@ -370,8 +406,9 @@ export default function Home() {
             updated: file.lastModifiedDateTime,
             location: file.location,
           })),
+          file_search_available: fileSearchAvailable,
           instruction:
-            "Summarize only what is relevant to Nick's request. Keep the spoken response concise and do not claim to have sent, changed, or deleted anything.",
+            "Summarize only what is relevant to Nick's request. If the mailbox or calendar has zero items, say the connected demo tenant is currently empty rather than saying Microsoft 365 is unavailable. If file_search_available is false, explain only that SharePoint search was unavailable; the other returned data is still live. Keep the spoken response concise and do not claim to have sent, changed, or deleted anything.",
         };
       } catch {
         return {
@@ -380,6 +417,158 @@ export default function Home() {
           instruction:
             "Tell Nick briefly that Microsoft 365 is connected but could not be refreshed just now.",
         };
+      }
+    }
+
+    if (call.name === "prepare_calendar_meeting") {
+      if (!microsoftSnapshotRef.current) {
+        return {
+          status: "not_connected",
+          instruction:
+            "Tell Nick Microsoft 365 needs to be connected before you can check his calendar or prepare the meeting.",
+        };
+      }
+
+      const subject =
+        typeof args.subject === "string" && args.subject.trim()
+          ? args.subject.trim()
+          : "Working session";
+      const attendeeNames = Array.isArray(args.attendees)
+        ? args.attendees.filter(
+            (attendee): attendee is string =>
+              typeof attendee === "string" && attendee.trim().length > 0,
+          )
+        : [];
+      const deadlineDescription =
+        typeof args.deadline === "string" && args.deadline.trim()
+          ? args.deadline.trim()
+          : "within the next seven days";
+      const purpose =
+        typeof args.purpose === "string" ? args.purpose.trim() : "";
+      const requestedDuration =
+        typeof args.duration_minutes === "number"
+          ? args.duration_minutes
+          : 30;
+
+      setVoiceNote("Friday is resolving people and checking your calendar");
+      try {
+        const preparation = await prepareMicrosoftMeeting({
+          subject,
+          attendeeNames,
+          deadlineDescription,
+          durationMinutes: requestedDuration,
+          purpose,
+        });
+
+        if (!preparation.proposal) {
+          pendingMeetingRef.current = null;
+          setPendingMeeting(null);
+          moveToStage("briefing");
+          return {
+            status: "needs_attendee_details",
+            unresolved_attendees: preparation.unresolvedAttendees,
+            instruction:
+              "Ask Nick naturally for the work email address of each unresolved attendee. Explain briefly that they are not yet in this new tenant's people directory. Do not claim the meeting is scheduled.",
+          };
+        }
+
+        pendingMeetingRef.current = preparation.proposal;
+        setPendingMeeting(preparation.proposal);
+        setBookedMeeting(null);
+        setApprovalMethod(null);
+        moveToStage("meetingReady");
+        return {
+          status: "pending_approval",
+          subject: preparation.proposal.subject,
+          attendees: preparation.proposal.attendees.map((attendee) => ({
+            name: attendee.displayName,
+            email: attendee.email,
+          })),
+          proposed_time: preparation.proposal.displayTime,
+          deadline: preparation.proposal.deadline,
+          teams_meeting: true,
+          approval_required: true,
+          instruction:
+            "Briefly summarize the meeting, attendees, and proposed time in a natural way. End with 'How does that sound?' Do not say it has been scheduled yet.",
+        };
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : "The calendar check failed.";
+        return {
+          status: "could_not_prepare",
+          detail,
+          instruction:
+            "Tell Nick briefly that you could not prepare a safe calendar option yet. If the detail says the deadline passed or no slot was found, explain that plainly; otherwise suggest reconnecting Microsoft 365 and trying again.",
+        };
+      }
+    }
+
+    if (call.name === "approve_calendar_meeting") {
+      const confirmation =
+        typeof args.confirmation === "string" ? args.confirmation.trim() : "";
+      const isExplicitApproval =
+        /\b(schedule|book|send|create|add)\s+(it|that|this|the meeting|the invite|the invitation)\b/i.test(
+          confirmation,
+        ) ||
+        /\b(put|add)\s+(it|that|this|the meeting)\s+(on|to)\s+(my|the)\s+calendar\b/i.test(
+          confirmation,
+        ) ||
+        /\b(that works|that sounds good|looks good|go ahead|let'?s do it|make it happen)\b/i.test(
+          confirmation,
+        );
+
+      if (
+        stageRef.current !== "meetingReady" ||
+        !pendingMeetingRef.current
+      ) {
+        return {
+          meeting_created: false,
+          reason: "There is no visible meeting proposal to approve.",
+        };
+      }
+
+      if (!isExplicitApproval) {
+        return {
+          meeting_created: false,
+          reason:
+            "Nick's intent was not clear enough to create and send the invitation. Briefly ask whether he wants you to book the proposed Teams meeting; do not give him a required phrase.",
+        };
+      }
+
+      setMeetingActionPending(true);
+      setVoiceNote("Friday is creating the Teams meeting");
+      try {
+        const result = await createMicrosoftMeeting(
+          pendingMeetingRef.current,
+        );
+        setBookedMeeting(result);
+        setApprovalMethod("voice");
+        moveToStage("meetingBooked");
+        const snapshot = await refreshMicrosoft365().catch(() => null);
+        if (snapshot) rememberMicrosoftSnapshot(snapshot);
+        return {
+          meeting_created: true,
+          subject: result.subject,
+          start: result.start,
+          attendees: result.attendees.map((attendee) => attendee.displayName),
+          teams_join_url_available: Boolean(result.joinUrl),
+          calendar_link_available: Boolean(result.webLink),
+          instruction:
+            "Confirm naturally in one brief sentence that the Teams meeting is now on Nick's calendar and the invitations were sent.",
+        };
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : "Microsoft 365 could not create the event.";
+        return {
+          meeting_created: false,
+          detail,
+          instruction:
+            "Tell Nick briefly that the meeting was not created. Suggest reconnecting Microsoft 365 if access needs attention, and never claim invitations were sent.",
+        };
+      } finally {
+        setMeetingActionPending(false);
       }
     }
 
@@ -675,7 +864,7 @@ export default function Home() {
         if (snapshot) {
           rememberMicrosoftSnapshot(snapshot);
           setMicrosoftStatus("connected");
-          setMicrosoftNote("Friday has read-only access");
+          setMicrosoftNote("Read access is live · calendar actions need your approval");
         } else {
           setMicrosoftStatus("disconnected");
           setMicrosoftNote("Ready for your approval");
@@ -731,6 +920,35 @@ export default function Home() {
     moveToStage("approved");
   };
 
+  const approveMeetingWithButton = async () => {
+    if (!pendingMeetingRef.current || meetingActionPending) return;
+
+    setMeetingActionPending(true);
+    setVoiceNote("Friday is creating the Teams meeting");
+    try {
+      const result = await createMicrosoftMeeting(pendingMeetingRef.current);
+      setBookedMeeting(result);
+      setApprovalMethod("button");
+      moveToStage("meetingBooked");
+      setVoiceNote("The Teams meeting is on your calendar");
+      const snapshot = await refreshMicrosoft365().catch(() => null);
+      if (snapshot) rememberMicrosoftSnapshot(snapshot);
+    } catch {
+      setVoiceNote(
+        "The meeting was not created. Reconnect Microsoft 365 and try again.",
+      );
+    } finally {
+      setMeetingActionPending(false);
+    }
+  };
+
+  const startAnotherRequest = () => {
+    pendingMeetingRef.current = null;
+    setPendingMeeting(null);
+    setBookedMeeting(null);
+    moveToStage("briefing");
+  };
+
   const connectMicrosoft = async () => {
     if (
       microsoftStatus === "connecting" ||
@@ -758,7 +976,7 @@ export default function Home() {
       const snapshot = await refreshMicrosoft365();
       rememberMicrosoftSnapshot(snapshot);
       setMicrosoftStatus("connected");
-      setMicrosoftNote("Friday has read-only access");
+      setMicrosoftNote("Read access is live · calendar actions need your approval");
     } catch {
       setMicrosoftStatus("error");
       setMicrosoftNote("Microsoft 365 needs your attention to reconnect");
@@ -841,7 +1059,7 @@ export default function Home() {
             <span className="connection-pulse" />
           </div>
           <div className="connection-copy">
-            <p>MICROSOFT 365 · READ ONLY</p>
+            <p>MICROSOFT 365 · GOVERNED ACCESS</p>
             <h2>
               {microsoftConnected && microsoftSnapshot
                 ? `${microsoftSnapshot.account.name} is connected`
@@ -899,8 +1117,8 @@ export default function Home() {
             </div>
           ) : (
             <p className="connection-boundary">
-              Friday can read what you can see. Sending, editing, and deleting
-              remain off.
+              Friday can read what you can see and book calendar meetings after
+              you approve them. Messages, file edits, and deletions remain off.
             </p>
           )}
 
@@ -1041,6 +1259,116 @@ export default function Home() {
               </article>
             )}
 
+            {pendingMeeting &&
+              (stage === "meetingReady" || stage === "meetingBooked") && (
+                <article
+                  className={`meeting-card ${stage === "meetingBooked" ? "booked" : ""}`}
+                >
+                  <div className="meeting-head">
+                    <div>
+                      <p>
+                        {stage === "meetingBooked"
+                          ? "TEAMS MEETING · BOOKED"
+                          : "PROPOSED TEAMS MEETING"}
+                      </p>
+                      <h3>{pendingMeeting.subject}</h3>
+                    </div>
+                    <span className="teams-badge">T</span>
+                  </div>
+
+                  <div className="meeting-time">
+                    <span className="calendar-glyph">
+                      {new Date(pendingMeeting.start).getDate()}
+                    </span>
+                    <div>
+                      <b>{pendingMeeting.displayTime}</b>
+                      <small>
+                        {pendingMeeting.durationMinutes} minutes · Microsoft
+                        Teams
+                      </small>
+                    </div>
+                  </div>
+
+                  <div className="meeting-attendees">
+                    <p>ATTENDEES</p>
+                    {pendingMeeting.attendees.map((attendee) => (
+                      <div key={attendee.email}>
+                        <span className="mini-avatar">
+                          {attendee.displayName
+                            .split(/\s+/)
+                            .slice(0, 2)
+                            .map((part) => part[0]?.toUpperCase())
+                            .join("") || "·"}
+                        </span>
+                        <span>
+                          <b>{attendee.displayName}</b>
+                          <small>{attendee.email}</small>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {pendingMeeting.purpose && (
+                    <p className="meeting-purpose">{pendingMeeting.purpose}</p>
+                  )}
+
+                  {stage === "meetingReady" ? (
+                    <>
+                      <p className="voice-approval-hint">
+                        Respond naturally—“That works, book it.”
+                      </p>
+                      <div className="action-row">
+                        <button
+                          className="secondary"
+                          onClick={startAnotherRequest}
+                          disabled={meetingActionPending}
+                        >
+                          Not this time
+                        </button>
+                        <button
+                          className="primary approve"
+                          onClick={() => void approveMeetingWithButton()}
+                          disabled={meetingActionPending}
+                        >
+                          {meetingActionPending
+                            ? "Booking…"
+                            : "Book Teams meeting"}{" "}
+                          <span>→</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="audit-line">
+                        <span>✓</span> Nick approved{" "}
+                        {approvalMethod === "voice" ? "by voice" : "with a tap"}{" "}
+                        · Invitations sent
+                      </div>
+                      <div className="meeting-links">
+                        {bookedMeeting?.joinUrl && (
+                          <a
+                            href={bookedMeeting.joinUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Join Teams meeting ↗
+                          </a>
+                        )}
+                        {bookedMeeting?.webLink && (
+                          <a
+                            href={bookedMeeting.webLink}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open in Outlook ↗
+                          </a>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </article>
+              )}
+
             {stage === "found" && (
               <div className="action-row">
                 <button className="secondary" onClick={() => moveToStage("briefing")}>Not this one</button>
@@ -1085,8 +1413,8 @@ export default function Home() {
               </article>
             )}
 
-            {stage === "approved" && (
-              <button className="new-request" onClick={() => moveToStage("briefing")}>Start another request</button>
+            {(stage === "approved" || stage === "meetingBooked") && (
+              <button className="new-request" onClick={startAnotherRequest}>Start another request</button>
             )}
           </div>
         </section>
