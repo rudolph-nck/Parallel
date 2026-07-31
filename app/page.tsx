@@ -355,7 +355,7 @@ export default function Home() {
 
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      const sessionResponse = await fetch("/api/realtime", {
+      const sessionResponse = await fetch("/api/realtime/", {
         method: "POST",
         headers: {
           "Content-Type": "application/sdp",

@@ -47,7 +47,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
 
   assert.match(page, /new RTCPeerConnection\(\)/);
   assert.match(page, /navigator\.mediaDevices\.getUserMedia/);
-  assert.match(page, /fetch\("\/api\/realtime"/);
+  assert.match(page, /fetch\("\/api\/realtime\/"/);
   assert.match(page, /response\.output_audio\.delta/);
   assert.match(page, /search_recall/);
   assert.doesNotMatch(page, /OPENAI_API_KEY/);
