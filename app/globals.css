@@ -249,6 +249,16 @@ button { color: inherit; }
 .voice-key i { width: 4px; height: 9px; border-radius: 5px; }
 .key-human { background: #69a9ff; }
 .key-friday { background: #72e1d3; }
+.noise-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -4px 0 0;
+  color: #587163;
+  font-size: 7px;
+  letter-spacing: .05em;
+}
+.noise-filter span { color: #6dd7b0; font-size: 9px; }
 .voice-note { margin: -5px 0 0; color: #465464; font-size: 8px; letter-spacing: .04em; }
 .voice-transcript {
   width: min(210px, 82%);
@@ -303,7 +313,7 @@ button { color: inherit; }
 
 .stage-searching .voice-bars { animation: recallThink 1.5s ease-in-out infinite; }
 .stage-searching .signal-ring { animation: recallRing 1.5s ease-in-out infinite; }
-.stage-sent .voice-glow { opacity: .25; }
+.stage-approved .voice-glow { opacity: .25; }
 
 @keyframes humanVoice {
   0% { height: 44px; transform: translateY(4px) scaleX(.9); }
@@ -398,6 +408,11 @@ button { color: inherit; }
 .recipient small { color: #697788; font-size: 9px; }
 .approval-card textarea { width: 100%; min-height: 70px; resize: vertical; background: #0c131c; border: 1px solid var(--line); color: #bac4cf; border-radius: 8px; padding: 13px; line-height: 1.55; font-size: 11px; outline: none; }
 .approval-card textarea:focus { border-color: rgba(101,167,255,.4); }
+.voice-approval-hint {
+  margin: 12px 0 -3px;
+  color: #8bb8ef;
+  font-size: 10px;
+}
 .audit-line { color: #6fcdab; font-size: 10px; margin-top: 14px; }
 .audit-line span { display: inline-grid; place-items: center; width: 17px; height: 17px; background: rgba(86,214,166,.12); border-radius: 50%; margin-right: 7px; }
 

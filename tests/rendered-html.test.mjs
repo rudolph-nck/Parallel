@@ -50,6 +50,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /fetch\("\/api\/realtime\/"/);
   assert.match(page, /response\.output_audio\.delta/);
   assert.match(page, /search_recall/);
+  assert.match(page, /approve_pending_action/);
+  assert.match(page, /setMicrophoneEnabled\(false\)/);
+  assert.match(page, /Noise filter on/);
+  assert.match(page, /No external message sent/);
   assert.doesNotMatch(page, /OPENAI_API_KEY/);
 
   assert.match(route, /process\.env\.OPENAI_API_KEY/);
@@ -57,6 +61,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /gpt-realtime-2\.1/);
   assert.match(route, /voice:\s*"marin"/);
   assert.match(route, /name:\s*"search_recall"/);
+  assert.match(route, /type:\s*"server_vad"/);
+  assert.match(route, /threshold:\s*0\.75/);
+  assert.match(route, /interrupt_response:\s*false/);
+  assert.match(route, /name:\s*"prepare_message_for_approval"/);
+  assert.match(route, /name:\s*"approve_pending_action"/);
   assert.match(route, /tool_choice:\s*"auto"/);
 
   assert.match(gitignore, /\.env\*/);

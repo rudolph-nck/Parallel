@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-type Stage = "briefing" | "searching" | "found" | "ready" | "sent";
+type Stage = "briefing" | "searching" | "found" | "ready" | "approved";
 type VoiceState = "idle" | "connecting" | "listening" | "speaking" | "synced";
+type ApprovalMethod = "voice" | "button" | null;
 
 type RealtimeFunctionCall = {
   type: "function_call";
@@ -18,7 +19,7 @@ type RealtimeEvent = {
   delta?: string;
   transcript?: string;
   response?: {
-    output?: RealtimeFunctionCall[];
+    output?: Array<RealtimeFunctionCall | { type: string }>;
   };
 };
 
@@ -43,10 +44,10 @@ const conversations = {
     title: "I’ve prepared the message for Matt.",
     body: "Nothing leaves Parallel until you approve it. You can review the recipient, channel, file, and exact wording first.",
   },
-  sent: {
-    eyebrow: "Friday · Complete",
-    title: "Done. Matt has the current plan.",
-    body: "I also taught Recall that “my strategic plan” means this document, so you won’t need to remember the path next time.",
+  approved: {
+    eyebrow: "Friday · Approval recorded",
+    title: "Approved. The action is ready.",
+    body: "I recorded your approval. The live Teams connector is our next step, so this prototype has not sent the message externally.",
   },
 };
 
@@ -79,12 +80,14 @@ export default function Home() {
   const [voiceNote, setVoiceNote] = useState("Tap to let Friday hear your voice");
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [fridayTranscript, setFridayTranscript] = useState("");
+  const [approvalMethod, setApprovalMethod] = useState<ApprovalMethod>(null);
   const quoteIndex = useSyncExternalStore(
     subscribeToLocalDate,
     getLocalDay,
     getServerDay,
   );
   const visualRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<Stage>("briefing");
   const streamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
@@ -99,9 +102,22 @@ export default function Home() {
   );
   const copy = conversations[stage];
 
+  const moveToStage = (nextStage: Stage) => {
+    stageRef.current = nextStage;
+    setStage(nextStage);
+  };
+
   const askFriday = () => {
-    setStage("searching");
-    window.setTimeout(() => setStage("found"), 1250);
+    moveToStage("searching");
+    window.setTimeout(() => moveToStage("found"), 1250);
+  };
+
+  const setMicrophoneEnabled = (enabled: boolean) => {
+    streamRef.current
+      ?.getAudioTracks()
+      .forEach((track) => {
+        track.enabled = enabled;
+      });
   };
 
   const stopVoiceSession = (note = "Tap to start a new conversation") => {
@@ -171,23 +187,27 @@ export default function Home() {
     readLevel();
   };
 
-  const completeRecallSearch = (
-    call: RealtimeFunctionCall,
-    channel: RTCDataChannel,
-  ) => {
-    let query = "Nick's current strategic plan";
+  const parseFunctionArguments = (call: RealtimeFunctionCall) => {
     try {
-      const parsed = JSON.parse(call.arguments) as { query?: string };
-      if (parsed.query) query = parsed.query;
+      return JSON.parse(call.arguments) as Record<string, unknown>;
     } catch {
-      // The fallback query still gives Friday a useful, bounded prototype result.
+      return {};
     }
+  };
 
-    setStage("searching");
-    setVoiceNote("Friday is consulting Recall");
+  const runFridayFunction = async (call: RealtimeFunctionCall) => {
+    const args = parseFunctionArguments(call);
 
-    window.setTimeout(() => {
-      const result = {
+    if (call.name === "search_recall") {
+      const query =
+        typeof args.query === "string"
+          ? args.query
+          : "Nick's current strategic plan";
+      moveToStage("searching");
+      setVoiceNote("Friday is consulting Recall");
+      await new Promise((resolve) => window.setTimeout(resolve, 850));
+      moveToStage("found");
+      return {
         query,
         match: {
           title: "IT Core Strategic Plan 2027–2030",
@@ -199,7 +219,75 @@ export default function Home() {
         },
         source: "Parallel Recall prototype workspace catalog",
       };
+    }
 
+    if (call.name === "prepare_message_for_approval") {
+      const proposedMessage =
+        typeof args.message === "string" && args.message.trim()
+          ? args.message.trim()
+          : "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed.";
+      setMessage(proposedMessage);
+      setApprovalMethod(null);
+      moveToStage("ready");
+      return {
+        status: "pending_approval",
+        recipient:
+          typeof args.recipient === "string" ? args.recipient : "Matt Walsh",
+        channel:
+          typeof args.channel === "string" ? args.channel : "Microsoft Teams",
+        message: proposedMessage,
+        approval_required: true,
+        instruction:
+          "Summarize the pending message and ask Nick to say 'I approve' or use the approval button.",
+      };
+    }
+
+    if (call.name === "approve_pending_action") {
+      const confirmation =
+        typeof args.confirmation === "string" ? args.confirmation.trim() : "";
+      const isExplicitApproval =
+        /\b(i approve|approve it|send it|go ahead|yes[,\s]+(send|approve|do it)|do it)\b/i.test(
+          confirmation,
+        );
+
+      if (stageRef.current !== "ready") {
+        return {
+          approval_recorded: false,
+          reason: "There is no visible pending action to approve.",
+        };
+      }
+
+      if (!isExplicitApproval) {
+        return {
+          approval_recorded: false,
+          reason:
+            "The verbal confirmation was not explicit. Ask Nick to say 'I approve' for the visible action.",
+        };
+      }
+
+      setApprovalMethod("voice");
+      moveToStage("approved");
+      return {
+        approval_recorded: true,
+        approval_method: "voice",
+        confirmation,
+        execution_status: "not_sent_prototype",
+        note:
+          "The approval was recorded, but the prototype has not sent an external message.",
+      };
+    }
+
+    return {
+      error: `Unsupported Friday capability: ${call.name}`,
+    };
+  };
+
+  const completeFunctionCalls = async (
+    calls: RealtimeFunctionCall[],
+    channel: RTCDataChannel,
+  ) => {
+    for (const call of calls) {
+      const result = await runFridayFunction(call);
       if (channel.readyState !== "open") return;
       channel.send(
         JSON.stringify({
@@ -211,9 +299,11 @@ export default function Home() {
           },
         }),
       );
+    }
+
+    if (channel.readyState === "open") {
       channel.send(JSON.stringify({ type: "response.create" }));
-      setStage("found");
-    }, 850);
+    }
   };
 
   const handleRealtimeEvent = (
@@ -235,14 +325,17 @@ export default function Home() {
         setVoiceNote("Speak naturally — Friday is listening");
         break;
       case "input_audio_buffer.speech_stopped":
+        setMicrophoneEnabled(false);
         setVoiceNote("Friday is thinking");
         break;
       case "response.created":
+        setMicrophoneEnabled(false);
         setVoiceNote("Friday is thinking");
         break;
       case "response.output_audio.delta":
+        setMicrophoneEnabled(false);
         setVoiceState("speaking");
-        setVoiceNote("Friday is responding");
+        setVoiceNote("Friday is responding — your mic is paused");
         break;
       case "response.output_audio_transcript.delta":
         transcriptRef.current += event.delta ?? "";
@@ -255,13 +348,21 @@ export default function Home() {
         }
         break;
       case "response.done": {
-        const functionCall = event.response?.output?.find(
-          (item) =>
-            item.type === "function_call" && item.name === "search_recall",
+        const functionCalls = (event.response?.output ?? []).filter(
+          (item): item is RealtimeFunctionCall =>
+            item.type === "function_call" &&
+            "name" in item &&
+            "call_id" in item &&
+            "arguments" in item,
         );
 
-        if (functionCall) {
-          completeRecallSearch(functionCall, channel);
+        if (functionCalls.length > 0) {
+          void completeFunctionCalls(functionCalls, channel).catch((error) => {
+            console.error("Friday capability failed.", error);
+            setMicrophoneEnabled(true);
+            setVoiceState("listening");
+            setVoiceNote("Friday couldn't complete that step. Please try again.");
+          });
           return;
         }
 
@@ -269,6 +370,7 @@ export default function Home() {
         setVoiceNote("Friday is ready when you are");
         window.setTimeout(() => {
           if (peerRef.current?.connectionState === "connected") {
+            setMicrophoneEnabled(true);
             setVoiceState("listening");
           }
         }, 900);
@@ -276,6 +378,7 @@ export default function Home() {
       }
       case "error":
         console.error("Realtime voice event error.", event.error);
+        setMicrophoneEnabled(true);
         setVoiceNote("Friday missed that. Please try saying it again.");
         setVoiceState("listening");
         break;
@@ -323,6 +426,7 @@ export default function Home() {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: 1,
         },
       });
       streamRef.current = stream;
@@ -338,6 +442,7 @@ export default function Home() {
       channelRef.current = channel;
       channel.onmessage = (event) => handleRealtimeEvent(event, channel);
       channel.onopen = () => {
+        setMicrophoneEnabled(false);
         setVoiceConnected(true);
         setVoiceState("speaking");
         setVoiceNote("Friday is joining you");
@@ -429,6 +534,11 @@ export default function Home() {
     synced: "In sync",
   }[voiceState];
 
+  const approveWithButton = () => {
+    setApprovalMethod("button");
+    moveToStage("approved");
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -477,7 +587,7 @@ export default function Home() {
               <div className="signal-ring ring-two" />
               <div className="voice-glow human-glow" />
               <div className="voice-glow friday-glow" />
-            <div className="voice-bars">
+              <div className="voice-bars">
                 <i className="friday-bar" />
                 <i className="human-bar" />
               </div>
@@ -506,6 +616,10 @@ export default function Home() {
             <p className="voice-key">
               <span><i className="key-human" />You</span>
               <span><i className="key-friday" />Friday</span>
+            </p>
+            <p className="noise-filter">
+              <span aria-hidden="true">◇</span>
+              Noise filter on · mic pauses while Friday speaks
             </p>
             <p className="voice-note">{voiceNote}</p>
             {fridayTranscript && (
@@ -540,7 +654,7 @@ export default function Home() {
               </div>
             )}
 
-            {(stage === "found" || stage === "ready" || stage === "sent") && (
+            {(stage === "found" || stage === "ready" || stage === "approved") && (
               <article className="document-card">
                 <div className="file-icon">P</div>
                 <div className="file-info">
@@ -559,17 +673,17 @@ export default function Home() {
 
             {stage === "found" && (
               <div className="action-row">
-                <button className="secondary" onClick={() => setStage("briefing")}>Not this one</button>
-                <button className="primary" onClick={() => setStage("ready")}>Yes, prepare the message <span>→</span></button>
+                <button className="secondary" onClick={() => moveToStage("briefing")}>Not this one</button>
+                <button className="primary" onClick={() => moveToStage("ready")}>Yes, prepare the message <span>→</span></button>
               </div>
             )}
 
-            {(stage === "ready" || stage === "sent") && (
-              <article className={`approval-card ${stage === "sent" ? "approved" : ""}`}>
+            {(stage === "ready" || stage === "approved") && (
+              <article className={`approval-card ${stage === "approved" ? "approved" : ""}`}>
                 <div className="approval-head">
                   <div>
-                    <p>{stage === "sent" ? "SENT THROUGH MICROSOFT TEAMS" : "YOUR APPROVAL IS REQUIRED"}</p>
-                    <h3>{stage === "sent" ? "Message sent to Matt Walsh" : "Review before Friday acts"}</h3>
+                    <p>{stage === "approved" ? "APPROVAL RECORDED · PROTOTYPE" : "YOUR APPROVAL IS REQUIRED"}</p>
+                    <h3>{stage === "approved" ? "Message approved for Matt Walsh" : "Review before Friday acts"}</h3>
                   </div>
                   <span className="teams-badge">T</span>
                 </div>
@@ -581,21 +695,28 @@ export default function Home() {
                   aria-label="Message to Matt"
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  readOnly={stage === "sent"}
+                  readOnly={stage === "approved"}
                 />
                 {stage === "ready" ? (
-                  <div className="action-row">
-                    <button className="secondary" onClick={() => setStage("found")}>Go back</button>
-                    <button className="primary approve" onClick={() => setStage("sent")}>Approve and send <span>→</span></button>
-                  </div>
+                  <>
+                    <p className="voice-approval-hint">
+                      Say “Friday, I approve” or use the button.
+                    </p>
+                    <div className="action-row">
+                      <button className="secondary" onClick={() => moveToStage("found")}>Go back</button>
+                      <button className="primary approve" onClick={approveWithButton}>Approve action <span>→</span></button>
+                    </div>
+                  </>
                 ) : (
-                  <div className="audit-line"><span>✓</span> Approved by Nick · Recorded in activity history</div>
+                  <div className="audit-line">
+                    <span>✓</span> Approved by Nick {approvalMethod === "voice" ? "by voice" : "with the button"} · No external message sent
+                  </div>
                 )}
               </article>
             )}
 
-            {stage === "sent" && (
-              <button className="new-request" onClick={() => setStage("briefing")}>Start another request</button>
+            {stage === "approved" && (
+              <button className="new-request" onClick={() => moveToStage("briefing")}>Start another request</button>
             )}
           </div>
         </section>
