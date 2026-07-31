@@ -4,6 +4,11 @@ import {
   PublicClientApplication,
   type AccountInfo,
 } from "@azure/msal-browser";
+import {
+  resolveDirectoryPerson,
+  splitAttendeeNames,
+  type DirectoryPerson,
+} from "./people";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -20,6 +25,7 @@ export const MICROSOFT_GRAPH_SCOPES = [
 
 type GraphCollection<T> = {
   value?: T[];
+  "@odata.count"?: number;
 };
 
 type GraphProfile = {
@@ -70,14 +76,6 @@ type GraphPerson = {
   }>;
 };
 
-type GraphDirectoryUser = {
-  displayName?: string;
-  givenName?: string | null;
-  surname?: string | null;
-  mail?: string | null;
-  userPrincipalName?: string;
-};
-
 type GraphSite = {
   id: string;
   displayName?: string;
@@ -121,10 +119,12 @@ export type MicrosoftSnapshot = {
   recentMessages: GraphMessage[];
   upcomingEvents: GraphEvent[];
   sharePointSite: GraphSite | null;
+  directoryPeople: number;
   capabilities: {
     mail: MicrosoftCapabilityState;
     calendar: MicrosoftCapabilityState;
     sharePoint: MicrosoftCapabilityState;
+    directory: MicrosoftCapabilityState;
   };
 };
 
@@ -156,6 +156,8 @@ export type MicrosoftMeetingProposal = {
 export type MicrosoftMeetingPreparation = {
   proposal: MicrosoftMeetingProposal | null;
   unresolvedAttendees: string[];
+  directoryStatus: "ready" | "unavailable";
+  directoryPeopleChecked: number;
 };
 
 export type MicrosoftMeetingResult = {
@@ -388,7 +390,7 @@ async function readMicrosoftSnapshot(
     "/me?$select=displayName,mail,userPrincipalName",
   );
 
-  const [mailResult, calendarResult, sharePointResult] =
+  const [mailResult, calendarResult, sharePointResult, directoryResult] =
     await Promise.allSettled([
       graphRequest<GraphCollection<GraphMessage>>(
         token.accessToken,
@@ -401,6 +403,15 @@ async function readMicrosoftSnapshot(
       graphRequest<GraphSite>(
         token.accessToken,
         "/sites/root?$select=id,displayName,name,webUrl",
+      ),
+      graphRequest<GraphCollection<DirectoryPerson>>(
+        token.accessToken,
+        "/users?$select=displayName,givenName,surname,mail,userPrincipalName&$top=999&$count=true",
+        {
+          headers: {
+            ConsistencyLevel: "eventual",
+          },
+        },
       ),
     ]);
 
@@ -421,12 +432,20 @@ async function readMicrosoftSnapshot(
         : [],
     sharePointSite:
       sharePointResult.status === "fulfilled" ? sharePointResult.value : null,
+    directoryPeople:
+      directoryResult.status === "fulfilled"
+        ? directoryResult.value["@odata.count"] ??
+          directoryResult.value.value?.length ??
+          0
+        : 0,
     capabilities: {
       mail: mailResult.status === "fulfilled" ? "ready" : "provisioning",
       calendar:
         calendarResult.status === "fulfilled" ? "ready" : "provisioning",
       sharePoint:
         sharePointResult.status === "fulfilled" ? "ready" : "provisioning",
+      directory:
+        directoryResult.status === "fulfilled" ? "ready" : "provisioning",
     },
   };
 }
@@ -511,57 +530,25 @@ export async function searchMicrosoft365Files(query: string) {
   );
 }
 
-function normalizePersonName(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function attendeeFromDirectoryUsers(
-  requestedName: string,
-  users: GraphDirectoryUser[],
-) {
-  const requested = normalizePersonName(requestedName);
-  const candidates = users
-    .map((user) => ({
-      displayName:
-        user.displayName?.trim() ||
-        [user.givenName, user.surname].filter(Boolean).join(" ").trim(),
-      email: user.mail?.trim() || user.userPrincipalName?.trim() || "",
-    }))
-    .filter((user) => user.displayName && user.email);
-
-  const exact = candidates.filter(
-    (user) => normalizePersonName(user.displayName) === requested,
-  );
-  if (exact.length === 1) return exact[0];
-
-  const prefix = candidates.filter((user) => {
-    const displayName = normalizePersonName(user.displayName);
-    return (
-      displayName.startsWith(`${requested} `) ||
-      displayName.split(" ").some((part) => part === requested)
-    );
-  });
-  return prefix.length === 1 ? prefix[0] : null;
-}
-
 async function resolveDirectoryAttendee(
   accessToken: string,
   requestedName: string,
+  directoryPeople: DirectoryPerson[],
 ) {
+  const directoryMatch = resolveDirectoryPerson(
+    requestedName,
+    directoryPeople,
+  );
+  if (directoryMatch) return directoryMatch;
+
   const safeName = requestedName.replaceAll('"', "").trim();
   if (!safeName) return null;
-
-  const directory = await graphRequest<GraphCollection<GraphDirectoryUser>>(
+  const searched = await graphRequest<GraphCollection<DirectoryPerson>>(
     accessToken,
-    `/users?$search=${encodeURIComponent(`"displayName:${safeName}"`)}&$select=displayName,givenName,surname,mail,userPrincipalName&$top=10&$count=true`,
-    {
-      headers: {
-        ConsistencyLevel: "eventual",
-      },
-    },
+    `/users?$search=${encodeURIComponent(`"displayName:${safeName}"`)}&$select=displayName,givenName,surname,mail,userPrincipalName&$top=25&$count=true`,
+    { headers: { ConsistencyLevel: "eventual" } },
   );
-
-  return attendeeFromDirectoryUsers(requestedName, directory.value ?? []);
+  return resolveDirectoryPerson(requestedName, searched.value ?? []);
 }
 
 async function resolveRelevantPerson(
@@ -584,8 +571,7 @@ async function resolveRelevantPerson(
 
   const exact = candidates.filter(
     (person) =>
-      normalizePersonName(person.displayName) ===
-      normalizePersonName(requestedName),
+      person.displayName.trim().toLowerCase() === requestedName.trim().toLowerCase(),
   );
   if (exact.length === 1) return exact[0];
   return candidates.length === 1 ? candidates[0] : null;
@@ -621,10 +607,26 @@ export async function prepareMicrosoftMeeting({
     return {
       proposal: null,
       unresolvedAttendees: ["the attendee"],
+      directoryStatus: "ready",
+      directoryPeopleChecked: 0,
     };
   }
 
-  for (const rawAttendee of attendeeNames) {
+  let directoryPeople: DirectoryPerson[] = [];
+  let directoryStatus: MicrosoftMeetingPreparation["directoryStatus"] =
+    "ready";
+  try {
+    const directory = await graphRequest<GraphCollection<DirectoryPerson>>(
+      token.accessToken,
+      "/users?$select=displayName,givenName,surname,mail,userPrincipalName&$top=999&$count=true",
+      { headers: { ConsistencyLevel: "eventual" } },
+    );
+    directoryPeople = directory.value ?? [];
+  } catch {
+    directoryStatus = "unavailable";
+  }
+
+  for (const rawAttendee of splitAttendeeNames(attendeeNames)) {
     const attendee = rawAttendee.trim();
     if (!attendee) continue;
 
@@ -634,11 +636,16 @@ export async function prepareMicrosoftMeeting({
     }
 
     let match: MicrosoftMeetingAttendee | null = null;
-    try {
-      match = await resolveDirectoryAttendee(token.accessToken, attendee);
-    } catch {
-      // The relevant-people fallback still works if directory access is
-      // temporarily unavailable or has not been consented yet.
+    if (directoryStatus === "ready") {
+      try {
+        match = await resolveDirectoryAttendee(
+          token.accessToken,
+          attendee,
+          directoryPeople,
+        );
+      } catch {
+        // Continue to relevant people if directory search is still indexing.
+      }
     }
 
     if (!match) {
@@ -657,7 +664,12 @@ export async function prepareMicrosoftMeeting({
   }
 
   if (unresolvedAttendees.length > 0) {
-    return { proposal: null, unresolvedAttendees };
+    return {
+      proposal: null,
+      unresolvedAttendees,
+      directoryStatus,
+      directoryPeopleChecked: directoryPeople.length,
+    };
   }
 
   const deadline = resolveDeadline(deadlineDescription);
@@ -692,6 +704,8 @@ export async function prepareMicrosoftMeeting({
       displayTime: formatMeetingTime(available.start, available.end),
     },
     unresolvedAttendees: [],
+    directoryStatus,
+    directoryPeopleChecked: directoryPeople.length,
   };
 }
 

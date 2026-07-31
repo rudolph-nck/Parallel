@@ -31,11 +31,17 @@ test("server-renders the Parallel Ara dashboard", async () => {
   const html = await response.text();
   assert.match(html, /<title>Parallel — Move through work with clarity<\/title>/i);
   assert.match(html, /Move through work with clarity\./);
-  assert.match(html, /Good morning, Nick\./);
+  assert.match(html, /Hey Nick—I’m really glad you’re here\./);
   assert.match(html, /Talk to Ara/);
+  assert.match(html, /What can I ask you/);
+  assert.match(html, /Thoughtful work, already in motion/);
+  assert.match(html, /Recall · Working Memory/i);
+  assert.match(html, /Approvals · You Stay in Control/i);
   assert.match(html, /Ara proposes\./);
   assert.match(html, /class="ara-signature">ARA<\/span>/);
   assert.match(html, /You decide\./);
+  assert.match(html, /\/og-ara\.png/);
+  assert.doesNotMatch(html, /\/og-v2\.png/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 
@@ -79,9 +85,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"approve_pending_action"/);
   assert.match(route, /name:\s*"prepare_calendar_meeting"/);
   assert.match(route, /name:\s*"approve_calendar_meeting"/);
+  assert.match(route, /name:\s*"remember_user_preference"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who knows Nick well/);
+  assert.match(route, /What would make today feel like a win/);
+  assert.match(route, /turn messy meeting notes into/i);
   assert.match(route, /How does that sound/);
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
@@ -89,6 +98,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);
+  assert.match(microsoft365, /splitAttendeeNames/);
+  assert.match(microsoft365, /directoryPeopleChecked/);
   assert.match(microsoft365, /ConsistencyLevel:\s*"eventual"/);
 
   assert.match(gitignore, /\.env\*/);

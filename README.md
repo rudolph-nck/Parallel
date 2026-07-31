@@ -12,6 +12,10 @@ This first prototype demonstrates the core relationship:
 - **Recall** is the memory and context engine Ara consults.
 - **Nick** remains in control of every external action.
 
+The experience includes a cinematic startup, a first-conversation welcome, a
+practical "what can I ask?" guide, device-local working preferences, and
+functional Today, Ara, Recall, Approvals, and profile navigation.
+
 The current workflow connects to a Microsoft 365 demo tenant, reads Outlook,
 Calendar, and SharePoint context, resolves relevant people, proposes an open
 working-hours calendar slot, and creates a real Teams meeting only after Nick's
@@ -30,7 +34,9 @@ Ara currently requests delegated access for the signed-in user:
 - `Calendars.Read` and `Calendars.ReadWrite` for availability and approved
   meeting creation.
 - `User.ReadBasic.All` to resolve internal attendees from the tenant's basic
-  user directory, with `People.Read` as a fallback for relevant contacts.
+  user directory, including safe handling for speech variations such as
+  "Noel" / "Noelle" and "Wes" / "Wesley", with `People.Read` as a fallback
+  for relevant contacts.
 
 Calendar creation is the only live write action. Sending messages, editing
 files, and deleting content remain off.

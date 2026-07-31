@@ -31,6 +31,14 @@ type MicrosoftStatus =
   | "connected"
   | "refreshing"
   | "error";
+type NavSection = "today" | "ara" | "recall" | "approvals";
+type PreferenceCategory =
+  | "morning_briefing_time"
+  | "role_and_responsibilities"
+  | "current_priorities"
+  | "communication_style"
+  | "proactivity";
+type UserProfile = Partial<Record<PreferenceCategory, string>>;
 
 type RecallDocument = {
   title: string;
@@ -116,6 +124,13 @@ const prototypeDocument: RecallDocument = {
   status: "Most recent approved version",
 };
 
+const PROFILE_STORAGE_KEY = "parallel:ara-profile";
+const WELCOME_STORAGE_KEY = "parallel:ara-welcomed";
+const defaultIntroduction =
+  "Hey Nick—I’m Ara. I’m genuinely excited to start working with you. Think of me as the calm, connected friend who helps you make sense of the noise and get the right things moving. Before we dive in, what would make today feel like a win?";
+const capabilityIntroduction =
+  "Nick asked what he can ask you. Give him an energizing, conversational tour of four or five surprisingly useful ways you can help across his work, grounded in your actual capabilities. End by asking which one would make his day easier right now.";
+
 const subscribeToLocalDate = () => () => {};
 const getLocalDay = () => new Date().getDay();
 const getServerDay = () => 0;
@@ -141,6 +156,12 @@ function ParallelWordmark() {
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
+  const [showStartup, setShowStartup] = useState(true);
+  const [firstVisit, setFirstVisit] = useState(true);
+  const [activeNav, setActiveNav] = useState<NavSection>("today");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile>({});
+  const [todayLabel, setTodayLabel] = useState("TODAY");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceNote, setVoiceNote] = useState("Tap to let Ara hear your voice");
   const [voiceConnected, setVoiceConnected] = useState(false);
@@ -178,6 +199,7 @@ export default function Home() {
   const transcriptRef = useRef("");
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
+  const initialResponseRef = useRef<string | null>(null);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -191,6 +213,29 @@ export default function Home() {
   const moveToStage = (nextStage: Stage) => {
     stageRef.current = nextStage;
     setStage(nextStage);
+  };
+
+  const rememberUserPreference = (
+    category: PreferenceCategory,
+    value: string,
+  ) => {
+    const nextProfile = {
+      ...userProfile,
+      [category]: value.trim(),
+    };
+    setUserProfile(nextProfile);
+    window.localStorage.setItem(
+      PROFILE_STORAGE_KEY,
+      JSON.stringify(nextProfile),
+    );
+    return nextProfile;
+  };
+
+  const moveToSection = (section: NavSection) => {
+    setActiveNav(section);
+    document
+      .getElementById(section)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const askFriday = () => {
@@ -477,8 +522,12 @@ export default function Home() {
           return {
             status: "needs_attendee_details",
             unresolved_attendees: preparation.unresolvedAttendees,
+            directory_status: preparation.directoryStatus,
+            directory_people_checked: preparation.directoryPeopleChecked,
             instruction:
-              "Ask Nick naturally for the work email address of each unresolved attendee. Explain briefly that you could not find one unambiguous match in the Microsoft 365 directory or his relevant people. Do not guess and do not claim the meeting is scheduled.",
+              preparation.directoryStatus === "unavailable"
+                ? "Tell Nick the Microsoft company directory needs to reconnect before you can safely resolve the attendee names. Do not ask him to spell every email unless reconnecting fails."
+                : "Ask Nick which person he means only when a name is genuinely ambiguous. If no candidate exists, ask naturally for that person's work email. Do not guess and do not claim the meeting is scheduled.",
           };
         }
 
@@ -496,6 +545,7 @@ export default function Home() {
           })),
           proposed_time: preparation.proposal.displayTime,
           deadline: preparation.proposal.deadline,
+          directory_people_checked: preparation.directoryPeopleChecked,
           teams_meeting: true,
           approval_required: true,
           instruction:
@@ -642,6 +692,38 @@ export default function Home() {
       };
     }
 
+    if (call.name === "remember_user_preference") {
+      const validCategories: PreferenceCategory[] = [
+        "morning_briefing_time",
+        "role_and_responsibilities",
+        "current_priorities",
+        "communication_style",
+        "proactivity",
+      ];
+      const category =
+        typeof args.category === "string" &&
+        validCategories.includes(args.category as PreferenceCategory)
+          ? (args.category as PreferenceCategory)
+          : null;
+      const value =
+        typeof args.value === "string" ? args.value.trim().slice(0, 240) : "";
+
+      if (!category || !value) {
+        return {
+          remembered: false,
+          reason: "The preference was incomplete.",
+        };
+      }
+
+      rememberUserPreference(category, value);
+      return {
+        remembered: true,
+        category,
+        instruction:
+          "Acknowledge the preference naturally without sounding like a database. Continue the conversation.",
+      };
+    }
+
     return {
       error: `Unsupported Ara capability: ${call.name}`,
     };
@@ -750,9 +832,10 @@ export default function Home() {
     }
   };
 
-  const startVoiceSession = async () => {
+  const startVoiceSession = async (openingInstruction?: string) => {
     if (peerRef.current || voiceState === "connecting") return;
 
+    initialResponseRef.current = openingInstruction ?? null;
     setVoiceState("connecting");
     setVoiceNote("Opening a private voice connection");
     setFridayTranscript("");
@@ -811,16 +894,31 @@ export default function Home() {
         setVoiceConnected(true);
         setVoiceState("speaking");
         setVoiceNote("Ara is joining you");
+        const knownPreferences = Object.entries(userProfile)
+          .filter(([, value]) => value.trim())
+          .map(([category, value]) => `${category}: ${value}`)
+          .join("; ");
+        const opening =
+          initialResponseRef.current ??
+          (firstVisit
+            ? `Introduce yourself by saying this naturally in your own voice: "${defaultIntroduction}"`
+            : "Greet Nick warmly in one brief sentence, then invite him to tell you what needs his attention.");
         channel.send(
           JSON.stringify({
             type: "response.create",
             response: {
               input: [],
-              instructions:
-                "Greet Nick warmly in one brief sentence, then invite him to tell you what needs his attention.",
+              instructions: knownPreferences
+                ? `${opening} Known preferences to respect: ${knownPreferences}.`
+                : opening,
             },
           }),
         );
+        initialResponseRef.current = null;
+        if (firstVisit) {
+          window.localStorage.setItem(WELCOME_STORAGE_KEY, "true");
+          setFirstVisit(false);
+        }
       };
 
       const offer = await peer.createOffer();
@@ -864,6 +962,72 @@ export default function Home() {
       void startVoiceSession();
     }
   };
+
+  const askAraWhatSheCanDo = () => {
+    setActiveNav("ara");
+    if (channelRef.current?.readyState === "open") {
+      setMicrophoneEnabled(false);
+      setVoiceState("speaking");
+      setVoiceNote("Ara is showing you what’s possible");
+      channelRef.current.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            input: [],
+            instructions: capabilityIntroduction,
+          },
+        }),
+      );
+      return;
+    }
+
+    void startVoiceSession(capabilityIntroduction);
+  };
+
+  const meetAra = () => {
+    setActiveNav("ara");
+    void startVoiceSession(
+      `Introduce yourself by saying this naturally in your own voice: "${defaultIntroduction}"`,
+    );
+  };
+
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const startupTimer = window.setTimeout(
+      () => setShowStartup(false),
+      prefersReducedMotion ? 250 : 2300,
+    );
+
+    const hydrateTimer = window.setTimeout(() => {
+      setFirstVisit(
+        window.localStorage.getItem(WELCOME_STORAGE_KEY) !== "true",
+      );
+      setTodayLabel(
+        new Intl.DateTimeFormat(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        })
+          .format(new Date())
+          .toUpperCase(),
+      );
+      try {
+        const savedProfile = JSON.parse(
+          window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? "{}",
+        ) as UserProfile;
+        setUserProfile(savedProfile);
+      } catch {
+        setUserProfile({});
+      }
+    }, 0);
+
+    return () => {
+      window.clearTimeout(startupTimer);
+      window.clearTimeout(hydrateTimer);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1014,7 +1178,22 @@ export default function Home() {
     microsoftStatus === "refreshing";
 
   return (
-    <main className="app-shell">
+    <>
+      {showStartup && (
+        <div className="startup-screen" role="status" aria-label="Opening Parallel">
+          <div className="startup-aura" aria-hidden="true" />
+          <div className="startup-identity">
+            <ParallelMark />
+            <ParallelWordmark />
+          </div>
+          <div className="startup-signal" aria-hidden="true">
+            <i />
+            <i />
+          </div>
+          <p>Thoughtful work, already in motion.</p>
+        </div>
+      )}
+      <main className={`app-shell ${showStartup ? "app-loading" : "app-ready"}`}>
       <header className="topbar">
         <a className="brand" href="#" aria-label="Parallel home">
           <ParallelMark />
@@ -1024,15 +1203,43 @@ export default function Home() {
           <span className={`status-dot ${microsoftConnected ? "" : "waiting"}`} />
           {microsoftConnected ? "Microsoft 365 connected" : "Workspace ready"}
         </div>
-        <button className="avatar" aria-label="Open profile">NR</button>
+        <button
+          className={`avatar ${profileOpen ? "active" : ""}`}
+          aria-label="Open profile"
+          aria-expanded={profileOpen}
+          onClick={() => setProfileOpen((open) => !open)}
+        >
+          NR
+        </button>
       </header>
 
       <aside className="sidebar">
         <nav aria-label="Primary navigation">
-          <button className="nav-item active"><span>◫</span>Today</button>
-          <button className="nav-item"><span>◉</span>Ara</button>
-          <button className="nav-item"><span>⌕</span>Recall</button>
-          <button className="nav-item"><span>✓</span>Approvals <b>2</b></button>
+          <button
+            className={`nav-item ${activeNav === "today" ? "active" : ""}`}
+            onClick={() => moveToSection("today")}
+          >
+            <span>◫</span>Today
+          </button>
+          <button
+            className={`nav-item ${activeNav === "ara" ? "active" : ""}`}
+            onClick={() => moveToSection("ara")}
+          >
+            <span>◉</span>Ara
+          </button>
+          <button
+            className={`nav-item ${activeNav === "recall" ? "active" : ""}`}
+            onClick={() => moveToSection("recall")}
+          >
+            <span>⌕</span>Recall
+          </button>
+          <button
+            className={`nav-item ${activeNav === "approvals" ? "active" : ""}`}
+            onClick={() => moveToSection("approvals")}
+          >
+            <span>✓</span>Approvals
+            {(stage === "ready" || stage === "meetingReady") && <b>1</b>}
+          </button>
         </nav>
         <div className="sidebar-foot">
           <p>Connected systems</p>
@@ -1053,10 +1260,70 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className="workspace" id="today">
+        {profileOpen && (
+          <aside className="profile-panel" aria-label="Ara preferences">
+            <div className="profile-heading">
+              <div>
+                <p>ARA · GETTING TO KNOW YOU</p>
+                <h2>Make this feel like your space.</h2>
+              </div>
+              <button
+                aria-label="Close profile"
+                onClick={() => setProfileOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <label>
+              Morning briefing
+              <input
+                value={userProfile.morning_briefing_time ?? ""}
+                placeholder="Around 8:30 AM"
+                onChange={(event) =>
+                  rememberUserPreference(
+                    "morning_briefing_time",
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+            <label>
+              What needs most of your attention?
+              <input
+                value={userProfile.current_priorities ?? ""}
+                placeholder="My team, customers, and major projects"
+                onChange={(event) =>
+                  rememberUserPreference(
+                    "current_priorities",
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+            <label>
+              How should Ara work with you?
+              <select
+                value={userProfile.proactivity ?? ""}
+                onChange={(event) =>
+                  rememberUserPreference("proactivity", event.target.value)
+                }
+              >
+                <option value="">Choose a style</option>
+                <option value="Quiet unless something is urgent">Quiet</option>
+                <option value="Balanced and thoughtful">Balanced</option>
+                <option value="Proactive—surface things early">Proactive</option>
+              </select>
+            </label>
+            <p className="profile-note">
+              Saved privately on this device. Ara will learn naturally as you
+              work together.
+            </p>
+          </aside>
+        )}
         <div className="date-row">
           <div>
-            <p>THURSDAY · JULY 30</p>
+            <p>{todayLabel}</p>
             <h1>Move through work with clarity.</h1>
           </div>
           <aside className="daily-quote">
@@ -1128,6 +1395,20 @@ export default function Home() {
                   {microsoftSnapshot.capabilities.sharePoint === "ready"
                     ? "Ready"
                     : "Provisioning"}
+                  </small>
+              </span>
+              <span
+                className={
+                  microsoftSnapshot.capabilities.directory === "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                People
+                <small>
+                  {microsoftSnapshot.capabilities.directory === "ready"
+                    ? `${microsoftSnapshot.directoryPeople} available`
+                    : "Reconnect"}
                 </small>
               </span>
             </div>
@@ -1171,7 +1452,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className={`friday-panel stage-${stage}`}>
+        <section className={`friday-panel stage-${stage}`} id="ara">
           <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
             <div className="voice-stage" aria-hidden="true">
               <div className="signal-ring ring-one" />
@@ -1221,17 +1502,53 @@ export default function Home() {
           </div>
 
           <div className="conversation">
-            <p className="eyebrow">{copy.eyebrow}</p>
-            <h2>{copy.title}</h2>
-            <p className="conversation-copy">{copy.body}</p>
+            {firstVisit ? (
+              <>
+                <p className="eyebrow">ARA · NICE TO MEET YOU</p>
+                <h2>Hey Nick—I’m really glad you’re here.</h2>
+                <p className="conversation-copy">
+                  Think of me as the calm, connected friend who helps you find
+                  the signal, make the call, and keep work moving without
+                  carrying all of it alone.
+                </p>
+                <div className="welcome-actions">
+                  <button className="primary meet-ara" onClick={meetAra}>
+                    Meet Ara <span>→</span>
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={askAraWhatSheCanDo}
+                  >
+                    What can I ask you?
+                  </button>
+                </div>
+                <p className="welcome-note">
+                  A conversation—not a setup wizard. Ara will get to know you
+                  naturally over time.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="eyebrow">{copy.eyebrow}</p>
+                <h2>{copy.title}</h2>
+                <p className="conversation-copy">{copy.body}</p>
+              </>
+            )}
 
-            {stage === "briefing" && (
+            {stage === "briefing" && !firstVisit && (
               <div className="prompt-card">
                 <p>Try asking Ara</p>
-                <button onClick={askFriday}>
-                  “Find my strategic plan in SharePoint and send the link to Matt through Teams.”
-                  <span>↗</span>
-                </button>
+                <div className="prompt-actions">
+                  <button onClick={askAraWhatSheCanDo}>
+                    “What can I ask you that I might not think of?”
+                    <span>↗</span>
+                  </button>
+                  <button onClick={askFriday}>
+                    “Find my strategic plan and reconnect the surrounding
+                    context.”
+                    <span>↗</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1435,6 +1752,80 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="platform-grid" aria-label="Parallel workspace">
+          <article className="platform-card recall-card" id="recall">
+            <div className="platform-card-head">
+              <span>⌕</span>
+              <div>
+                <p>RECALL · WORKING MEMORY</p>
+                <h2>The context behind the work.</h2>
+              </div>
+            </div>
+            <p>
+              Ara can reconnect the email, file, meeting, person, and decision
+              behind a request—so you do not have to remember where everything
+              lives.
+            </p>
+            <div className="source-row">
+              <span>Outlook</span>
+              <span>Calendar</span>
+              <span>SharePoint</span>
+              <span>
+                {microsoftSnapshot?.directoryPeople ?? 0} directory people
+              </span>
+            </div>
+            <button className="card-link" onClick={askFriday}>
+              Ask Ara to find the missing context <span>↗</span>
+            </button>
+          </article>
+
+          <article className="platform-card approvals-card" id="approvals">
+            <div className="platform-card-head">
+              <span>✓</span>
+              <div>
+                <p>APPROVALS · YOU STAY IN CONTROL</p>
+                <h2>
+                  {stage === "meetingReady" || stage === "ready"
+                    ? "One decision is waiting."
+                    : "Nothing is waiting on you."}
+                </h2>
+              </div>
+            </div>
+            {stage === "meetingReady" && pendingMeeting ? (
+              <div className="approval-summary">
+                <b>{pendingMeeting.subject}</b>
+                <span>
+                  {pendingMeeting.attendees.length} attendees ·{" "}
+                  {pendingMeeting.displayTime}
+                </span>
+              </div>
+            ) : stage === "ready" ? (
+              <div className="approval-summary">
+                <b>Message for Matt</b>
+                <span>Prepared by Ara · not sent</span>
+              </div>
+            ) : (
+              <p>
+                Ara will prepare the work and bring you a clear recommendation
+                before anything important goes out.
+              </p>
+            )}
+            <button
+              className="card-link"
+              onClick={() =>
+                stage === "meetingReady" || stage === "ready"
+                  ? moveToSection("ara")
+                  : askAraWhatSheCanDo()
+              }
+            >
+              {stage === "meetingReady" || stage === "ready"
+                ? "Review with Ara"
+                : "See what Ara can prepare"}{" "}
+              <span>↗</span>
+            </button>
+          </article>
+        </section>
+
         <section className="attention-strip">
           <div><span className="strip-number">03</span><p><b>Decisions</b><small>need your judgment</small></p></div>
           <div><span className="strip-number">02</span><p><b>Approvals</b><small>waiting safely</small></p></div>
@@ -1442,6 +1833,29 @@ export default function Home() {
           <div className="principle"><ParallelMark /><p>Ara proposes.<br/><b>You decide.</b></p></div>
         </section>
       </section>
-    </main>
+      <nav className="mobile-nav" aria-label="Mobile navigation">
+        {(["today", "ara", "recall", "approvals"] as NavSection[]).map(
+          (section) => (
+            <button
+              key={section}
+              className={activeNav === section ? "active" : ""}
+              onClick={() => moveToSection(section)}
+            >
+              <span>
+                {section === "today"
+                  ? "◫"
+                  : section === "ara"
+                    ? "◉"
+                    : section === "recall"
+                      ? "⌕"
+                      : "✓"}
+              </span>
+              {section}
+            </button>
+          ),
+        )}
+      </nav>
+      </main>
+    </>
   );
 }

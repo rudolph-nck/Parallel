@@ -19,13 +19,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Parallel — Move through work with clarity.",
     description: "Ara, powered by Recall.",
-    images: [{ url: "/og-v2.png", width: 1200, height: 630 }],
+    images: [{ url: "/og-ara.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Parallel — Move through work with clarity.",
     description: "Ara, powered by Recall.",
-    images: ["/og-v2.png"],
+    images: ["/og-ara.png"],
   },
   icons: {
     icon: "/favicon.svg",
