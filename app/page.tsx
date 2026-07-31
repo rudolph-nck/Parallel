@@ -40,14 +40,14 @@ const conversations = {
     body: "It’s the newest version, you edited it Monday, and it appeared in your recent conversation with Matt.",
   },
   ready: {
-    eyebrow: "Friday · Action prepared",
-    title: "I’ve prepared the message for Matt.",
-    body: "Nothing leaves Parallel until you approve it. You can review the recipient, channel, file, and exact wording first.",
+    eyebrow: "Friday · Ready when you are",
+    title: "I have it ready for Matt.",
+    body: "I found the right plan and drafted a short Teams note. Take a look—how does that sound?",
   },
   approved: {
-    eyebrow: "Friday · Approval recorded",
-    title: "Approved. The action is ready.",
-    body: "I recorded your approval. The live Teams connector is our next step, so this prototype has not sent the message externally.",
+    eyebrow: "Friday · In sync",
+    title: "Perfect—I’ve got it.",
+    body: "Your go-ahead is recorded. Once Teams is connected, Friday will take it from here.",
   },
 };
 
@@ -238,7 +238,7 @@ export default function Home() {
         message: proposedMessage,
         approval_required: true,
         instruction:
-          "Summarize the pending message and ask Nick to say 'I approve' or use the approval button.",
+          "Give Nick a brief natural summary in your own words, end with 'How does that sound?', and let him respond naturally. Do not tell him to say a specific phrase.",
       };
     }
 
@@ -246,9 +246,13 @@ export default function Home() {
       const confirmation =
         typeof args.confirmation === "string" ? args.confirmation.trim() : "";
       const isExplicitApproval =
-        /\b(i approve|approve it|send it|go ahead|yes[,\s]+(send|approve|do it)|do it)\b/i.test(
+        /\b(send|share)\s+(it|that|this|the message|the link)\b/i.test(
           confirmation,
-        );
+        ) ||
+        /\b(go ahead|let'?s do it|make it happen|do it now)\b/i.test(
+          confirmation,
+        ) ||
+        /\bi approve\b/i.test(confirmation);
 
       if (stageRef.current !== "ready") {
         return {
@@ -261,7 +265,7 @@ export default function Home() {
         return {
           approval_recorded: false,
           reason:
-            "The verbal confirmation was not explicit. Ask Nick to say 'I approve' for the visible action.",
+            "Nick's intent was not clear enough to proceed. Briefly ask whether he wants you to send the message you just summarized; do not give him a required phrase.",
         };
       }
 
@@ -272,8 +276,8 @@ export default function Home() {
         approval_method: "voice",
         confirmation,
         execution_status: "not_sent_prototype",
-        note:
-          "The approval was recorded, but the prototype has not sent an external message.",
+        instruction:
+          "Respond naturally in one sentence: confirm you have Nick's go-ahead and say you'll take it from here once Teams is connected. Do not say an external message was sent.",
       };
     }
 
@@ -682,8 +686,8 @@ export default function Home() {
               <article className={`approval-card ${stage === "approved" ? "approved" : ""}`}>
                 <div className="approval-head">
                   <div>
-                    <p>{stage === "approved" ? "APPROVAL RECORDED · PROTOTYPE" : "YOUR APPROVAL IS REQUIRED"}</p>
-                    <h3>{stage === "approved" ? "Message approved for Matt Walsh" : "Review before Friday acts"}</h3>
+                    <p>{stage === "approved" ? "FRIDAY · READY TO TAKE IT FROM HERE" : "HOW DOES THAT SOUND?"}</p>
+                    <h3>{stage === "approved" ? "Friday has your go-ahead" : "Friday has the message ready"}</h3>
                   </div>
                   <span className="teams-badge">T</span>
                 </div>
@@ -700,16 +704,16 @@ export default function Home() {
                 {stage === "ready" ? (
                   <>
                     <p className="voice-approval-hint">
-                      Say “Friday, I approve” or use the button.
+                      Respond naturally—“That sounds good, send it.”
                     </p>
                     <div className="action-row">
                       <button className="secondary" onClick={() => moveToStage("found")}>Go back</button>
-                      <button className="primary approve" onClick={approveWithButton}>Approve action <span>→</span></button>
+                      <button className="primary approve" onClick={approveWithButton}>Looks good <span>→</span></button>
                     </div>
                   </>
                 ) : (
                   <div className="audit-line">
-                    <span>✓</span> Approved by Nick {approvalMethod === "voice" ? "by voice" : "with the button"} · No external message sent
+                    <span>✓</span> Nick said it sounded good {approvalMethod === "voice" ? "by voice" : "with a tap"} · Ready for the Teams connection
                   </div>
                 )}
               </article>
