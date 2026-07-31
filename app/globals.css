@@ -250,10 +250,33 @@ button { color: inherit; }
 .key-human { background: #69a9ff; }
 .key-friday { background: #72e1d3; }
 .voice-note { margin: -5px 0 0; color: #465464; font-size: 8px; letter-spacing: .04em; }
+.voice-transcript {
+  width: min(210px, 82%);
+  min-height: 34px;
+  margin: -2px 0 0;
+  color: #8492a2;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.voice-connecting .voice-bars { animation: recallThink 1.35s ease-in-out infinite; }
+.voice-connecting .voice-status { color: #91a7c0; }
+.voice-connecting .voice-status-dot {
+  background: #7d94ad;
+  box-shadow: 0 0 9px rgba(125,148,173,.72);
+  animation: statusPulse 1s ease-in-out infinite;
+}
 
 .voice-listening .human-bar {
   height: var(--human-height, 46px);
   filter: brightness(1.35);
+  transition: height 80ms linear, filter .7s ease, opacity .7s ease, transform .7s ease;
 }
 .voice-listening .friday-bar { height: 48px; opacity: .58; }
 .voice-listening .human-glow { opacity: .47; animation: humanGlow 1.05s ease-in-out infinite alternate; }
@@ -262,8 +285,9 @@ button { color: inherit; }
 .voice-listening .ring-one { border-color: rgba(105,169,255,.22); animation: listeningRing 1.6s ease-out infinite; }
 
 .voice-speaking .friday-bar {
-  animation: fridayVoice .53s cubic-bezier(.4,0,.25,1) infinite alternate;
+  height: var(--friday-height, 50px);
   filter: brightness(1.35);
+  transition: height 80ms linear, filter .7s ease, opacity .7s ease, transform .7s ease;
 }
 .voice-speaking .human-bar { height: 48px; opacity: .58; }
 .voice-speaking .friday-glow { opacity: .5; animation: fridayGlow 1.05s ease-in-out infinite alternate; }

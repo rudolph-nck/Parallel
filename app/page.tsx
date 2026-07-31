@@ -1,9 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Stage = "briefing" | "searching" | "found" | "ready" | "sent";
-type VoiceState = "idle" | "listening" | "speaking" | "synced";
+type VoiceState = "idle" | "connecting" | "listening" | "speaking" | "synced";
+
+type RealtimeFunctionCall = {
+  type: "function_call";
+  name: string;
+  call_id: string;
+  arguments: string;
+};
+
+type RealtimeEvent = {
+  type?: string;
+  error?: { message?: string };
+  delta?: string;
+  transcript?: string;
+  response?: {
+    output?: RealtimeFunctionCall[];
+  };
+};
 
 const conversations = {
   briefing: {
@@ -43,6 +60,10 @@ const dailyQuotes = [
   { quote: "You do not rise to the level of your goals. You fall to the level of your systems.", author: "James Clear" },
 ];
 
+const subscribeToLocalDate = () => () => {};
+const getLocalDay = () => new Date().getDay();
+const getServerDay = () => 0;
+
 function ParallelMark() {
   return (
     <span className="parallel-mark" aria-hidden="true">
@@ -56,9 +77,23 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceNote, setVoiceNote] = useState("Tap to let Friday hear your voice");
+  const [voiceConnected, setVoiceConnected] = useState(false);
+  const [fridayTranscript, setFridayTranscript] = useState("");
+  const quoteIndex = useSyncExternalStore(
+    subscribeToLocalDate,
+    getLocalDay,
+    getServerDay,
+  );
   const visualRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const animationRef = useRef<number | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const channelRef = useRef<RTCDataChannel | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const inputContextRef = useRef<AudioContext | null>(null);
+  const outputContextRef = useRef<AudioContext | null>(null);
+  const inputAnimationRef = useRef<number | null>(null);
+  const outputAnimationRef = useRef<number | null>(null);
+  const transcriptRef = useRef("");
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
@@ -69,77 +104,326 @@ export default function Home() {
     window.setTimeout(() => setStage("found"), 1250);
   };
 
-  const stopMicrophone = () => {
+  const stopVoiceSession = (note = "Tap to start a new conversation") => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    if (animationRef.current) window.cancelAnimationFrame(animationRef.current);
-    animationRef.current = null;
+    const channel = channelRef.current;
+    channelRef.current = null;
+    channel?.close();
+    const peer = peerRef.current;
+    peerRef.current = null;
+    if (peer) {
+      peer.onconnectionstatechange = null;
+      peer.close();
+    }
+    remoteAudioRef.current?.pause();
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    remoteAudioRef.current = null;
+
+    if (inputAnimationRef.current) {
+      window.cancelAnimationFrame(inputAnimationRef.current);
+    }
+    if (outputAnimationRef.current) {
+      window.cancelAnimationFrame(outputAnimationRef.current);
+    }
+    inputAnimationRef.current = null;
+    outputAnimationRef.current = null;
+    void inputContextRef.current?.close();
+    void outputContextRef.current?.close();
+    inputContextRef.current = null;
+    outputContextRef.current = null;
+
     visualRef.current?.style.setProperty("--human-height", "46px");
+    visualRef.current?.style.setProperty("--friday-height", "50px");
+    transcriptRef.current = "";
+    setVoiceConnected(false);
+    setVoiceState("idle");
+    setVoiceNote(note);
   };
 
-  const letFridaySpeak = () => {
-    setVoiceState("speaking");
-    setVoiceNote("Friday is responding");
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const response = new SpeechSynthesisUtterance(
-        "I’m with you, Nick. Tell me what needs your attention, and we’ll work through it together."
+  const startLevelVisualizer = (
+    stream: MediaStream,
+    property: "--human-height" | "--friday-height",
+    contextRef: React.MutableRefObject<AudioContext | null>,
+    frameRef: React.MutableRefObject<number | null>,
+  ) => {
+    const audioContext = new AudioContext();
+    contextRef.current = audioContext;
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.68;
+    source.connect(analyser);
+    const levels = new Uint8Array(analyser.frequencyBinCount);
+
+    const readLevel = () => {
+      analyser.getByteFrequencyData(levels);
+      const average =
+        levels.reduce((total, level) => total + level, 0) / levels.length;
+      const energy = Math.min(1, average / 58);
+      visualRef.current?.style.setProperty(
+        property,
+        `${46 + energy * 50}px`,
       );
-      response.rate = 0.94;
-      response.pitch = 0.93;
-      response.onend = () => {
-        setVoiceState("synced");
-        setVoiceNote("Conversation understood");
-        window.setTimeout(() => {
-          setVoiceState("idle");
-          setVoiceNote("Tap to talk again");
-        }, 1800);
+      frameRef.current = window.requestAnimationFrame(readLevel);
+    };
+
+    readLevel();
+  };
+
+  const completeRecallSearch = (
+    call: RealtimeFunctionCall,
+    channel: RTCDataChannel,
+  ) => {
+    let query = "Nick's current strategic plan";
+    try {
+      const parsed = JSON.parse(call.arguments) as { query?: string };
+      if (parsed.query) query = parsed.query;
+    } catch {
+      // The fallback query still gives Friday a useful, bounded prototype result.
+    }
+
+    setStage("searching");
+    setVoiceNote("Friday is consulting Recall");
+
+    window.setTimeout(() => {
+      const result = {
+        query,
+        match: {
+          title: "IT Core Strategic Plan 2027–2030",
+          location: "IT Operations / Strategy / 2027 Planning",
+          confidence: 0.94,
+          edited: "Monday at 4:18 PM",
+          context: "Discussed with Matt last week",
+          status: "Most recent approved version",
+        },
+        source: "Parallel Recall prototype workspace catalog",
       };
-      window.speechSynthesis.speak(response);
-    } else {
-      window.setTimeout(() => setVoiceState("synced"), 2600);
-      window.setTimeout(() => setVoiceState("idle"), 4400);
+
+      if (channel.readyState !== "open") return;
+      channel.send(
+        JSON.stringify({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: call.call_id,
+            output: JSON.stringify(result),
+          },
+        }),
+      );
+      channel.send(JSON.stringify({ type: "response.create" }));
+      setStage("found");
+    }, 850);
+  };
+
+  const handleRealtimeEvent = (
+    realtimeEvent: MessageEvent<string>,
+    channel: RTCDataChannel,
+  ) => {
+    let event: RealtimeEvent;
+    try {
+      event = JSON.parse(realtimeEvent.data) as RealtimeEvent;
+    } catch {
+      return;
+    }
+
+    switch (event.type) {
+      case "input_audio_buffer.speech_started":
+        transcriptRef.current = "";
+        setFridayTranscript("");
+        setVoiceState("listening");
+        setVoiceNote("Speak naturally — Friday is listening");
+        break;
+      case "input_audio_buffer.speech_stopped":
+        setVoiceNote("Friday is thinking");
+        break;
+      case "response.created":
+        setVoiceNote("Friday is thinking");
+        break;
+      case "response.output_audio.delta":
+        setVoiceState("speaking");
+        setVoiceNote("Friday is responding");
+        break;
+      case "response.output_audio_transcript.delta":
+        transcriptRef.current += event.delta ?? "";
+        setFridayTranscript(transcriptRef.current);
+        break;
+      case "response.output_audio_transcript.done":
+        if (event.transcript) {
+          transcriptRef.current = event.transcript;
+          setFridayTranscript(event.transcript);
+        }
+        break;
+      case "response.done": {
+        const functionCall = event.response?.output?.find(
+          (item) =>
+            item.type === "function_call" && item.name === "search_recall",
+        );
+
+        if (functionCall) {
+          completeRecallSearch(functionCall, channel);
+          return;
+        }
+
+        setVoiceState("synced");
+        setVoiceNote("Friday is ready when you are");
+        window.setTimeout(() => {
+          if (peerRef.current?.connectionState === "connected") {
+            setVoiceState("listening");
+          }
+        }, 900);
+        break;
+      }
+      case "error":
+        console.error("Realtime voice event error.", event.error);
+        setVoiceNote("Friday missed that. Please try saying it again.");
+        setVoiceState("listening");
+        break;
     }
   };
 
-  const startVoiceMoment = async () => {
-    if (voiceState === "listening" || voiceState === "speaking") return;
+  const startVoiceSession = async () => {
+    if (peerRef.current || voiceState === "connecting") return;
+
+    setVoiceState("connecting");
+    setVoiceNote("Opening a private voice connection");
+    setFridayTranscript("");
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      setVoiceState("listening");
-      setVoiceNote("Speak naturally — Friday is listening");
+      const peer = new RTCPeerConnection();
+      peerRef.current = peer;
 
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.72;
-      source.connect(analyser);
-      const levels = new Uint8Array(analyser.frequencyBinCount);
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+      remoteAudioRef.current = audio;
 
-      const readVoice = () => {
-        analyser.getByteFrequencyData(levels);
-        const average = levels.reduce((total, level) => total + level, 0) / levels.length;
-        const energy = Math.min(1, average / 72);
-        visualRef.current?.style.setProperty("--human-height", `${46 + energy * 52}px`);
-        animationRef.current = window.requestAnimationFrame(readVoice);
+      peer.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        audio.srcObject = remoteStream;
+        void audio.play().catch(() => {
+          setVoiceNote("Audio playback was blocked by the browser");
+        });
+        startLevelVisualizer(
+          remoteStream,
+          "--friday-height",
+          outputContextRef,
+          outputAnimationRef,
+        );
       };
-      readVoice();
 
-      window.setTimeout(() => {
-        stopMicrophone();
-        audioContext.close();
-        letFridaySpeak();
-      }, 4200);
-    } catch {
-      setVoiceNote("Microphone access is needed to hear you");
-      setVoiceState("idle");
+      peer.onconnectionstatechange = () => {
+        if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
+          stopVoiceSession("The voice connection ended. Tap to reconnect.");
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      streamRef.current = stream;
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      startLevelVisualizer(
+        stream,
+        "--human-height",
+        inputContextRef,
+        inputAnimationRef,
+      );
+
+      const channel = peer.createDataChannel("oai-events");
+      channelRef.current = channel;
+      channel.onmessage = (event) => handleRealtimeEvent(event, channel);
+      channel.onopen = () => {
+        setVoiceConnected(true);
+        setVoiceState("speaking");
+        setVoiceNote("Friday is joining you");
+        channel.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions:
+                "Greet Nick warmly in one brief sentence, then invite him to tell you what needs his attention.",
+            },
+          }),
+        );
+      };
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      const sessionResponse = await fetch("/api/realtime", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/sdp",
+        },
+        body: offer.sdp,
+      });
+
+      if (!sessionResponse.ok) {
+        const failure = (await sessionResponse.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(
+          failure?.error ?? "Friday couldn't open a live voice session.",
+        );
+      }
+
+      await peer.setRemoteDescription({
+        type: "answer",
+        sdp: await sessionResponse.text(),
+      });
+    } catch (error) {
+      const note =
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Microphone access is needed to hear you"
+          : error instanceof Error
+            ? error.message
+            : "Friday couldn't start a voice conversation. Please try again.";
+      stopVoiceSession(note);
     }
+  };
+
+  const toggleVoiceSession = () => {
+    if (voiceConnected || peerRef.current) {
+      stopVoiceSession();
+    } else {
+      void startVoiceSession();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      channelRef.current?.close();
+      peerRef.current?.close();
+      if (inputAnimationRef.current) {
+        window.cancelAnimationFrame(inputAnimationRef.current);
+      }
+      if (outputAnimationRef.current) {
+        window.cancelAnimationFrame(outputAnimationRef.current);
+      }
+      void inputContextRef.current?.close();
+      void outputContextRef.current?.close();
+    };
+  }, []);
+
+  const demonstrateVoiceFallback = () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceNote("This browser does not support live voice conversations");
+      setVoiceState("listening");
+      window.setTimeout(() => setVoiceState("idle"), 1200);
+      return;
+    }
+    toggleVoiceSession();
   };
 
   const voiceLabel = {
     idle: "Friday is ready",
+    connecting: "Connecting privately",
     listening: "I’m listening",
     speaking: "Friday is responding",
     synced: "In sync",
@@ -181,8 +465,8 @@ export default function Home() {
           </div>
           <aside className="daily-quote">
             <span>Today’s perspective</span>
-            <blockquote>“{dailyQuotes[new Date().getDay()].quote}”</blockquote>
-            <cite>— {dailyQuotes[new Date().getDay()].author}</cite>
+            <blockquote>“{dailyQuotes[quoteIndex].quote}”</blockquote>
+            <cite>— {dailyQuotes[quoteIndex].author}</cite>
           </aside>
         </div>
 
@@ -193,9 +477,9 @@ export default function Home() {
               <div className="signal-ring ring-two" />
               <div className="voice-glow human-glow" />
               <div className="voice-glow friday-glow" />
-              <div className="voice-bars">
-                <i className="human-bar" />
+            <div className="voice-bars">
                 <i className="friday-bar" />
+                <i className="human-bar" />
               </div>
             </div>
             <div className="voice-status">
@@ -204,18 +488,31 @@ export default function Home() {
             </div>
             <button
               className="talk-button"
-              onClick={startVoiceMoment}
-              disabled={voiceState === "listening" || voiceState === "speaking"}
-              aria-label="Demonstrate a voice conversation with Friday"
+              onClick={demonstrateVoiceFallback}
+              disabled={voiceState === "connecting"}
+              aria-label={
+                voiceConnected
+                  ? "End voice conversation with Friday"
+                  : "Start voice conversation with Friday"
+              }
             >
               <span className="mic-icon">●</span>
-              {voiceState === "idle" || voiceState === "synced" ? "Talk to Friday" : voiceState === "listening" ? "Listening…" : "Friday is speaking…"}
+              {voiceState === "connecting"
+                ? "Connecting…"
+                : voiceConnected
+                  ? "End conversation"
+                  : "Talk to Friday"}
             </button>
             <p className="voice-key">
               <span><i className="key-human" />You</span>
               <span><i className="key-friday" />Friday</span>
             </p>
             <p className="voice-note">{voiceNote}</p>
+            {fridayTranscript && (
+              <p className="voice-transcript" aria-live="polite">
+                “{fridayTranscript}”
+              </p>
+            )}
           </div>
 
           <div className="conversation">
