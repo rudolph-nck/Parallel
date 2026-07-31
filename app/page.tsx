@@ -857,8 +857,14 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
+    const restoreTimeout = new Promise<never>((_, reject) => {
+      window.setTimeout(
+        () => reject(new Error("Microsoft 365 restore timed out.")),
+        6500,
+      );
+    });
 
-    void restoreMicrosoft365()
+    void Promise.race([restoreMicrosoft365(), restoreTimeout])
       .then((snapshot) => {
         if (!active) return;
         if (snapshot) {
