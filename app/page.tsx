@@ -740,12 +740,9 @@ export default function Home() {
     }
 
     setMicrosoftStatus("connecting");
-    setMicrosoftNote("Complete the Microsoft sign-in window");
+    setMicrosoftNote("Taking you to Microsoft’s secure sign-in");
     try {
-      const snapshot = await connectMicrosoft365();
-      rememberMicrosoftSnapshot(snapshot);
-      setMicrosoftStatus("connected");
-      setMicrosoftNote("Friday has read-only access");
+      await connectMicrosoft365();
     } catch {
       setMicrosoftStatus("error");
       setMicrosoftNote(

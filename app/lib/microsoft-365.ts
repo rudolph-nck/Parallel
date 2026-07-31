@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  InteractionRequiredAuthError,
   PublicClientApplication,
   type AccountInfo,
 } from "@azure/msal-browser";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
-const REDIRECT_PATH = "/auth/microsoft/callback";
 
 export const MICROSOFT_GRAPH_SCOPES = [
   "User.Read",
@@ -120,7 +118,7 @@ export type MicrosoftFileResult = {
 let microsoftClientPromise: Promise<PublicClientApplication> | null = null;
 
 function getRedirectUri() {
-  return `${window.location.origin}${REDIRECT_PATH}`;
+  return `${window.location.origin}/`;
 }
 
 async function getMicrosoftClient() {
@@ -158,24 +156,11 @@ function chooseAccount(
 async function acquireGraphToken(
   client: PublicClientApplication,
   account: AccountInfo,
-  allowInteraction: boolean,
 ) {
-  try {
-    return await client.acquireTokenSilent({
-      account,
-      scopes: [...MICROSOFT_GRAPH_SCOPES],
-    });
-  } catch (error) {
-    if (!allowInteraction || !(error instanceof InteractionRequiredAuthError)) {
-      throw error;
-    }
-
-    return client.acquireTokenPopup({
-      account,
-      scopes: [...MICROSOFT_GRAPH_SCOPES],
-      redirectUri: getRedirectUri(),
-    });
-  }
+  return client.acquireTokenSilent({
+    account,
+    scopes: [...MICROSOFT_GRAPH_SCOPES],
+  });
 }
 
 async function graphRequest<T>(
@@ -202,9 +187,8 @@ async function graphRequest<T>(
 async function readMicrosoftSnapshot(
   client: PublicClientApplication,
   account: AccountInfo,
-  allowInteraction: boolean,
 ): Promise<MicrosoftSnapshot> {
-  const token = await acquireGraphToken(client, account, allowInteraction);
+  const token = await acquireGraphToken(client, account);
   const now = new Date();
   const calendarEnd = new Date(now);
   calendarEnd.setDate(calendarEnd.getDate() + 7);
@@ -259,28 +243,26 @@ async function readMicrosoftSnapshot(
 
 export async function connectMicrosoft365() {
   const client = await getMicrosoftClient();
-  const login = await client.loginPopup({
+  await client.loginRedirect({
     scopes: [...MICROSOFT_GRAPH_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "select_account",
   });
-  const account = chooseAccount(client, login.account);
-  if (!account) throw new Error("Microsoft sign-in did not return an account.");
-  return readMicrosoftSnapshot(client, account, true);
 }
 
 export async function restoreMicrosoft365() {
   const client = await getMicrosoftClient();
-  const account = chooseAccount(client);
+  const redirectResult = await client.handleRedirectPromise();
+  const account = chooseAccount(client, redirectResult?.account);
   if (!account) return null;
-  return readMicrosoftSnapshot(client, account, false);
+  return readMicrosoftSnapshot(client, account);
 }
 
 export async function refreshMicrosoft365() {
   const client = await getMicrosoftClient();
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
-  return readMicrosoftSnapshot(client, account, true);
+  return readMicrosoftSnapshot(client, account);
 }
 
 export async function disconnectMicrosoft365() {
@@ -294,7 +276,7 @@ export async function searchMicrosoft365Files(query: string) {
   const client = await getMicrosoftClient();
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
-  const token = await acquireGraphToken(client, account, true);
+  const token = await acquireGraphToken(client, account);
   const search = await graphRequest<GraphSearchResponse>(
     token.accessToken,
     "/search/query",
