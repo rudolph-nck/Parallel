@@ -41,6 +41,10 @@ export const MICROSOFT_MEETING_INTELLIGENCE_SCOPES = [
   "OnlineMeetingTranscript.Read.All",
 ] as const;
 
+export const MICROSOFT_DOCUMENT_PUBLISHING_SCOPES = [
+  "Files.ReadWrite",
+] as const;
+
 type GraphCollection<T> = {
   value?: T[];
   "@odata.count"?: number;
@@ -124,6 +128,19 @@ type GraphSite = {
   webUrl?: string;
 };
 
+type GraphDrive = {
+  id: string;
+  name?: string;
+  webUrl?: string;
+};
+
+type GraphDriveItem = {
+  id: string;
+  name?: string;
+  webUrl?: string;
+  folder?: Record<string, unknown>;
+};
+
 type GraphSearchHit = {
   hitId?: string;
   summary?: string;
@@ -173,6 +190,7 @@ export type MicrosoftSnapshot = {
     sharePoint: MicrosoftCapabilityState;
     directory: MicrosoftCapabilityState;
     meetingIntelligence: MicrosoftCapabilityState;
+    documentPublishing: MicrosoftCapabilityState;
   };
 };
 
@@ -183,6 +201,14 @@ export type MicrosoftFileResult = {
   lastModifiedDateTime: string | null;
   location: string | null;
   summary: string | null;
+};
+
+export type MicrosoftPublishedDocument = {
+  id: string;
+  name: string;
+  webUrl: string | null;
+  siteName: string;
+  folderPath: string;
 };
 
 export type MicrosoftMeetingAttendee = {
@@ -359,6 +385,16 @@ async function acquireMeetingIntelligenceToken(
   return client.acquireTokenSilent({
     account,
     scopes: [...MICROSOFT_MEETING_INTELLIGENCE_SCOPES],
+  });
+}
+
+async function acquireDocumentPublishingToken(
+  client: PublicClientApplication,
+  account: AccountInfo,
+) {
+  return client.acquireTokenSilent({
+    account,
+    scopes: [...MICROSOFT_DOCUMENT_PUBLISHING_SCOPES],
   });
 }
 
@@ -542,6 +578,7 @@ async function readMicrosoftSnapshot(
     sharePointResult,
     directoryResult,
     meetingIntelligenceResult,
+    documentPublishingResult,
   ] =
     await Promise.allSettled([
       graphRequest<GraphCollection<GraphMessage>>(
@@ -566,6 +603,7 @@ async function readMicrosoftSnapshot(
         },
       ),
       acquireMeetingIntelligenceToken(client, account),
+      acquireDocumentPublishingToken(client, account),
     ]);
 
   if (directoryResult.status === "fulfilled") {
@@ -618,6 +656,10 @@ async function readMicrosoftSnapshot(
         meetingIntelligenceResult.status === "fulfilled"
           ? "ready"
           : "permission_required",
+      documentPublishing:
+        documentPublishingResult.status === "fulfilled"
+          ? "ready"
+          : "permission_required",
     },
   };
 }
@@ -646,6 +688,18 @@ export async function enableMicrosoftMeetingIntelligence() {
     scopes: [
       ...MICROSOFT_GRAPH_SCOPES,
       ...MICROSOFT_MEETING_INTELLIGENCE_SCOPES,
+    ],
+    redirectUri: getRedirectUri(),
+    prompt: "consent",
+  });
+}
+
+export async function enableMicrosoftDocumentPublishing() {
+  const client = await getMicrosoftClient();
+  await client.loginRedirect({
+    scopes: [
+      ...MICROSOFT_GRAPH_SCOPES,
+      ...MICROSOFT_DOCUMENT_PUBLISHING_SCOPES,
     ],
     redirectUri: getRedirectUri(),
     prompt: "consent",
@@ -1359,4 +1413,120 @@ export async function readMicrosoftMeetingTranscript({
     }
     return { status: "not_available", transcript: null, candidates: [] };
   }
+}
+
+const PUBLISH_FOLDER_NAME = "Parallel Documents";
+
+function chooseAvailableFileName(requestedName: string, existingNames: string[]) {
+  const normalizedNames = new Set(
+    existingNames.map((name) => name.trim().toLocaleLowerCase()),
+  );
+  if (!normalizedNames.has(requestedName.toLocaleLowerCase())) {
+    return requestedName;
+  }
+
+  const extensionIndex = requestedName.lastIndexOf(".");
+  const base = extensionIndex > 0 ? requestedName.slice(0, extensionIndex) : requestedName;
+  const extension = extensionIndex > 0 ? requestedName.slice(extensionIndex) : "";
+  let copyNumber = 2;
+  let candidate = `${base} (${copyNumber})${extension}`;
+  while (normalizedNames.has(candidate.toLocaleLowerCase())) {
+    copyNumber += 1;
+    candidate = `${base} (${copyNumber})${extension}`;
+  }
+  return candidate;
+}
+
+async function getOrCreatePublishingFolder(
+  accessToken: string,
+  driveId: string,
+) {
+  try {
+    return await graphRequest<GraphDriveItem>(
+      accessToken,
+      `/drives/${encodeURIComponent(driveId)}/root:/${encodeURIComponent(PUBLISH_FOLDER_NAME)}?$select=id,name,webUrl`,
+    );
+  } catch (error) {
+    if (!(error instanceof MicrosoftGraphError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  const root = await graphRequest<GraphDriveItem>(
+    accessToken,
+    `/drives/${encodeURIComponent(driveId)}/root?$select=id`,
+  );
+  try {
+    return await graphRequest<GraphDriveItem>(
+      accessToken,
+      `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(root.id)}/children`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: PUBLISH_FOLDER_NAME,
+          folder: {},
+          "@microsoft.graph.conflictBehavior": "fail",
+        }),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof MicrosoftGraphError) || error.status !== 409) {
+      throw error;
+    }
+    return graphRequest<GraphDriveItem>(
+      accessToken,
+      `/drives/${encodeURIComponent(driveId)}/root:/${encodeURIComponent(PUBLISH_FOLDER_NAME)}?$select=id,name,webUrl`,
+    );
+  }
+}
+
+export async function publishMicrosoftBrandedDocument({
+  html,
+  fileName,
+}: {
+  html: string;
+  fileName: string;
+}): Promise<MicrosoftPublishedDocument> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireDocumentPublishingToken(client, account);
+
+  const site = await graphRequest<GraphSite>(
+    token.accessToken,
+    "/sites/root?$select=id,displayName,name,webUrl",
+  );
+  const drive = await graphRequest<GraphDrive>(
+    token.accessToken,
+    `/sites/${encodeURIComponent(site.id)}/drive?$select=id,name,webUrl`,
+  );
+  const folder = await getOrCreatePublishingFolder(
+    token.accessToken,
+    drive.id,
+  );
+  const children = await graphRequest<GraphCollection<GraphDriveItem>>(
+    token.accessToken,
+    `/drives/${encodeURIComponent(drive.id)}/items/${encodeURIComponent(folder.id)}/children?$top=200&$select=name`,
+  );
+  const availableName = chooseAvailableFileName(
+    fileName,
+    (children.value ?? []).map((item) => item.name ?? ""),
+  );
+  const published = await graphRequest<GraphDriveItem>(
+    token.accessToken,
+    `/drives/${encodeURIComponent(drive.id)}/items/${encodeURIComponent(folder.id)}:/${encodeURIComponent(availableName)}:/content?@microsoft.graph.conflictBehavior=rename`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+      body: html,
+    },
+  );
+
+  return {
+    id: published.id,
+    name: published.name ?? availableName,
+    webUrl: published.webUrl ?? null,
+    siteName: site.displayName ?? site.name ?? "SharePoint",
+    folderPath: PUBLISH_FOLDER_NAME,
+  };
 }

@@ -6,9 +6,11 @@ import {
   createMicrosoftMeeting,
   describeMicrosoftCalendarError,
   disconnectMicrosoft365,
+  enableMicrosoftDocumentPublishing,
   enableMicrosoftMeetingIntelligence,
   prepareMicrosoftMeeting,
   prepareMicrosoftMeetingUpdate,
+  publishMicrosoftBrandedDocument,
   readMicrosoftCalendar,
   readMicrosoftMeetingTranscript,
   repairMicrosoftCalendarAccess,
@@ -20,8 +22,14 @@ import {
   type MicrosoftMeetingResult,
   type MicrosoftMeetingUpdateProposal,
   type MicrosoftMeetingUpdateResult,
+  type MicrosoftPublishedDocument,
   type MicrosoftSnapshot,
 } from "./lib/microsoft-365";
+import {
+  buildBrandedDocument,
+  type BrandedDocumentDraft,
+  type BrandedDocumentKind,
+} from "./lib/document-template";
 import {
   addRealtimeUsage,
   canBeginAutonomousWrapUp,
@@ -50,7 +58,9 @@ type Stage =
   | "meetingBooked"
   | "meetingUpdateReady"
   | "meetingUpdated"
-  | "notesReady";
+  | "notesReady"
+  | "documentReady"
+  | "documentPublished";
 type VoiceState =
   | "idle"
   | "connecting"
@@ -167,6 +177,16 @@ const conversations = {
     title: "I turned the transcript into working notes.",
     body: "Decisions, actions, risks, and open questions are separated so the follow-through is clear.",
   },
+  documentReady: {
+    eyebrow: "Ara · Document studio",
+    title: "Your working draft is ready.",
+    body: "Review the branded document below. Ara will only publish a new SharePoint copy after you approve it.",
+  },
+  documentPublished: {
+    eyebrow: "Ara · SharePoint",
+    title: "Done—it’s published.",
+    body: "The approved document is in the Parallel Documents folder as a new, non-overwriting copy.",
+  },
 };
 
 const dailyQuotes = [
@@ -267,6 +287,11 @@ export default function Home() {
     useState<MicrosoftMeetingUpdateResult | null>(null);
   const [meetingNotes, setMeetingNotes] = useState<MeetingNotesDraft | null>(null);
   const [meetingActionPending, setMeetingActionPending] = useState(false);
+  const [pendingDocument, setPendingDocument] =
+    useState<BrandedDocumentDraft | null>(null);
+  const [publishedDocument, setPublishedDocument] =
+    useState<MicrosoftPublishedDocument | null>(null);
+  const [documentActionPending, setDocumentActionPending] = useState(false);
   const quoteIndex = useSyncExternalStore(
     subscribeToLocalDate,
     getLocalDay,
@@ -288,6 +313,7 @@ export default function Home() {
   const bookedMeetingRef = useRef<MicrosoftMeetingResult | null>(null);
   const pendingMeetingUpdateRef =
     useRef<MicrosoftMeetingUpdateProposal | null>(null);
+  const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
   const initialResponseRef = useRef<string | null>(null);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
@@ -1249,6 +1275,136 @@ export default function Home() {
       };
     }
 
+    if (call.name === "prepare_branded_document") {
+      const validKinds: BrandedDocumentKind[] = [
+        "policy",
+        "procedure",
+        "brief",
+        "meeting_record",
+      ];
+      const kind =
+        typeof args.kind === "string" &&
+        validKinds.includes(args.kind as BrandedDocumentKind)
+          ? (args.kind as BrandedDocumentKind)
+          : "brief";
+      const sections = Array.isArray(args.sections)
+        ? args.sections
+            .filter(
+              (section): section is Record<string, unknown> =>
+                Boolean(section) && typeof section === "object",
+            )
+            .map((section) => ({
+              heading:
+                typeof section.heading === "string" ? section.heading : "",
+              body: typeof section.body === "string" ? section.body : "",
+              bullets: Array.isArray(section.bullets)
+                ? section.bullets.filter(
+                    (bullet): bullet is string => typeof bullet === "string",
+                  )
+                : [],
+            }))
+        : [];
+      const textValue = (value: unknown, fallback = "") =>
+        typeof value === "string" ? value.trim() : fallback;
+      const draft = buildBrandedDocument({
+        kind,
+        title: textValue(args.title, "Untitled document"),
+        subtitle: textValue(args.subtitle),
+        purpose: textValue(args.purpose, "Working draft prepared with Ara."),
+        owner: textValue(args.owner, "Nick Rudolph"),
+        approver: textValue(args.approver, "Pending approval"),
+        version: textValue(args.version, "0.1"),
+        effectiveDate: textValue(args.effective_date, "Draft"),
+        classification: textValue(args.classification, "Internal"),
+        sections,
+        sourceNote: textValue(args.source_note, "Prepared in Parallel"),
+      });
+      pendingDocumentRef.current = draft;
+      setPendingDocument(draft);
+      setPublishedDocument(null);
+      setApprovalMethod(null);
+      moveToStage("documentReady");
+      return {
+        status: "pending_approval",
+        document_prepared: true,
+        title: draft.title,
+        kind: draft.kind,
+        section_count: draft.sections.length,
+        file_name: draft.suggestedFileName,
+        approval_required: true,
+        instruction:
+          "Tell Nick the branded draft is ready for review, mention what it is in one short sentence, and end with 'How does that look?' Do not claim it was published.",
+      };
+    }
+
+    if (call.name === "approve_document_publish") {
+      const confirmation =
+        typeof args.confirmation === "string" ? args.confirmation.trim() : "";
+      const isExplicitApproval =
+        /\b(publish|save|upload|post)\s+(it|that|this|the document|the draft)(?:\s+to\s+sharepoint)?\b/i.test(
+          confirmation,
+        ) ||
+        /\b(go ahead and (?:publish|save|upload)|make it live)\b/i.test(
+          confirmation,
+        );
+      const draft = pendingDocumentRef.current;
+
+      if (stageRef.current !== "documentReady" || !draft) {
+        return {
+          document_published: false,
+          reason: "There is no visible document waiting to be published.",
+        };
+      }
+      if (!isExplicitApproval) {
+        return {
+          document_published: false,
+          reason:
+            "Nick's intent was not clear enough to publish the visible document. Ask one short clarifying question.",
+        };
+      }
+      if (
+        microsoftSnapshotRef.current?.capabilities.documentPublishing !==
+        "ready"
+      ) {
+        return {
+          status: "permission_required",
+          document_published: false,
+          reason:
+            "SharePoint publishing permission has not been enabled. Tell Nick to choose Enable document publishing on Today.",
+        };
+      }
+
+      setDocumentActionPending(true);
+      setVoiceNote("Ara is publishing the approved document to SharePoint");
+      try {
+        const published = await publishMicrosoftBrandedDocument({
+          html: draft.html,
+          fileName: draft.suggestedFileName,
+        });
+        setPublishedDocument(published);
+        setApprovalMethod("voice");
+        moveToStage("documentPublished");
+        return {
+          document_published: true,
+          fully_completed: true,
+          name: published.name,
+          sharepoint_site: published.siteName,
+          folder: published.folderPath,
+          web_url: published.webUrl,
+          instruction: 'Say exactly "Done." and nothing else.',
+        };
+      } catch {
+        return {
+          status: "could_not_publish",
+          document_published: false,
+          reason:
+            "The document was not published. Suggest refreshing Microsoft 365 and trying once more.",
+        };
+      } finally {
+        setDocumentActionPending(false);
+      }
+    }
+
     if (call.name === "prepare_message_for_approval") {
       const proposedMessage =
         typeof args.message === "string" && args.message.trim()
@@ -1365,6 +1521,7 @@ export default function Home() {
           outcome.temporarily_unavailable === true ||
           outcome.meeting_created === false ||
           outcome.meeting_updated === false ||
+          outcome.document_published === false ||
           outcome.approval_recorded === false ||
           [
             "not_connected",
@@ -1376,6 +1533,7 @@ export default function Home() {
             "not_available",
             "not_found",
             "ambiguous",
+            "could_not_publish",
           ].includes(status);
 
         sessionAuditRef.current?.tools.push({
@@ -1413,6 +1571,17 @@ export default function Home() {
             approvalPendingRef.current = Boolean(
               pendingMeetingUpdateRef.current,
             );
+          }
+        }
+
+        if (call.name === "approve_document_publish") {
+          if (outcome.document_published === true) {
+            approvalPendingRef.current = false;
+            autonomousCloseEligibleRef.current = true;
+            recoverableErrorRef.current = false;
+          } else {
+            autonomousCloseEligibleRef.current = false;
+            approvalPendingRef.current = Boolean(pendingDocumentRef.current);
           }
         }
 
@@ -2095,15 +2264,75 @@ export default function Home() {
     }
   };
 
+  const approveDocumentPublishWithButton = async () => {
+    const draft = pendingDocumentRef.current;
+    if (!draft || documentActionPending) return;
+    if (
+      microsoftSnapshotRef.current?.capabilities.documentPublishing !==
+      "ready"
+    ) {
+      setVoiceNote(
+        "Enable document publishing on Today before Ara saves this to SharePoint",
+      );
+      return;
+    }
+
+    setDocumentActionPending(true);
+    setVoiceNote("Ara is publishing the approved document to SharePoint");
+    try {
+      const published = await publishMicrosoftBrandedDocument({
+        html: draft.html,
+        fileName: draft.suggestedFileName,
+      });
+      setPublishedDocument(published);
+      setApprovalMethod("button");
+      moveToStage("documentPublished");
+      approvalPendingRef.current = false;
+      autonomousCloseEligibleRef.current = true;
+      recoverableErrorRef.current = false;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_document_publish",
+        succeeded: true,
+      });
+      setVoiceNote("The approved document is live in SharePoint");
+      if (channelRef.current?.readyState === "open") {
+        setMicrophoneEnabled(false);
+        channelRef.current.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions: 'Say exactly "Done." and nothing else.',
+            },
+          }),
+        );
+      }
+    } catch {
+      autonomousCloseEligibleRef.current = false;
+      recoverableErrorRef.current = true;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_document_publish",
+        succeeded: false,
+      });
+      if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+      setVoiceNote("The document was not published. Refresh Microsoft 365 and try again.");
+    } finally {
+      setDocumentActionPending(false);
+    }
+  };
+
   const startAnotherRequest = () => {
     pendingMeetingRef.current = null;
     bookedMeetingRef.current = null;
     pendingMeetingUpdateRef.current = null;
+    pendingDocumentRef.current = null;
     setPendingMeeting(null);
     setBookedMeeting(null);
     setPendingMeetingUpdate(null);
     setMeetingUpdateResult(null);
     setMeetingNotes(null);
+    setPendingDocument(null);
+    setPublishedDocument(null);
     moveToStage("briefing");
   };
 
@@ -2172,6 +2401,22 @@ export default function Home() {
     }
   };
 
+  const enableDocumentPublishing = async () => {
+    if (microsoftActionPending) return;
+    setMicrosoftStatus("connecting");
+    setMicrosoftNote(
+      "Opening Microsoft to approve new document publishing in SharePoint",
+    );
+    try {
+      await enableMicrosoftDocumentPublishing();
+    } catch {
+      setMicrosoftStatus("connected");
+      setMicrosoftNote(
+        "Document publishing was not enabled. You can try again when ready.",
+      );
+    }
+  };
+
   const disconnectMicrosoft = async () => {
     await disconnectMicrosoft365();
     rememberMicrosoftSnapshot(null);
@@ -2192,6 +2437,13 @@ export default function Home() {
     microsoftSnapshot?.capabilities.calendar !== "ready";
   const meetingIntelligenceNeedsPermission =
     microsoftSnapshot?.capabilities.meetingIntelligence !== "ready";
+  const documentPublishingNeedsPermission =
+    microsoftSnapshot?.capabilities.documentPublishing !== "ready";
+  const approvalWaiting =
+    stage === "ready" ||
+    stage === "meetingReady" ||
+    stage === "meetingUpdateReady" ||
+    stage === "documentReady";
 
   return (
     <>
@@ -2268,7 +2520,7 @@ export default function Home() {
             onClick={() => moveToSection("approvals")}
           >
             <span>✓</span>Approvals
-            {(stage === "ready" || stage === "meetingReady") && <b>1</b>}
+            {approvalWaiting && <b>1</b>}
           </button>
         </nav>
         <div className="sidebar-foot">
@@ -2440,6 +2692,22 @@ export default function Home() {
               </span>
               <span
                 className={
+                  microsoftSnapshot.capabilities.documentPublishing ===
+                  "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                Documents
+                <small>
+                  {microsoftSnapshot.capabilities.documentPublishing ===
+                  "ready"
+                    ? "Publish ready"
+                    : "Enable publishing"}
+                </small>
+              </span>
+              <span
+                className={
                   microsoftSnapshot.capabilities.directory === "ready"
                     ? "ready"
                     : ""
@@ -2495,6 +2763,15 @@ export default function Home() {
                     disabled={microsoftActionPending}
                   >
                     Enable meeting intelligence
+                  </button>
+                )}
+                {documentPublishingNeedsPermission && (
+                  <button
+                    className="connector-primary"
+                    onClick={enableDocumentPublishing}
+                    disabled={microsoftActionPending}
+                  >
+                    Enable document publishing
                   </button>
                 )}
                 <button
@@ -2950,11 +3227,98 @@ export default function Home() {
                   </section>
                 </div>
                 <p className="notes-boundary">
-                  Drafted in Parallel from the Teams transcript. SharePoint
-                  publishing will be added with your approved brand template.
+                  Drafted in Parallel from the Teams transcript. Ask Ara to turn
+                  these notes into a branded meeting record; publishing still
+                  waits for your approval.
                 </p>
               </article>
             )}
+
+            {(stage === "documentReady" ||
+              stage === "documentPublished") &&
+              pendingDocument && (
+                <article
+                  className={`document-studio ${stage === "documentPublished" ? "published" : ""}`}
+                >
+                  <div className="document-studio-heading">
+                    <div>
+                      <p>ARA · BRANDED DOCUMENT</p>
+                      <h3>{pendingDocument.title}</h3>
+                    </div>
+                    <span>
+                      {pendingDocument.kind.replaceAll("_", " ")} · v
+                      {pendingDocument.version}
+                    </span>
+                  </div>
+                  <div className="document-preview-frame">
+                    <iframe
+                      title={`Preview of ${pendingDocument.title}`}
+                      sandbox=""
+                      srcDoc={pendingDocument.html}
+                    />
+                  </div>
+                  {stage === "documentReady" ? (
+                    <>
+                      <div className="document-publish-detail">
+                        <div>
+                          <b>{pendingDocument.suggestedFileName}</b>
+                          <small>
+                            SharePoint · Parallel Documents · New copy only
+                          </small>
+                        </div>
+                        <span>
+                          {documentPublishingNeedsPermission
+                            ? "Publishing access needs to be enabled on Today"
+                            : "Ready for your approval"}
+                        </span>
+                      </div>
+                      <p className="voice-approval-hint">
+                        Respond naturally—“That looks good, publish it.”
+                      </p>
+                      <div className="action-row">
+                        <button
+                          className="secondary"
+                          onClick={() =>
+                            setVoiceNote(
+                              "Kept as a working draft · nothing was published",
+                            )
+                          }
+                        >
+                          Keep as draft
+                        </button>
+                        <button
+                          className="primary approve"
+                          onClick={() => void approveDocumentPublishWithButton()}
+                          disabled={
+                            documentActionPending ||
+                            documentPublishingNeedsPermission
+                          }
+                        >
+                          {documentActionPending
+                            ? "Publishing…"
+                            : "Publish to SharePoint"}{" "}
+                          <span>→</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="document-published-result">
+                      <div className="audit-line">
+                        <span>✓</span> Published as a new SharePoint document
+                      </div>
+                      {publishedDocument?.webUrl && (
+                        <a
+                          href={publishedDocument.webUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open {publishedDocument.name} ↗
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </article>
+              )}
 
             {stage === "found" && (
               <div className="action-row">
@@ -3003,7 +3367,8 @@ export default function Home() {
             {(stage === "approved" ||
               stage === "meetingBooked" ||
               stage === "meetingUpdated" ||
-              stage === "notesReady") && (
+              stage === "notesReady" ||
+              stage === "documentPublished") && (
               <button className="new-request" onClick={startAnotherRequest}>Start another request</button>
             )}
           </div>
@@ -3109,13 +3474,13 @@ export default function Home() {
                 <div>
                   <p>WAITING FOR YOU</p>
                   <h2>
-                    {stage === "meetingReady" || stage === "ready"
+                    {approvalWaiting
                       ? "One item needs your judgment."
                       : "You’re all caught up."}
                   </h2>
                 </div>
                 <span className="queue-count">
-                  {stage === "meetingReady" || stage === "ready" ? "1" : "0"}
+                  {approvalWaiting ? "1" : "0"}
                 </span>
               </div>
 
@@ -3126,6 +3491,26 @@ export default function Home() {
                     <p>TEAMS MEETING</p>
                     <h3>{pendingMeeting.subject}</h3>
                     <span>{pendingMeeting.displayTime} · {pendingMeeting.attendees.length} attendees</span>
+                  </div>
+                  <button onClick={() => moveToSection("ara")}>Review</button>
+                </div>
+              ) : stage === "documentReady" && pendingDocument ? (
+                <div className="queue-item">
+                  <span className="document-badge">D</span>
+                  <div>
+                    <p>SHAREPOINT DOCUMENT</p>
+                    <h3>{pendingDocument.title}</h3>
+                    <span>Branded draft · not published</span>
+                  </div>
+                  <button onClick={() => moveToSection("ara")}>Review</button>
+                </div>
+              ) : stage === "meetingUpdateReady" && pendingMeetingUpdate ? (
+                <div className="queue-item">
+                  <span className="teams-badge">T</span>
+                  <div>
+                    <p>INVITATION UPDATE</p>
+                    <h3>{pendingMeetingUpdate.subject}</h3>
+                    <span>Agenda prepared · not updated</span>
                   </div>
                   <button onClick={() => moveToSection("ara")}>Review</button>
                 </div>
@@ -3195,7 +3580,7 @@ export default function Home() {
               <div>
                 <p>APPROVALS · YOU STAY IN CONTROL</p>
                 <h2>
-                  {stage === "meetingReady" || stage === "ready"
+                  {approvalWaiting
                     ? "One decision is waiting."
                     : "Nothing is waiting on you."}
                 </h2>
@@ -3208,6 +3593,16 @@ export default function Home() {
                   {pendingMeeting.attendees.length} attendees ·{" "}
                   {pendingMeeting.displayTime}
                 </span>
+              </div>
+            ) : stage === "documentReady" && pendingDocument ? (
+              <div className="approval-summary">
+                <b>{pendingDocument.title}</b>
+                <span>SharePoint draft · not published</span>
+              </div>
+            ) : stage === "meetingUpdateReady" && pendingMeetingUpdate ? (
+              <div className="approval-summary">
+                <b>{pendingMeetingUpdate.subject}</b>
+                <span>Invitation update · waiting for approval</span>
               </div>
             ) : stage === "ready" ? (
               <div className="approval-summary">
@@ -3223,12 +3618,12 @@ export default function Home() {
             <button
               className="card-link"
               onClick={() =>
-                stage === "meetingReady" || stage === "ready"
+                approvalWaiting
                   ? moveToSection("ara")
                   : moveToSection("approvals")
               }
             >
-              {stage === "meetingReady" || stage === "ready"
+              {approvalWaiting
                 ? "Review with Ara"
                 : "Open approvals workspace"}{" "}
               <span>↗</span>

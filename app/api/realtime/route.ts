@@ -135,8 +135,22 @@ unclear instead of guessing.
 Meeting transcription requires Microsoft Meeting intelligence access and a tenant
 administrator may also need to enable Graph transcript access in Teams. Enabling
 transcription permits the Teams feature; it does not mean a transcript already exists.
-Never claim notes were saved to SharePoint. Parallel can prepare notes for review, but
-branded document creation and SharePoint publishing are a later governed action.
+
+# Branded documents and SharePoint
+
+Use prepare_branded_document when Nick asks for a policy, procedure, executive brief,
+meeting record, or branded document. Build a complete working draft with clear sections,
+specific language, and source-aware notes. Do not invent approvals, owners, dates, or
+facts that were not stated; use "Pending" or explain uncertainty when needed. When he
+wants transcript notes documented, carry the decisions, actions, risks, and open
+questions into a meeting_record rather than losing detail.
+
+The visible preview uses Parallel's starter brand until Nick supplies his formal brand
+guide. Preparing a draft never changes SharePoint. End a new draft summary with "How
+does that look?" Use approve_document_publish only after the specific document preview
+is visible and Nick clearly tells you to publish or save it to SharePoint. A bare "yes,"
+silence, background sound, or unrelated speech is not approval. Only claim a document
+was published when the tool reports document_published true.
 
 # Actions and confirmation
 
@@ -157,10 +171,11 @@ the message you just summarized.
 You have live read access to Nick's connected Outlook calendar across the exact date
 window he requests, and you can create a Teams calendar meeting after his explicit
 approval. The prototype still cannot send chat messages or email, modify files, or
-delete anything. After recording approval for a message draft, acknowledge it with
+delete anything. It can publish a new, non-overwriting branded HTML document to the
+connected SharePoint site after explicit approval. After recording approval for a message draft, acknowledge it with
 exactly "Got it." but never claim the message was sent. Meeting creation is different:
-when approve_calendar_meeting or approve_meeting_update confirms full success, say
-exactly "Done." and nothing else.
+when approve_calendar_meeting, approve_meeting_update, or approve_document_publish
+confirms full success, say exactly "Done." and nothing else.
 Treat that successful "Done." as the natural end of the call; do not ask another
 question or reopen the conversation unless Nick speaks again.
 
@@ -471,6 +486,72 @@ const sessionConfig = {
           "risks",
           "open_questions",
         ],
+      },
+    },
+    {
+      type: "function",
+      name: "prepare_branded_document",
+      description:
+        "Create a complete, visible Parallel-branded policy, procedure, executive brief, or meeting record for Nick to review. This does not publish or change SharePoint.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["policy", "procedure", "brief", "meeting_record"],
+          },
+          title: { type: "string" },
+          subtitle: { type: "string" },
+          purpose: { type: "string" },
+          owner: { type: "string" },
+          approver: { type: "string" },
+          version: { type: "string" },
+          effective_date: { type: "string" },
+          classification: { type: "string" },
+          sections: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                heading: { type: "string" },
+                body: { type: "string" },
+                bullets: { type: "array", items: { type: "string" } },
+              },
+              required: ["heading", "body", "bullets"],
+            },
+          },
+          source_note: { type: "string" },
+        },
+        required: [
+          "kind",
+          "title",
+          "subtitle",
+          "purpose",
+          "owner",
+          "approver",
+          "version",
+          "effective_date",
+          "classification",
+          "sections",
+          "source_note",
+        ],
+      },
+    },
+    {
+      type: "function",
+      name: "approve_document_publish",
+      description:
+        "Publish the currently visible branded document as a new, non-overwriting HTML file in SharePoint only after Nick gives clear approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          confirmation: {
+            type: "string",
+            description:
+              "Nick's exact words clearly approving publication of the visible document to SharePoint.",
+          },
+        },
+        required: ["confirmation"],
       },
     },
     {

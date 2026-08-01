@@ -25,7 +25,10 @@ clear voice or button approval. Ara now includes a useful agenda in new meetings
 can prepare and apply an approved agenda update to an existing organizer-owned
 invitation, can enable Teams transcription when separately authorized, and can
 turn a delivered Teams transcript into structured notes inside Parallel. Message
-drafts remain non-sending prototypes.
+drafts remain non-sending prototypes. Ara can also create a complete policy,
+procedure, executive brief, or meeting record in Parallel's starter branded
+format, show a sandboxed HTML preview, and publish a new, non-overwriting copy
+to the connected SharePoint site's `Parallel Documents` folder after approval.
 
 The voice experience uses an OpenAI Realtime session created through the
 server, responds to live microphone volume, distinguishes the user from Ara
@@ -48,9 +51,14 @@ Ara currently requests delegated access for the signed-in user:
   transcription in meeting options and `OnlineMeetingTranscript.Read.All` to
   retrieve completed transcripts. Transcript access requires administrator
   consent and the tenant's Teams Graph transcript setting.
+- Optional document publishing uses delegated `Files.ReadWrite`, requested
+  separately from Ara's read access, to create the `Parallel Documents` folder
+  and upload an approved HTML document to the signed-in user's SharePoint site.
 
-Calendar creation and approved invitation-body updates are the only live write
-actions. Sending messages, editing files, and deleting content remain off.
+Calendar creation, approved invitation-body updates, and new approved document
+publishing are the only live write actions. Publishing never overwrites an
+existing file. Sending messages, editing existing files, and deleting content
+remain off.
 
 ## Transcript-to-action phase
 

@@ -87,6 +87,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /updateMicrosoftMeeting/);
   assert.match(page, /readMicrosoftMeetingTranscript/);
   assert.match(page, /Enable meeting intelligence/);
+  assert.match(page, /Enable document publishing/);
+  assert.match(page, /approveDocumentPublishWithButton/);
+  assert.match(page, /Publish to SharePoint/);
   assert.match(page, /Transcript-ready meeting requested/);
   assert.match(page, /searchRecallWorkspace/);
   assert.match(page, /Say exactly \"Done\.\" and nothing else/);
@@ -117,7 +120,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"approve_meeting_update"/);
   assert.match(route, /name:\s*"read_meeting_transcript"/);
   assert.match(route, /name:\s*"prepare_meeting_notes"/);
-  assert.match(route, /Never claim notes were saved to SharePoint/);
+  assert.match(route, /name:\s*"prepare_branded_document"/);
+  assert.match(route, /name:\s*"approve_document_publish"/);
+  assert.match(route, /new, non-overwriting branded HTML document/);
   assert.match(route, /name:\s*"remember_user_preference"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
@@ -149,6 +154,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(microsoft365, /OnlineMeetingTranscript\.Read\.All/);
   assert.match(microsoft365, /mergeMeetingAgenda/);
   assert.match(microsoft365, /allowTranscription:\s*true/);
+  assert.match(microsoft365, /Files\.ReadWrite/);
+  assert.match(microsoft365, /Parallel Documents/);
+  assert.match(microsoft365, /publishMicrosoftBrandedDocument/);
 
   assert.match(gitignore, /\.env\*/);
 });
