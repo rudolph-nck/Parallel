@@ -1,6 +1,6 @@
 # Parallel current-state assessment
 
-Updated: 2026-07-31
+Updated: 2026-08-01
 
 ## Product state
 
@@ -13,6 +13,10 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
 - device-local preferences and a first-run Ara introduction;
 - deployment through OpenAI Sites.
+- durable D1-backed identity, profile, policy, attention, commitment, usage, and audit records;
+- a governed four-tier model router with measured voice usage;
+- a read-only Outlook and Calendar attention picture;
+- commitments captured from Today or naturally through Ara.
 
 ## Runtime and boundaries
 
@@ -20,8 +24,8 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - Voice: `gpt-realtime-2.1`, low reasoning, server VAD, Marin voice.
 - External action boundary: Teams calendar creation is live. Message and email sending remain prototypes and must never be represented as completed.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
-- Persistence: there is no shared database yet. Profile and session prototype data are device-local.
-- Tenant model: stable prototype identifiers can be emitted now, but true multi-tenant persistence and enforcement are not yet implemented.
+- Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.
+- Tenant model: data access is tenant- and user-scoped. The private demo retains an explicit single-owner fallback until production authentication is mandatory.
 
 ## What is reliable today
 
@@ -35,11 +39,11 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 1. Voice has presentation states, but not a formal conversation lifecycle with safety invariants.
 2. A completed task does not autonomously end its voice session.
-3. Session duration, tool outcomes, token usage, model tier, and close reason are not recorded.
-4. Session cleanup has not been made idempotent and independently testable.
-5. There is no shared audit store, tenant data layer, queue, or event bus.
-6. Model routing is a fixed realtime-model choice rather than policy-driven routing.
-7. Recall is connected search plus device-local preferences, not yet the blueprint's complete memory system.
+3. Background Microsoft change notifications, queues, retries, and rechecks are not implemented.
+4. Attention currently uses the foreground Microsoft snapshot, not Graph subscriptions.
+5. Teams signals and ServiceNow ingestion are not connected.
+6. Pricing reconciliation still needs a versioned server-side rate table.
+7. Recall remains connected search plus declared memory, not yet the blueprint's complete work graph.
 
 ## Naming decision
 
@@ -47,4 +51,4 @@ The blueprint uses both Aura and Ara. The product name remains **Ara**, matching
 
 ## Recommended order
 
-Do not begin background monitoring yet. First make voice completion deterministic, instrument the current experience, and prove that successful and failed sessions clean up correctly. Then add routing and shared persistence, followed by tenant-safe memory and background work.
+Next, add controlled calendar authority and meeting-knowledge ingestion on top of the new policy, attention, and accountability foundations. Background monitoring should follow only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.

@@ -181,6 +181,14 @@ it." A bare "yes," silence, background sound, a partial phrase, or unrelated spe
 not confirmation. If his intent is unclear, briefly ask whether he wants you to send
 the message you just summarized.
 
+# Commitments and accountability
+
+When Nick says he needs to remember, follow up, deliver, call, send, finish, or do
+something by a date, use create_commitment. Do not turn casual ideas into commitments.
+Confirm it conversationally in one short sentence. Parallel's attention monitoring is
+read-only: you may brief Nick on signals, but monitoring alone never authorizes an
+external action.
+
 # Current capability boundary
 
 You have live read access to Nick's connected Outlook calendar across the exact date
@@ -654,6 +662,28 @@ const sessionConfig = {
           },
         },
         required: ["category", "value"],
+      },
+    },
+    {
+      type: "function",
+      name: "create_commitment",
+      description:
+        "Record a clear promise or follow-up Nick says he owns so Ara can keep it visible. Do not use for a casual idea or another person's task.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description:
+              "A concise, action-oriented description of what Nick committed to do.",
+          },
+          due_at: {
+            type: "string",
+            description:
+              "The due date or time as an ISO 8601 value when Nick gave one; otherwise an empty string.",
+          },
+        },
+        required: ["title", "due_at"],
       },
     },
   ],

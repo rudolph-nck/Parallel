@@ -50,6 +50,14 @@ import {
   type ConversationSessionRecord,
   type SessionCloseReason,
 } from "./lib/conversation-lifecycle";
+import {
+  buildReadOnlyAttentionItems,
+  readPlatformWorkspace,
+  updatePlatform,
+  type Commitment,
+  type DecisionProfile,
+  type PlatformWorkspace,
+} from "./lib/parallel-platform";
 
 type Stage =
   | "briefing"
@@ -87,7 +95,7 @@ type PreferenceCategory =
   | "current_priorities"
   | "communication_style"
   | "proactivity";
-type UserProfile = Partial<Record<PreferenceCategory, string>>;
+type UserProfile = DecisionProfile;
 
 type MeetingNotesDraft = {
   subject: string;
@@ -231,6 +239,17 @@ const startupPhrases = [
   "Take control of your workday.",
 ];
 
+const emptyProfile: UserProfile = {
+  morning_briefing_time: "",
+  role_and_responsibilities: "",
+  current_priorities: "",
+  communication_style: "",
+  proactivity: "",
+  interruption_threshold: "high_signal",
+  accountability_style: "supportive_direct",
+  delegation_boundaries: "propose_before_action",
+};
+
 const subscribeToLocalDate = () => () => {};
 const getLocalDay = () => new Date().getDay();
 const getServerDay = () => 0;
@@ -260,7 +279,13 @@ export default function Home() {
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
-  const [userProfile, setUserProfile] = useState<UserProfile>({});
+  const [userProfile, setUserProfile] = useState<UserProfile>(emptyProfile);
+  const [platformWorkspace, setPlatformWorkspace] =
+    useState<PlatformWorkspace | null>(null);
+  const [platformNote, setPlatformNote] = useState("Preparing your operating picture");
+  const [commitmentDraft, setCommitmentDraft] = useState("");
+  const [commitmentDue, setCommitmentDue] = useState("");
+  const [commitmentPending, setCommitmentPending] = useState(false);
   const [todayLabel, setTodayLabel] = useState("TODAY");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [conversationState, setConversationState] =
@@ -369,11 +394,62 @@ export default function Home() {
       [category]: value.trim(),
     };
     setUserProfile(nextProfile);
-    window.localStorage.setItem(
-      PROFILE_STORAGE_KEY,
-      JSON.stringify(nextProfile),
-    );
+    void updatePlatform("profile.save", { profile: nextProfile }).catch(() => {
+      window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+    });
     return nextProfile;
+  };
+
+  const saveDecisionProfile = async () => {
+    setPlatformNote("Saving what Ara should know about you");
+    try {
+      await updatePlatform("profile.save", { profile: userProfile });
+      setPlatformNote("Your decision profile is saved privately");
+    } catch {
+      window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(userProfile));
+      setPlatformNote("Saved on this device; cloud memory will retry later");
+    }
+  };
+
+  const refreshPlatformWorkspace = async () => {
+    try {
+      const workspace = await readPlatformWorkspace();
+      setPlatformWorkspace(workspace);
+      setUserProfile({ ...emptyProfile, ...workspace.profile });
+      setPlatformNote("Ara's operating picture is current");
+      return workspace;
+    } catch {
+      setPlatformNote("Durable workspace is reconnecting");
+      return null;
+    }
+  };
+
+  const addCommitment = async () => {
+    const title = commitmentDraft.trim();
+    if (!title || commitmentPending) return;
+    setCommitmentPending(true);
+    try {
+      await updatePlatform("commitment.create", {
+        title,
+        ownerLabel: "Nick",
+        dueAt: commitmentDue ? new Date(`${commitmentDue}T17:00:00`).getTime() : null,
+        source: "today_workspace",
+      });
+      setCommitmentDraft("");
+      setCommitmentDue("");
+      await refreshPlatformWorkspace();
+    } finally {
+      setCommitmentPending(false);
+    }
+  };
+
+  const updateCommitment = async (
+    commitment: Commitment,
+    status: Commitment["status"],
+    feedback: string | null = null,
+  ) => {
+    await updatePlatform("commitment.update", { id: commitment.id, status, feedback });
+    await refreshPlatformWorkspace();
   };
 
   const moveToSection = (section: NavSection) => {
@@ -476,6 +552,12 @@ export default function Home() {
     const record = finishConversationSession(draft, closeReason);
     sessionAuditRef.current = null;
     setLastSession(record);
+    void updatePlatform("usage.record", {
+      sessionId: record.sessionId,
+      durationMs: record.durationMs,
+      usage: record.usage,
+      closeReason: record.closeReason,
+    }).then(() => refreshPlatformWorkspace()).catch(() => undefined);
 
     try {
       const saved = JSON.parse(
@@ -1681,6 +1763,34 @@ export default function Home() {
       };
     }
 
+    if (call.name === "create_commitment") {
+      const title = typeof args.title === "string" ? args.title.trim().slice(0, 300) : "";
+      const dueValue = typeof args.due_at === "string" ? Date.parse(args.due_at) : Number.NaN;
+      if (!title) {
+        return { commitment_created: false, reason: "The commitment was incomplete." };
+      }
+      try {
+        await updatePlatform("commitment.create", {
+          title,
+          ownerLabel: "Nick",
+          dueAt: Number.isFinite(dueValue) ? dueValue : null,
+          source: "ara_voice",
+        });
+        await refreshPlatformWorkspace();
+        return {
+          commitment_created: true,
+          title,
+          due_at: Number.isFinite(dueValue) ? new Date(dueValue).toISOString() : null,
+          instruction: "Confirm the commitment in one short, natural sentence.",
+        };
+      } catch {
+        return {
+          commitment_created: false,
+          reason: "The commitment could not be saved. Ask Nick to add it from Today.",
+        };
+      }
+    }
+
     return {
       error: `Unsupported Ara capability: ${call.name}`,
     };
@@ -1706,6 +1816,7 @@ export default function Home() {
           outcome.meeting_created === false ||
           outcome.meeting_updated === false ||
           outcome.document_published === false ||
+          outcome.commitment_created === false ||
           outcome.conflict_resolved === false ||
           outcome.approval_recorded === false ||
           [
@@ -2213,10 +2324,10 @@ export default function Home() {
       try {
         const savedProfile = JSON.parse(
           window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? "{}",
-        ) as UserProfile;
-        setUserProfile(savedProfile);
+        ) as Partial<UserProfile>;
+        setUserProfile({ ...emptyProfile, ...savedProfile });
       } catch {
-        setUserProfile({});
+        setUserProfile(emptyProfile);
       }
       try {
         const savedSessions = JSON.parse(
@@ -2228,6 +2339,7 @@ export default function Home() {
       } catch {
         setLastSession(null);
       }
+      void refreshPlatformWorkspace();
     }, 0);
 
     return () => {
@@ -2235,6 +2347,14 @@ export default function Home() {
       window.clearTimeout(hydrateTimer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!microsoftSnapshot) return;
+    const items = buildReadOnlyAttentionItems(microsoftSnapshot);
+    void updatePlatform("attention.sync", { items })
+      .then(() => refreshPlatformWorkspace())
+      .catch(() => setPlatformNote("Attention monitoring will retry on refresh"));
+  }, [microsoftSnapshot]);
 
   useEffect(() => {
     let active = true;
@@ -2710,6 +2830,18 @@ export default function Home() {
     stage === "meetingConflict" ||
     stage === "meetingUpdateReady" ||
     stage === "documentReady";
+  const attentionItems = platformWorkspace?.attention ?? [];
+  const openCommitments = (platformWorkspace?.commitments ?? []).filter(
+    (commitment) => commitment.status !== "completed",
+  );
+  const urgentAttention = attentionItems.filter((item) => item.urgency === "high").length;
+  const usage = platformWorkspace?.usage ?? {
+    sessions: 0,
+    totalTokens: 0,
+    usageUnits: 0,
+    tierC: 0,
+    tierD: 0,
+  };
 
   return (
     <>
@@ -2828,12 +2960,17 @@ export default function Home() {
               <input
                 value={userProfile.morning_briefing_time ?? ""}
                 placeholder="Around 8:30 AM"
-                onChange={(event) =>
-                  rememberUserPreference(
-                    "morning_briefing_time",
-                    event.target.value,
-                  )
-                }
+                onChange={(event) => setUserProfile((profile) => ({ ...profile, morning_briefing_time: event.target.value }))}
+                onBlur={() => void saveDecisionProfile()}
+              />
+            </label>
+            <label>
+              Your role and responsibilities
+              <input
+                value={userProfile.role_and_responsibilities ?? ""}
+                placeholder="How Ara should understand your role"
+                onChange={(event) => setUserProfile((profile) => ({ ...profile, role_and_responsibilities: event.target.value }))}
+                onBlur={() => void saveDecisionProfile()}
               />
             </label>
             <label>
@@ -2841,21 +2978,16 @@ export default function Home() {
               <input
                 value={userProfile.current_priorities ?? ""}
                 placeholder="My team, customers, and major projects"
-                onChange={(event) =>
-                  rememberUserPreference(
-                    "current_priorities",
-                    event.target.value,
-                  )
-                }
+                onChange={(event) => setUserProfile((profile) => ({ ...profile, current_priorities: event.target.value }))}
+                onBlur={() => void saveDecisionProfile()}
               />
             </label>
             <label>
               How should Ara work with you?
               <select
                 value={userProfile.proactivity ?? ""}
-                onChange={(event) =>
-                  rememberUserPreference("proactivity", event.target.value)
-                }
+                onChange={(event) => setUserProfile((profile) => ({ ...profile, proactivity: event.target.value }))}
+                onBlur={() => void saveDecisionProfile()}
               >
                 <option value="">Choose a style</option>
                 <option value="Quiet unless something is urgent">Quiet</option>
@@ -2863,9 +2995,24 @@ export default function Home() {
                 <option value="Proactive—surface things early">Proactive</option>
               </select>
             </label>
+            <label>
+              When should Ara interrupt you?
+              <select
+                value={userProfile.interruption_threshold}
+                onChange={(event) => setUserProfile((profile) => ({ ...profile, interruption_threshold: event.target.value }))}
+                onBlur={() => void saveDecisionProfile()}
+              >
+                <option value="critical_only">Critical only</option>
+                <option value="high_signal">High-signal items</option>
+                <option value="proactive">Keep me ahead</option>
+              </select>
+            </label>
+            <button className="profile-save" onClick={() => void saveDecisionProfile()}>
+              Save decision profile
+            </button>
             <p className="profile-note">
-              Saved privately on this device. Ara will learn naturally as you
-              work together.
+              {platformNote}. Your stated goals always take priority over
+              Ara’s observations.
             </p>
           </aside>
         )}
@@ -3895,6 +4042,86 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="operating-grid view-panel today-view" aria-label="Ara operating picture">
+          <article className="operating-card attention-card">
+            <header>
+              <div>
+                <p>ATTENTION · READ ONLY</p>
+                <h2>{urgentAttention ? `${urgentAttention} item${urgentAttention === 1 ? "" : "s"} deserve a look.` : "The signal is under control."}</h2>
+              </div>
+              <span className="operating-count">{attentionItems.length}</span>
+            </header>
+            <div className="attention-list">
+              {attentionItems.length ? attentionItems.slice(0, 4).map((item) => (
+                <div className="attention-item" key={`${item.source}-${item.externalId}`}>
+                  <i className={`urgency-dot urgency-${item.urgency}`} />
+                  <div>
+                    <b>{item.title}</b>
+                    <small>{item.summary} · {item.reason}</small>
+                  </div>
+                  <span>{item.source}</span>
+                </div>
+              )) : (
+                <div className="operating-empty">
+                  <span>◇</span>
+                  <p>{microsoftConnected ? "No connected-workspace signals need attention right now." : "Connect Microsoft 365 and Ara will quietly surface the work that matters."}</p>
+                </div>
+              )}
+            </div>
+            <p className="read-only-note">Ara can read, classify, and brief you here. She cannot act from monitoring alone.</p>
+          </article>
+
+          <article className="operating-card commitment-card">
+            <header>
+              <div>
+                <p>COMMITMENTS · ACCOUNTABILITY</p>
+                <h2>{openCommitments.length ? `${openCommitments.length} promise${openCommitments.length === 1 ? "" : "s"} to keep moving.` : "A clear slate."}</h2>
+              </div>
+              <span className="operating-count">{openCommitments.length}</span>
+            </header>
+            <form className="commitment-form" onSubmit={(event) => { event.preventDefault(); void addCommitment(); }}>
+              <input value={commitmentDraft} onChange={(event) => setCommitmentDraft(event.target.value)} placeholder="What did you commit to?" aria-label="New commitment" />
+              <input type="date" value={commitmentDue} onChange={(event) => setCommitmentDue(event.target.value)} aria-label="Commitment due date" />
+              <button disabled={!commitmentDraft.trim() || commitmentPending}>{commitmentPending ? "Saving…" : "Add"}</button>
+            </form>
+            <div className="commitment-list">
+              {openCommitments.slice(0, 4).map((commitment) => (
+                <div className="commitment-item" key={commitment.id}>
+                  <button aria-label={`Complete ${commitment.title}`} onClick={() => void updateCommitment(commitment, "completed", "helped")}>○</button>
+                  <div>
+                    <b>{commitment.title}</b>
+                    <small>{commitment.dueAt ? `Due ${new Date(commitment.dueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "No deadline"} · {commitment.ownerLabel}</small>
+                  </div>
+                  <button className="snooze-button" onClick={() => void updateCommitment(commitment, "snoozed", "not_now")}>Later</button>
+                </div>
+              ))}
+              {!openCommitments.length && <div className="operating-empty"><span>✓</span><p>Add a commitment here, or tell Ara what you promised to do.</p></div>}
+            </div>
+          </article>
+
+          <article className="operating-card governance-card">
+            <header>
+              <div>
+                <p>GOVERNANCE · QUIETLY WORKING</p>
+                <h2>Ara uses the least costly capable route.</h2>
+              </div>
+              <span className="route-badge">A–D</span>
+            </header>
+            <div className="route-meter">
+              <div><span>Tier A</span><b>Rules</b><small>No model</small></div>
+              <div><span>Tier B</span><b>Utility</b><small>Efficient</small></div>
+              <div className="active"><span>Tier C</span><b>Voice</b><small>{usage.tierC} sessions</small></div>
+              <div><span>Tier D</span><b>Deep</b><small>{usage.tierD} escalations</small></div>
+            </div>
+            <div className="usage-summary">
+              <span><b>{usage.totalTokens.toLocaleString()}</b><small>measured tokens</small></span>
+              <span><b>{usage.usageUnits.toLocaleString()}</b><small>weighted usage units</small></span>
+              <span><b>{platformWorkspace?.policies.length ?? 3}</b><small>active policy rules</small></span>
+            </div>
+            <button className="profile-link" onClick={() => setProfileOpen(true)}>Review how Ara works with you <span>↗</span></button>
+          </article>
+        </section>
+
         <section className="platform-grid view-panel today-view" aria-label="Parallel workspace">
           <article className="platform-card recall-card">
             <div className="platform-card-head">
@@ -3983,8 +4210,8 @@ export default function Home() {
         </section>
 
         <section className="attention-strip view-panel today-view">
-          <div><span className="strip-number">03</span><p><b>Decisions</b><small>need your judgment</small></p></div>
-          <div><span className="strip-number">02</span><p><b>Approvals</b><small>waiting safely</small></p></div>
+          <div><span className="strip-number">{urgentAttention.toString().padStart(2, "0")}</span><p><b>Signals</b><small>deserve your attention</small></p></div>
+          <div><span className="strip-number">{openCommitments.length.toString().padStart(2, "0")}</span><p><b>Commitments</b><small>still moving</small></p></div>
           <div><span className="strip-number">47m</span><p><b>Focus window</b><small>before your next meeting</small></p></div>
           <div className="principle"><ParallelMark /><p>Ara proposes.<br/><b>You decide.</b></p></div>
         </section>

@@ -44,6 +44,9 @@ test("server-renders the Parallel Ara dashboard", async () => {
   assert.match(html, /Ara proposes\./);
   assert.match(html, /class="ara-signature">ARA<\/span>/);
   assert.match(html, /You decide\./);
+  assert.match(html, /ATTENTION · READ ONLY/i);
+  assert.match(html, /COMMITMENTS · ACCOUNTABILITY/i);
+  assert.match(html, /Ara uses the least costly capable route/i);
   assert.match(html, /\/og-ara\.png/);
   assert.doesNotMatch(html, /\/og-v2\.png/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
@@ -133,6 +136,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"approve_document_publish"/);
   assert.match(route, /new, non-overwriting branded HTML document/);
   assert.match(route, /name:\s*"remember_user_preference"/);
+  assert.match(route, /name:\s*"create_commitment"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who knows Nick well/);

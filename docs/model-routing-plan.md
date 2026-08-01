@@ -1,6 +1,6 @@
 # Parallel model-routing plan
 
-Updated: 2026-07-31
+Updated: 2026-08-01
 
 ## Principle
 
@@ -17,7 +17,7 @@ Route work by latency, modality, risk, and complexity. A premium model is not th
 
 ## Current routing record
 
-Voice currently routes to `gpt-realtime-2.1` with low reasoning. Sprint 1 labels this route `voice_reasoning` and records the actual model ID and returned usage. No automatic model switching is added until session closure is reliable.
+The deterministic router is live. Policy checks use Tier A, focused classification uses Tier B, voice uses Tier C with `gpt-realtime-2.1`, and Tier D is reserved for high ambiguity, risk, or low confidence. Realtime usage is recorded in D1 after session closure.
 
 ## Routing inputs
 
@@ -40,7 +40,7 @@ Voice currently routes to `gpt-realtime-2.1` with low reasoning. Sprint 1 labels
 
 ## Cost calculation
 
-Sprint 1 stores provider usage without inventing a dollar estimate in the client. Pricing belongs in a server-side, versioned rate table because prices change. A later reconciliation job should calculate cost using the rate version active at request time.
+The product shows measured tokens and weighted usage units without inventing a dollar estimate in the client. Pricing belongs in a server-side, versioned rate table because prices change. A later reconciliation job will calculate cost using the rate version active at request time.
 
 ## Rollout
 
