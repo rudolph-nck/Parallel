@@ -119,6 +119,25 @@ export async function POST(request: Request) {
     const now = Date.now();
     const ids = identityBindings(owner);
 
+    if (action === "onboarding.reset_for_release") {
+      const releaseId = String(body.releaseId ?? "").trim();
+      if (!/^[a-f0-9]{16}$/.test(releaseId)) {
+        return Response.json({ error: "A valid release identifier is required." }, { status: 400 });
+      }
+      const existingReset = await database
+        .prepare("SELECT id FROM audit_events WHERE tenant_id = ? AND user_account_id = ? AND event_type = 'onboarding.release_reset' AND detail = ? LIMIT 1")
+        .bind(owner.tenantId, owner.userAccountId, releaseId)
+        .first();
+      if (existingReset) {
+        return Response.json({ reset: false, releaseId });
+      }
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = NULL, full_name = NULL, company = NULL, job_title = NULL, role_summary = NULL, team_size = NULL, responsibilities_json = NULL, biggest_pressure = NULL, first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.release_reset", "onboarding_profile", `onboarding_${owner.userAccountId}`, releaseId, now),
+      ]);
+      return Response.json({ reset: true, releaseId, microsoftConnectionPreserved: true });
+    }
+
     if (action === "onboarding.save_identity") {
       const preferredName = String(body.preferredName ?? "").trim().slice(0, 80);
       const fullName = String(body.fullName ?? preferredName).trim().slice(0, 160);

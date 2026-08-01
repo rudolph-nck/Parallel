@@ -57,6 +57,9 @@ Updated: 2026-08-01
 13. Ara may follow a natural tangent and returns to connection only when the user asks to work or the conversation reaches a genuine lull.
 14. An already-connected Microsoft scan returns control to the conversation immediately and runs only once in the background.
 15. A running or failed background scan never produces filler, repeated progress narration, invented findings, or a blocked voice turn.
+16. The first load of a new application release resets the demo first meeting to `NEW` exactly once.
+17. Reloading the same release preserves in-progress first-meeting state.
+18. A release reset clears prior introduction details and scan results while preserving Microsoft authorization and unrelated operational records.
 
 ## Controlled personal calendar
 

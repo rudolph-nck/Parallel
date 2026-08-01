@@ -69,6 +69,8 @@ import {
 import type { FirstDayScan } from "./lib/first-day-briefing";
 import { resolveWorkOwnership } from "./lib/ownership";
 
+declare const __PARALLEL_RELEASE_ID__: string;
+
 type Stage =
   | "briefing"
   | "searching"
@@ -530,6 +532,24 @@ export default function Home() {
     });
 
     return started;
+  };
+
+  const prepareCurrentRelease = async () => {
+    try {
+      const result = await updatePlatform("onboarding.reset_for_release", {
+        releaseId: __PARALLEL_RELEASE_ID__,
+      });
+      if (result.reset === true) {
+        firstDayResearchRef.current.reset();
+        setFirstDayResearchState("idle");
+        setOnboardingConnectionPrompt(false);
+        setFirstVisit(true);
+        setPlatformNote("Ara is ready to meet you from the beginning");
+      }
+    } catch {
+      setPlatformNote("Ara is preparing a fresh introduction");
+    }
+    await refreshPlatformWorkspace();
   };
 
   const addCommitment = async () => {
@@ -2761,12 +2781,15 @@ export default function Home() {
             platformWorkspaceRef.current?.onboarding,
             Boolean(microsoftSnapshotRef.current),
           );
+        const isFreshFirstMeeting =
+          platformWorkspaceRef.current?.onboarding.lifecycle_state === "NEW";
         channel.send(
           JSON.stringify({
             type: "response.create",
             response: {
               input: [],
-              instructions: includeKnownPreferences && knownPreferences
+              instructions:
+                includeKnownPreferences && !isFreshFirstMeeting && knownPreferences
                 ? `${opening} Known preferences to respect: ${knownPreferences}.`
                 : opening,
             },
@@ -2895,13 +2918,15 @@ export default function Home() {
       } catch {
         setLastSession(null);
       }
-      void refreshPlatformWorkspace();
+      void prepareCurrentRelease();
     }, 0);
 
     return () => {
       window.clearTimeout(startupTimer);
       window.clearTimeout(hydrateTimer);
     };
+    // Hydration and the release reset intentionally run once per document load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

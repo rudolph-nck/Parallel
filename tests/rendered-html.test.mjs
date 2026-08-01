@@ -58,11 +58,13 @@ test("server-renders the Parallel Ara dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, route, microsoft365, gitignore] = await Promise.all([
+  const [page, route, platformRoute, microsoft365, gitignore, viteConfig] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/platform/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/microsoft-365.ts", import.meta.url), "utf8"),
     readFile(new URL("../.gitignore", import.meta.url), "utf8"),
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /new RTCPeerConnection\(\)/);
@@ -91,6 +93,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /buildFirstMeetingInstruction/);
   assert.match(page, /replayFirstMeeting/);
   assert.match(page, /Meet Ara again from the beginning/);
+  assert.match(page, /onboarding\.reset_for_release/);
+  assert.match(page, /__PARALLEL_RELEASE_ID__/);
+  assert.match(page, /prepareCurrentRelease/);
+  assert.match(page, /!isFreshFirstMeeting/);
   assert.match(page, /save_onboarding_identity/);
   assert.match(page, /save_onboarding_work_context/);
   assert.match(page, /prepare_workspace_connection/);
@@ -187,6 +193,16 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
   assert.match(route, /Teams chat remains draft-only/);
+
+  assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
+  assert.match(platformRoute, /event_type = 'onboarding\.release_reset'/);
+  assert.match(platformRoute, /lifecycle_state = 'NEW'/);
+  assert.match(platformRoute, /first_scan_json = NULL/);
+  assert.match(platformRoute, /microsoftConnectionPreserved: true/);
+
+  assert.match(viteConfig, /createHash\("sha256"\)/);
+  assert.match(viteConfig, /function buildReleaseId/);
+  assert.match(viteConfig, /__PARALLEL_RELEASE_ID__/);
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);
