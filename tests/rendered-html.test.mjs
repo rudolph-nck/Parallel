@@ -31,8 +31,8 @@ test("server-renders the Parallel Ara dashboard", async () => {
   const html = await response.text();
   assert.match(html, /<title>Parallel — Move through work with clarity<\/title>/i);
   assert.match(html, /Move through work with clarity\./);
-  assert.match(html, /Meet Ara\./);
-  assert.match(html, /Start the conversation/);
+  assert.match(html, /Meet Ara/);
+  assert.doesNotMatch(html, /Start the conversation/);
   assert.match(html, /Ara(?:'|&#x27;)s live canvas/);
   assert.match(html, /Talk to Ara/);
   assert.match(html, /Find the signal in the noise/);
@@ -93,6 +93,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /calendar-canvas/);
   assert.match(page, /calendarCanvasFocus/);
   assert.match(page, /Ara's live canvas/);
+  assert.match(page, /Continue with Microsoft 365/);
+  assert.match(page, /Let Ara do her homework before you meet/);
+  assert.match(page, /onboarding\.microsoft_profile/);
+  assert.match(page, /microsoftWelcomeRequired/);
+  assert.doesNotMatch(page, /Start the conversation/);
   assert.match(page, /calendar_period/);
   assert.match(page, /demoIntroductionInstruction/);
   assert.match(page, /buildFirstMeetingInstruction/);
@@ -184,6 +189,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who earns the right to know the user well/);
+  assert.match(route, /walked into your office/);
+  assert.match(route, /Microsoft connection normally happens before this meeting/);
   assert.match(route, /Simple acknowledgements: one to four words/);
   assert.match(route, /Direct task answers: one short sentence/);
   assert.match(route, /Everyday conversation: one to three natural sentences/);
@@ -204,6 +211,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Teams chat remains draft-only/);
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
+  assert.match(platformRoute, /action === "onboarding\.microsoft_profile"/);
+  assert.match(platformRoute, /Verified Microsoft profile synchronized/);
   assert.match(platformRoute, /export async function GET\(request: Request\)/);
   assert.match(platformRoute, /x-parallel-release-id/);
   assert.match(platformRoute, /resetOnboardingForRelease/);
@@ -223,8 +232,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /\.ara-context-divider/);
   assert.match(styles, /\.calendar-canvas/);
   assert.match(styles, /\.calendar-day\.focused/);
+  assert.match(styles, /\.microsoft-welcome/);
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
+  assert.match(microsoft365, /companyName/);
+  assert.match(microsoft365, /jobTitle/);
+  assert.match(microsoft365, /\/me\/directReports/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);
   assert.match(microsoft365, /splitAttendeeNames/);
   assert.match(microsoft365, /directoryPeopleChecked/);

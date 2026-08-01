@@ -108,6 +108,73 @@ button { color: inherit; }
 .app-loading { opacity: 0; }
 .app-ready { animation: appArrive .65s ease-out both; }
 
+.microsoft-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 34px;
+  overflow: hidden;
+  padding: 30px;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(101,167,255,.15), transparent 28%),
+    radial-gradient(circle at 52% 62%, rgba(119,227,213,.065), transparent 36%),
+    #080d13;
+  animation: appArrive .7s ease-out both;
+}
+.microsoft-welcome-glow {
+  position: absolute;
+  width: min(78vw, 900px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(101,167,255,.07);
+  border-radius: 50%;
+  box-shadow: 0 0 0 90px rgba(101,167,255,.015), 0 0 0 190px rgba(119,227,213,.01);
+  pointer-events: none;
+}
+.microsoft-welcome-brand {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  color: #e7f0f8;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .2em;
+}
+.microsoft-welcome-card {
+  position: relative;
+  width: min(560px, calc(100vw - 36px));
+  display: grid;
+  justify-items: center;
+  padding: 42px 44px 36px;
+  border: 1px solid rgba(101,167,255,.16);
+  border-radius: 24px;
+  background: rgba(12,19,28,.86);
+  box-shadow: 0 34px 100px rgba(0,0,0,.34);
+  text-align: center;
+  backdrop-filter: blur(22px);
+}
+.microsoft-welcome-card .ms-icon { width: 42px; height: 42px; margin-bottom: 22px; font-size: 16px; }
+.microsoft-welcome-card > p { margin: 0 0 12px; color: #70c8b7; font-size: 8px; letter-spacing: .16em; }
+.microsoft-welcome-card h1 { margin: 0 0 17px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(29px, 4vw, 43px); font-weight: 400; line-height: 1.08; letter-spacing: -.025em; }
+.microsoft-welcome-card small { max-width: 440px; color: #8b98a8; font-size: 12px; line-height: 1.7; }
+.microsoft-welcome-card button {
+  width: min(310px, 100%);
+  margin: 28px 0 15px;
+  border: 0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #e6f3ff, #bff8ef);
+  color: #101821;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.microsoft-welcome-card button:disabled { opacity: .55; cursor: default; }
+.microsoft-welcome-card em { color: #566476; font-size: 8px; font-style: normal; }
+
 @keyframes startupAura {
   from { opacity: 0; transform: scale(.68); }
   55% { opacity: 1; }
@@ -920,12 +987,6 @@ button { color: inherit; }
 .ara-view .welcome-actions { justify-content: center; }
 .ara-view .voice-key,
 .ara-view .session-receipt { display: none; }
-.ara-first-hello {
-  width: min(520px, 100%);
-  margin: 0 auto;
-  text-align: center;
-}
-.ara-first-hello > p,
 .ara-live-card p,
 .calendar-canvas header p {
   margin: 0 0 9px;
@@ -933,7 +994,6 @@ button { color: inherit; }
   font-size: 8px;
   letter-spacing: .16em;
 }
-.ara-first-hello .meet-ara { margin-top: 8px; }
 .ara-live-card {
   width: min(760px, 100%);
   margin: 0 auto;
@@ -1727,6 +1787,9 @@ button { color: inherit; }
 }
 
 @media (max-width: 560px) {
+  .microsoft-welcome { gap: 25px; padding: 18px; }
+  .microsoft-welcome-card { padding: 32px 22px 27px; border-radius: 19px; }
+  .microsoft-welcome-card h1 { font-size: 31px; }
   .date-row h1 { font-size: 30px; }
   .view-heading h1 { font-size: 34px; }
   .recall-search > div { display: grid; }

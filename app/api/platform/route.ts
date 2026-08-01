@@ -150,6 +150,34 @@ export async function POST(request: Request) {
       return Response.json({ reset, releaseId, microsoftConnectionPreserved: true });
     }
 
+    if (action === "onboarding.microsoft_profile") {
+      const profile = (body.profile ?? {}) as Record<string, unknown>;
+      const fullName = String(profile.fullName ?? "").trim().slice(0, 160);
+      const company = String(profile.company ?? "").trim().slice(0, 180);
+      const jobTitle = String(profile.jobTitle ?? "").trim().slice(0, 180);
+      const department = String(profile.department ?? "").trim().slice(0, 180);
+      const officeLocation = String(profile.officeLocation ?? "").trim().slice(0, 180);
+      const directReports = typeof profile.directReports === "number" && Number.isFinite(profile.directReports)
+        ? Math.max(0, Math.min(10_000, Math.trunc(profile.directReports)))
+        : null;
+      const verifiedContext = [
+        department && `Department: ${department}`,
+        officeLocation && `Office: ${officeLocation}`,
+      ].filter(Boolean).join(" · ");
+      const roleAndResponsibilities = [
+        jobTitle && `Role: ${jobTitle}`,
+        company && `Organization: ${company}`,
+        directReports !== null && `Direct reports: ${directReports}`,
+      ].filter(Boolean).join("\n");
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET full_name = CASE WHEN COALESCE(full_name, '') = '' AND ? <> '' THEN ? ELSE full_name END, company = CASE WHEN COALESCE(company, '') = '' AND ? <> '' THEN ? ELSE company END, job_title = CASE WHEN COALESCE(job_title, '') = '' AND ? <> '' THEN ? ELSE job_title END, role_summary = CASE WHEN COALESCE(role_summary, '') = '' AND ? <> '' THEN ? ELSE role_summary END, team_size = COALESCE(team_size, ?), microsoft_connected = 1, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(fullName, fullName, company, company, jobTitle, jobTitle, verifiedContext, verifiedContext, directReports, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE people SET display_name = CASE WHEN (display_name = '' OR display_name = 'Parallel user') AND ? <> '' THEN ? ELSE display_name END WHERE tenant_id = ? AND id = ?").bind(fullName, fullName, owner.tenantId, owner.personId),
+        database.prepare("UPDATE decision_profiles SET role_and_responsibilities = CASE WHEN role_and_responsibilities = '' AND ? <> '' THEN ? ELSE role_and_responsibilities END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, roleAndResponsibilities, now, owner.tenantId, owner.userAccountId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.microsoft_profile", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Verified Microsoft profile synchronized", now),
+      ]);
+      return Response.json({ saved: true, microsoftConnected: true });
+    }
+
     if (action === "onboarding.save_identity") {
       const preferredName = String(body.preferredName ?? "").trim().slice(0, 80);
       const fullName = String(body.fullName ?? preferredName).trim().slice(0, 160);
@@ -198,7 +226,7 @@ export async function POST(request: Request) {
         return Response.json({ error: "The workspace scan is not valid." }, { status: 400 });
       }
       await database.batch([
-        database.prepare("UPDATE onboarding_profiles SET first_scan_json = ?, microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' ELSE 'FIRST_VALUE_DELIVERED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(scanJson, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE onboarding_profiles SET first_scan_json = ?, microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state IN ('NEW', 'NAME_LEARNED') THEN lifecycle_state WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' ELSE 'FIRST_VALUE_DELIVERED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(scanJson, now, owner.tenantId, owner.userAccountId),
         database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.first_value_delivered", "workspace_scan", `onboarding_${owner.userAccountId}`, "Evidence-based first-day scan generated", now),
       ]);
       return Response.json({ saved: true, lifecycleState: "FIRST_VALUE_DELIVERED" });

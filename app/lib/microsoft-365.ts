@@ -62,8 +62,20 @@ type GraphCollection<T> = {
 
 type GraphProfile = {
   displayName?: string;
+  givenName?: string;
+  surname?: string;
   mail?: string | null;
   userPrincipalName?: string;
+  jobTitle?: string | null;
+  companyName?: string | null;
+  department?: string | null;
+  officeLocation?: string | null;
+};
+
+type GraphDirectReport = {
+  id?: string;
+  displayName?: string;
+  jobTitle?: string | null;
 };
 
 type GraphInboxFolder = {
@@ -195,7 +207,14 @@ export type MicrosoftCapabilityState =
 export type MicrosoftSnapshot = {
   account: {
     name: string;
+    givenName: string;
+    surname: string;
     email: string;
+    jobTitle: string;
+    companyName: string;
+    department: string;
+    officeLocation: string;
+    directReports: number | null;
   };
   recentMessages: GraphMessage[];
   inboxStatistics: {
@@ -652,7 +671,7 @@ async function readMicrosoftSnapshot(
 
   const profile = await graphRequest<GraphProfile>(
     token.accessToken,
-    "/me?$select=displayName,mail,userPrincipalName",
+    "/me?$select=displayName,givenName,surname,mail,userPrincipalName,jobTitle,companyName,department,officeLocation",
   );
 
   const [
@@ -664,6 +683,7 @@ async function readMicrosoftSnapshot(
     meetingIntelligenceResult,
     documentPublishingResult,
     outboundCommunicationResult,
+    directReportsResult,
   ] =
     await Promise.allSettled([
       graphRequest<GraphCollection<GraphMessage>>(
@@ -695,6 +715,10 @@ async function readMicrosoftSnapshot(
       acquireMeetingIntelligenceToken(client, account),
       acquireDocumentPublishingToken(client, account),
       acquireOutboundCommunicationToken(client, account),
+      graphRequest<GraphCollection<GraphDirectReport>>(
+        token.accessToken,
+        "/me/directReports?$select=id,displayName,jobTitle&$top=25",
+      ),
     ]);
 
   if (directoryResult.status === "fulfilled") {
@@ -712,11 +736,21 @@ async function readMicrosoftSnapshot(
   return {
     account: {
       name: profile.displayName ?? account.name ?? "Microsoft 365 user",
+      givenName: profile.givenName ?? "",
+      surname: profile.surname ?? "",
       email:
         profile.mail ??
         profile.userPrincipalName ??
         account.username ??
         "Connected account",
+      jobTitle: profile.jobTitle ?? "",
+      companyName: profile.companyName ?? "",
+      department: profile.department ?? "",
+      officeLocation: profile.officeLocation ?? "",
+      directReports:
+        directReportsResult.status === "fulfilled"
+          ? (directReportsResult.value.value ?? []).length
+          : null,
     },
     recentMessages:
       mailResult.status === "fulfilled" ? mailResult.value.value ?? [] : [],

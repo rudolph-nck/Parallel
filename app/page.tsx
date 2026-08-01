@@ -247,6 +247,20 @@ const buildFirstMeetingInstruction = (
   microsoftConnected: boolean,
 ) => {
   if (!onboarding || onboarding.lifecycle_state === "NEW") {
+    if (onboarding?.full_name && microsoftConnected) {
+      const verifiedFirstName = onboarding.full_name.trim().split(/\s+/)[0];
+      const verifiedWork = [
+        onboarding.job_title,
+        onboarding.company,
+        onboarding.team_size !== null && onboarding.team_size !== undefined
+          ? `${onboarding.team_size} direct reports`
+          : null,
+      ].filter(Boolean).join(" · ");
+      const verifiedScan = onboarding.first_day_scan
+        ? JSON.stringify(onboarding.first_day_scan)
+        : "The first workspace read is still finishing; never invent counts.";
+      return `This is your first meeting and your only introduction this session. Microsoft is already securely connected, so never ask the user to connect it. Open warmly using the verified first name ${verifiedFirstName}: "Hey ${verifiedFirstName}—I’m Ara. It’s really nice to meet you. Before we get too far, do you go by ${verifiedFirstName}, or something else?" Then wait. Quiet verified work context: ${verifiedWork || "No title or company was returned."}. Quiet verified workspace context: ${verifiedScan}. Once they tell you what to call them, save that preference without replacing their verified full name. Respond naturally, briefly explain who you are, then use one specific verified observation to show you did your homework. At the next natural opening, ask them to tell you more about what they do${onboarding.job_title ? ` as ${onboarding.job_title}` : ""}${onboarding.company ? ` at ${onboarding.company}` : ""}. Never dump statistics, recite a profile, or sound like an onboarding checklist.`;
+    }
     return demoIntroductionInstruction;
   }
 
@@ -311,6 +325,7 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<UserProfile>(emptyProfile);
   const [platformWorkspace, setPlatformWorkspace] =
     useState<PlatformWorkspace | null>(null);
+  const [platformReady, setPlatformReady] = useState(false);
   const [onboardingConnectionPrompt, setOnboardingConnectionPrompt] =
     useState(false);
   const [, setFirstDayResearchState] =
@@ -428,6 +443,20 @@ export default function Home() {
       : snapshot.calendarIssue?.message ??
         "Microsoft is connected, but Calendar needs attention.";
 
+  const syncMicrosoftProfile = async (snapshot: MicrosoftSnapshot) => {
+    await updatePlatform("onboarding.microsoft_profile", {
+      profile: {
+        fullName: snapshot.account.name,
+        company: snapshot.account.companyName,
+        jobTitle: snapshot.account.jobTitle,
+        department: snapshot.account.department,
+        officeLocation: snapshot.account.officeLocation,
+        directReports: snapshot.account.directReports,
+      },
+    });
+    return refreshPlatformWorkspace();
+  };
+
   const moveToStage = (nextStage: Stage) => {
     stageRef.current = nextStage;
     setStage(nextStage);
@@ -484,9 +513,11 @@ export default function Home() {
         setFirstDayResearchState("ready");
       }
       setPlatformNote("Ara's operating picture is current");
+      setPlatformReady(true);
       return workspace;
     } catch {
       setPlatformNote("Durable workspace is reconnecting");
+      setPlatformReady(true);
       return null;
     }
   };
@@ -555,9 +586,18 @@ export default function Home() {
   };
 
   const moveToSection = (section: NavSection) => {
+    const enteringAra = section === "ara" && activeNav !== "ara";
     setActiveNav(section);
     setProfileOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+    if (
+      enteringAra &&
+      microsoftSnapshotRef.current &&
+      !peerRef.current &&
+      voiceState !== "connecting"
+    ) {
+      void startVoiceSession();
+    }
   };
 
   const searchRecallWorkspace = async () => {
@@ -921,17 +961,20 @@ export default function Home() {
       }
       await updatePlatform("onboarding.save_identity", {
         preferredName,
-        fullName:
-          typeof args.full_name === "string" && args.full_name.trim()
-            ? args.full_name.trim()
-            : preferredName,
+        fullName: (() => {
+          const proposed = typeof args.full_name === "string" ? args.full_name.trim() : "";
+          const verified = platformWorkspaceRef.current?.onboarding.full_name?.trim() ?? "";
+          return proposed && proposed.toLowerCase() !== preferredName.toLowerCase()
+            ? proposed
+            : verified || proposed || preferredName;
+        })(),
       });
       await refreshPlatformWorkspace();
       return {
         saved: true,
         preferred_name: preferredName,
         instruction:
-          "Respond to their whole last turn, not merely the saved name. Answer any question they asked first. If they also shared work details, react specifically and call save_onboarding_work_context quietly. Briefly explain who you are if that has not come up, then use at most one natural follow-up.",
+          "Use their preferred name naturally and respond to their whole last turn, not merely the saved preference. Answer any question first. Briefly explain who you are if that has not come up, then draw on one verified work or workspace detail already supplied in the session and ask at most one natural follow-up. Do not restart onboarding.",
       };
     }
 
@@ -2870,16 +2913,6 @@ export default function Home() {
     }
   };
 
-  const meetAra = () => {
-    setActiveNav("ara");
-    void startVoiceSession(
-      buildFirstMeetingInstruction(
-        platformWorkspaceRef.current?.onboarding,
-        Boolean(microsoftSnapshotRef.current),
-      ),
-    );
-  };
-
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -2936,9 +2969,12 @@ export default function Home() {
     void updatePlatform("attention.sync", { items })
       .then(() => refreshPlatformWorkspace())
       .catch(() => setPlatformNote("Attention monitoring will retry on refresh"));
+    // Sync only when the connected Microsoft snapshot itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [microsoftSnapshot]);
 
   useEffect(() => {
+    if (!platformReady) return;
     let active = true;
     const restoreTimeout = new Promise<never>((_, reject) => {
       window.setTimeout(
@@ -2954,9 +2990,8 @@ export default function Home() {
           rememberMicrosoftSnapshot(snapshot);
           setMicrosoftStatus("connected");
           setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
-          await updatePlatform("onboarding.connection_ready")
-            .then(() => refreshPlatformWorkspace())
-            .catch(() => undefined);
+          await syncMicrosoftProfile(snapshot).catch(() => undefined);
+          startFirstDayResearch();
         } else {
           setMicrosoftStatus("disconnected");
           setMicrosoftNote("Ready when you are");
@@ -2971,7 +3006,9 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+    // Restore Microsoft once, after the release-aware workspace reset has settled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformReady]);
 
   useEffect(() => {
     return () => {
@@ -3404,9 +3441,8 @@ export default function Home() {
       rememberMicrosoftSnapshot(snapshot);
       setMicrosoftStatus("connected");
       setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
-      await updatePlatform("onboarding.connection_ready")
-        .then(() => refreshPlatformWorkspace())
-        .catch(() => undefined);
+      await syncMicrosoftProfile(snapshot).catch(() => undefined);
+      startFirstDayResearch();
     } catch {
       setMicrosoftStatus("error");
       setMicrosoftNote("Microsoft 365 needs your attention to reconnect");
@@ -3485,6 +3521,17 @@ export default function Home() {
     microsoftStatus === "checking" ||
     microsoftStatus === "connecting" ||
     microsoftStatus === "refreshing";
+  const microsoftWelcomeRequired =
+    !showStartup &&
+    firstVisit &&
+    microsoftStatus !== "checking" &&
+    !microsoftConnected;
+  const userInitials = (microsoftSnapshot?.account.name || "Parallel user")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "P";
   const calendarNeedsPermission =
     microsoftSnapshot?.capabilities.calendar === "permission_required";
   const calendarNeedsAttention =
@@ -3547,6 +3594,27 @@ export default function Home() {
           </div>
         </div>
       )}
+      {microsoftWelcomeRequired && (
+        <section className="microsoft-welcome" aria-label="Connect Microsoft 365 to enter Parallel">
+          <div className="microsoft-welcome-glow" aria-hidden="true" />
+          <div className="microsoft-welcome-brand">
+            <ParallelMark />
+            <ParallelWordmark />
+          </div>
+          <div className="microsoft-welcome-card">
+            <span className="ms-icon">M</span>
+            <p>YOUR WORKSPACE · SECURE CONNECTION</p>
+            <h1>Let Ara do her homework before you meet.</h1>
+            <small>
+              Connect Microsoft 365 so Parallel can securely recognize you and prepare a useful first conversation from the work you already have.
+            </small>
+            <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
+              {microsoftStatus === "connecting" ? "Opening Microsoft…" : "Continue with Microsoft 365"}
+            </button>
+            <em>Microsoft handles your sign-in. Parallel never sees your password.</em>
+          </div>
+        </section>
+      )}
       <main className={`app-shell ${showStartup ? "app-loading" : "app-ready"}`}>
       <header className="topbar">
         <button
@@ -3568,7 +3636,7 @@ export default function Home() {
           aria-expanded={profileOpen}
           onClick={() => setProfileOpen((open) => !open)}
         >
-          NR
+          {userInitials}
         </button>
       </header>
 
@@ -3957,7 +4025,9 @@ export default function Home() {
                 ? "Connecting…"
                 : voiceConnected
                   ? "End conversation"
-                  : "Talk to Ara"}
+                  : firstVisit
+                    ? "Meet Ara"
+                    : "Talk to Ara"}
             </button>
             <p className="voice-key">
               <span><i className="key-human" />You</span>
@@ -3987,16 +4057,6 @@ export default function Home() {
           </div>
 
           <div className="conversation" aria-label="Ara's live canvas" aria-live="polite">
-            {firstVisit && !voiceConnected && (
-              <div className="ara-first-hello">
-                <p>ARA · FIRST MEETING</p>
-                <h2>Meet Ara.</h2>
-                <button className="primary meet-ara" onClick={meetAra}>
-                  Start the conversation <span>→</span>
-                </button>
-              </div>
-            )}
-
             {onboardingConnectionPrompt && !microsoftConnected && (
               <section className="ara-live-card ara-connection-view">
                 <div>
