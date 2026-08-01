@@ -8,7 +8,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 - a polished Today, Ara, Recall, and Approvals workspace;
 - a live OpenAI Realtime voice connection over WebRTC;
-- semantic turn detection with low eagerness, live barge-in, and a single opening per voice session;
+- semantic turn detection with balanced automatic eagerness, live barge-in, and a single opening per voice session;
 - Microsoft 365 delegated sign-in and live mailbox, calendar, directory, SharePoint, and file lookup;
 - attendee resolution from spoken names;
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
@@ -23,11 +23,12 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - reviewed Outlook email sending through separately granted Microsoft permission.
 - a durable first-meeting lifecycle that learns the user's name and work context, survives Microsoft sign-in, and resumes without repeating Ara's introduction;
 - a live first-day Inbox and Calendar scan with complete Inbox counts, bounded attention candidates, calendar-load statistics, and explicit coverage limits.
+- conversational first-meeting memory that answers the user's question before advancing a lifecycle stage and lets the Microsoft scan run quietly in the background.
 
 ## Runtime and boundaries
 
 - UI/runtime: Next.js 16, React 19, Vinext, Cloudflare-compatible output.
-- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at low eagerness, interruption enabled, Marin voice.
+- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at automatic eagerness, interruption enabled, Marin voice.
 - External action boundary: governed calendar changes, non-overwriting SharePoint publishing, and reviewed Outlook email are live. Teams chat remains draft-only. Desktop requests remain prepare-only until a signed local companion exists.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
 - Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.
@@ -40,7 +41,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - A meeting is prepared before it is created, and the final creation requires a natural-language approval.
 - Ara varies short natural completion phrases only after the external tool confirms success.
 - The main views render independently; sidebar actions no longer merely scroll the page.
-- First-meeting progress is tenant- and user-scoped in D1 rather than inferred from a browser flag.
+- First-meeting memory is tenant- and user-scoped in D1 rather than inferred from a browser flag, but those stages never operate as a conversational checklist.
 - Ara never requests Microsoft credentials in conversation; Microsoft owns the secure sign-in screen.
 - First-day workload claims are calculated from Graph results and disclose the 50-message attention sample and missing Teams coverage.
 
@@ -54,7 +55,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 6. Desktop requests are durable and explicitly non-executing; device enrollment, signatures, application registry, and the local companion remain.
 7. Pricing reconciliation still needs a versioned server-side rate table.
 8. Recall remains connected search plus declared and meeting memory, not yet the blueprint's complete work graph.
-9. The first-day scan does not yet classify Teams messages, crawl every email body, or run continuously in the background.
+9. The first-day scan can run quietly during the first conversation, but it does not yet classify Teams messages, crawl every email body, or run continuously after the session.
 10. Mobile push, email handoff, and Ara-initiated phone or Teams calls need a verified-device handoff service and background execution plane.
 
 ## Naming decision

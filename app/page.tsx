@@ -59,10 +59,14 @@ import {
   updatePlatform,
   type Commitment,
   type DecisionProfile,
-  type OnboardingLifecycleState,
   type OnboardingProfile,
   type PlatformWorkspace,
 } from "./lib/parallel-platform";
+import {
+  createBackgroundResearchController,
+  type BackgroundResearchController,
+} from "./lib/background-research";
+import type { FirstDayScan } from "./lib/first-day-briefing";
 import { resolveWorkOwnership } from "./lib/ownership";
 
 type Stage =
@@ -234,7 +238,7 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
-  "Hey—I’m Ara. It’s really nice to meet you. What’s your name?";
+  "Hey—I’m Ara. It’s really nice to meet you. I’m here to learn how you work and take some weight off your plate. What’s your name?";
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If the user is silent, do not speak again until they say something.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
@@ -258,15 +262,6 @@ const emptyProfile: UserProfile = {
   delegation_boundaries: "propose_before_action",
 };
 
-const onboardingStateOrder: OnboardingLifecycleState[] = [
-  "NEW",
-  "NAME_LEARNED",
-  "WORK_CONTEXT_LEARNED",
-  "CONNECTION_READY",
-  "FIRST_VALUE_DELIVERED",
-  "COMPLETE",
-];
-
 const buildFirstMeetingInstruction = (
   onboarding: OnboardingProfile | null | undefined,
   microsoftConnected: boolean,
@@ -283,22 +278,22 @@ const buildFirstMeetingInstruction = (
   ].filter(Boolean).join(" · ");
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first meeting without introducing yourself again. Say, "Hey ${name}—good to see you again." Then ask one natural question that learns what they do and where they work. Wait for the answer.`;
+    return `Resume the first meeting with ${name} as a relaxed conversation, not a setup flow. Answer whatever they say or ask first. If it has not come up naturally, briefly explain that you are their right hand inside Parallel, then ask at most one curious question about their work. A tangent is welcome. Do not reintroduce yourself or force a Microsoft transition.`;
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first meeting with ${name}. Known work context: ${context}. Make one specific, sincere observation tied to that context, then call prepare_workspace_connection. Do not ask for credentials.`;
+    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, make one specific human connection to what they shared, and let the conversation breathe. Mention connecting Microsoft only at a natural lull or when they ask to start working; never request credentials.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
     (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
   ) {
-    return `Resume the first meeting with ${name}. Microsoft 365 is securely connected. Say one short natural working line, then call scan_first_day_workspace. Do not reintroduce yourself.`;
+    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected. Start scan_first_day_workspace silently, then immediately keep the current conversation moving; do not announce setup, narrate research, wait for the scan, or reintroduce yourself. On a later suitable turn, check_first_day_workspace can surface one relevant finding.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
-    return `Resume with ${name} without another greeting. The verified first-day scan is: ${JSON.stringify(onboarding.first_day_scan)}. Give a concise evidence-based readout if it has not been discussed in this voice session, then suggest starting with the clearest attention item. State the bounded email sample and lack of Teams coverage only once.`;
+    return `Resume naturally with ${name} without another introduction. Quiet verified context is available: ${JSON.stringify(onboarding.first_day_scan)}. Answer the user's current turn first. Weave in at most one relevant finding when it genuinely helps; do not deliver an unsolicited data dump. If they ask for the deeper readout, explain its bounded email sample and lack of Teams coverage once.`;
   }
 
   return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
@@ -338,6 +333,8 @@ export default function Home() {
     useState<PlatformWorkspace | null>(null);
   const [onboardingConnectionPrompt, setOnboardingConnectionPrompt] =
     useState(false);
+  const [firstDayResearchState, setFirstDayResearchState] =
+    useState<"idle" | "running" | "ready" | "error">("idle");
   const [platformNote, setPlatformNote] = useState("Preparing your operating picture");
   const [commitmentDraft, setCommitmentDraft] = useState("");
   const [commitmentDue, setCommitmentDue] = useState("");
@@ -402,6 +399,9 @@ export default function Home() {
   const outputAnimationRef = useRef<number | null>(null);
   const transcriptRef = useRef("");
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
+  const firstDayResearchRef = useRef<BackgroundResearchController<FirstDayScan>>(
+    createBackgroundResearchController<FirstDayScan>(),
+  );
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
   const calendarConflictsRef = useRef<MicrosoftCalendarConflict[]>([]);
   const bookedMeetingRef = useRef<MicrosoftMeetingResult | null>(null);
@@ -483,12 +483,53 @@ export default function Home() {
       setPlatformWorkspace(workspace);
       setUserProfile({ ...emptyProfile, ...workspace.profile });
       setFirstVisit(workspace.onboarding.lifecycle_state === "NEW");
+      if (
+        workspace.onboarding.first_day_scan &&
+        firstDayResearchRef.current.read().status === "idle"
+      ) {
+        firstDayResearchRef.current.seed(workspace.onboarding.first_day_scan);
+        setFirstDayResearchState("ready");
+      }
       setPlatformNote("Ara's operating picture is current");
       return workspace;
     } catch {
       setPlatformNote("Durable workspace is reconnecting");
       return null;
     }
+  };
+
+  const startFirstDayResearch = () => {
+    if (!microsoftSnapshotRef.current) {
+      return { status: "connection_required" as const };
+    }
+
+    const research = firstDayResearchRef.current;
+    const current = research.read();
+    if (current.status === "running" || current.status === "ready") {
+      setFirstDayResearchState(current.status);
+      return current;
+    }
+
+    const started = research.start(async () => {
+      const scan = await readMicrosoftFirstDayScan();
+      await updatePlatform("onboarding.scan_saved", { scan });
+      await refreshPlatformWorkspace();
+      return scan;
+    });
+    setFirstDayResearchState(started.status);
+    setVoiceNote("Ara is quietly getting the lay of the land");
+
+    void research.wait().then((latest) => {
+      setFirstDayResearchState(latest.status);
+      if (latest.status === "ready") {
+        setOnboardingConnectionPrompt(false);
+        setVoiceNote("Ara has a first read when you’re ready");
+      } else if (latest.status === "error") {
+        setVoiceNote("Ara’s background read can retry when you’re ready");
+      }
+    });
+
+    return started;
   };
 
   const addCommitment = async () => {
@@ -888,7 +929,7 @@ export default function Home() {
         saved: true,
         preferred_name: preferredName,
         instruction:
-          "React warmly in one short sentence, then ask what they do and where they work. Ask only that one question.",
+          "Respond to their whole last turn, not merely the saved name. Answer any question they asked first. If they also shared work details, react specifically and call save_onboarding_work_context quietly. Briefly explain who you are if that has not come up, then use at most one natural follow-up.",
       };
     }
 
@@ -905,12 +946,15 @@ export default function Home() {
           typeof args.biggest_pressure === "string" ? args.biggest_pressure : "",
       });
       await refreshPlatformWorkspace();
+      const research = microsoftSnapshotRef.current
+        ? startFirstDayResearch()
+        : { status: "connection_required" as const };
       return {
         saved: true,
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
-        instruction: microsoftSnapshotRef.current
-          ? "Make one specific human observation about the responsibilities they described, then say you can already see Microsoft is connected and call scan_first_day_workspace."
-          : "Make one specific human observation about the responsibilities they described, then call prepare_workspace_connection. Do not use generic praise.",
+        research_status: research.status,
+        instruction:
+          "Answer every question in their last turn first. If they asked what you do, explain naturally that you are their right hand inside Parallel—connecting scattered work, helping them think, and carrying agreed work forward. Then make one specific observation about their work. Do not announce setup, narrate the Microsoft read, or force a transition. Continue with at most one human follow-up.",
       };
     }
 
@@ -918,10 +962,12 @@ export default function Home() {
       if (microsoftSnapshotRef.current) {
         await updatePlatform("onboarding.connection_ready");
         await refreshPlatformWorkspace();
+        const research = startFirstDayResearch();
         return {
           connected: true,
+          research_status: research.status,
           instruction:
-            "Microsoft 365 is already connected. Say one short working line, then call scan_first_day_workspace.",
+            "Microsoft 365 is already connected and the read can happen quietly. Do not explain connection or change the subject. Continue the current conversation naturally.",
         };
       }
       setOnboardingConnectionPrompt(true);
@@ -943,26 +989,63 @@ export default function Home() {
             "Microsoft 365 still needs to be connected. Direct the user to the secure connection button below without asking for credentials.",
         };
       }
-      setVoiceNote("Ara is building your first operating picture");
-      try {
-        const scan = await readMicrosoftFirstDayScan();
-        await updatePlatform("onboarding.scan_saved", { scan });
-        await refreshPlatformWorkspace();
-        setOnboardingConnectionPrompt(false);
+      const persisted = platformWorkspaceRef.current?.onboarding.first_day_scan;
+      if (persisted) {
         return {
+          status: "ready",
           scanned: true,
-          ...scan,
+          ...persisted,
           instruction:
-            "Lead with the most striking verified fact, then give at most three more compact facts and name the clearest attention candidate. Sound energized, not alarmist. Explicitly say the attention review sampled the newest 50 Inbox messages and Teams messages are not included yet. End by suggesting the single best place to start.",
-        };
-      } catch (error) {
-        return {
-          scanned: false,
-          detail: error instanceof Error ? error.message : "The first-day scan could not finish.",
-          instruction:
-            "Say the workspace is connected but the first readout could not finish yet. Suggest refreshing Microsoft 365 once; do not invent any counts.",
+            "Answer the current question first. Weave in one relevant verified observation only if it helps the conversation; do not deliver a data dump. Offer a deeper read only when it feels natural.",
         };
       }
+      const research = startFirstDayResearch();
+      return {
+        status: research.status === "ready" ? "ready" : "researching",
+        background: true,
+        instruction:
+          research.status === "ready"
+            ? "Answer the current question first. Weave in one relevant verified observation only when it helps; do not deliver a data dump."
+            : "The read is running quietly. Continue the current conversation immediately; do not narrate progress or wait. On a later suitable turn, call check_first_day_workspace.",
+      };
+    }
+
+    if (call.name === "check_first_day_workspace") {
+      const persisted = platformWorkspaceRef.current?.onboarding.first_day_scan;
+      const research = firstDayResearchRef.current.read();
+      const scan = research.status === "ready" ? research.result : persisted;
+
+      if (scan) {
+        return {
+          status: "ready",
+          ...scan,
+          instruction:
+            "Answer the user's current question first. Weave in one relevant verified observation, then continue naturally. Do not give a data dump or force a next step; offer the deeper read only if it fits.",
+        };
+      }
+
+      if (research.status === "running") {
+        return {
+          status: "researching",
+          instruction:
+            "Answer the current question normally. Do not mention that research is still running and do not wait.",
+        };
+      }
+
+      if (research.status === "error") {
+        return {
+          status: "error",
+          detail: research.message,
+          instruction:
+            "Continue the conversation normally. Mention retrying the workspace read only if the user asked for findings; never invent counts.",
+        };
+      }
+
+      return {
+        status: "not_started",
+        instruction:
+          "Continue the conversation normally. Start the workspace read only if it becomes useful.",
+      };
     }
 
     if (call.name === "complete_first_meeting") {
@@ -2585,7 +2668,10 @@ export default function Home() {
     }
   };
 
-  const startVoiceSession = async (openingInstruction?: string) => {
+  const startVoiceSession = async (
+    openingInstruction?: string,
+    includeKnownPreferences = true,
+  ) => {
     if (peerRef.current || voiceState === "connecting") return;
 
     clearVoiceTimers();
@@ -2680,7 +2766,7 @@ export default function Home() {
             type: "response.create",
             response: {
               input: [],
-              instructions: knownPreferences
+              instructions: includeKnownPreferences && knownPreferences
                 ? `${opening} Known preferences to respect: ${knownPreferences}.`
                 : opening,
             },
@@ -2763,6 +2849,11 @@ export default function Home() {
         Boolean(microsoftSnapshotRef.current),
       ),
     );
+  };
+
+  const replayFirstMeeting = () => {
+    setActiveNav("ara");
+    void startVoiceSession(demoIntroductionInstruction, false);
   };
 
   useEffect(() => {
@@ -3403,18 +3494,14 @@ export default function Home() {
     outboundSent: 0,
   };
   const onboarding = platformWorkspace?.onboarding ?? null;
-  const onboardingIndex = onboarding
-    ? onboardingStateOrder.indexOf(onboarding.lifecycle_state)
-    : 0;
-  const firstMeetingSteps = [
-    { label: "Meet you", complete: onboardingIndex >= 1 },
-    { label: "Understand your work", complete: onboardingIndex >= 2 },
-    {
-      label: "Connect your workspace",
-      complete: Boolean(onboarding?.microsoft_connected || microsoftConnected),
-    },
-    { label: "Deliver your first readout", complete: Boolean(onboarding?.first_day_scan) },
-  ];
+  const conversationMemory = onboarding
+    ? [
+        onboarding.job_title,
+        onboarding.company,
+        onboarding.team_size ? `Team of ${onboarding.team_size}` : null,
+        onboarding.responsibilities[0],
+      ].filter((item): item is string => Boolean(item))
+    : [];
 
   return (
     <>
@@ -3909,26 +3996,39 @@ export default function Home() {
             )}
 
             {onboarding && onboarding.lifecycle_state !== "COMPLETE" && (
-              <section className="first-meeting-card" aria-label="First meeting progress">
+              <section className="first-meeting-card" aria-label="Conversation memory">
                 <div className="first-meeting-heading">
                   <div>
-                    <p>FIRST MEETING</p>
+                    <p>CONVERSATION MEMORY</p>
                     <h3>
                       {onboarding.preferred_name
                         ? `Getting to know ${onboarding.preferred_name}`
-                        : "A thoughtful beginning"}
+                        : "Learning what matters to you"}
                     </h3>
                   </div>
-                  <span>{firstMeetingSteps.filter((step) => step.complete).length}/4</span>
+                  <span className={`research-presence ${firstDayResearchState}`}>
+                    {firstDayResearchState === "running"
+                      ? "Quietly researching"
+                      : onboarding.first_day_scan
+                        ? "A first read is ready"
+                        : "Listening"}
+                  </span>
                 </div>
-                <ol className="first-meeting-steps">
-                  {firstMeetingSteps.map((step) => (
-                    <li className={step.complete ? "complete" : ""} key={step.label}>
-                      <i>{step.complete ? "✓" : "·"}</i>
-                      <span>{step.label}</span>
-                    </li>
-                  ))}
-                </ol>
+
+                {conversationMemory.length > 0 && (
+                  <div className="conversation-memory">
+                    {conversationMemory.map((memory) => (
+                      <span key={memory}>{memory}</span>
+                    ))}
+                  </div>
+                )}
+
+                {firstDayResearchState === "running" && (
+                  <div className="background-research" aria-live="polite">
+                    <i aria-hidden="true" />
+                    <span>Ara is getting the lay of the land while you talk.</span>
+                  </div>
+                )}
 
                 {(onboardingConnectionPrompt || onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED") &&
                   !microsoftConnected && (
@@ -3982,6 +4082,13 @@ export default function Home() {
                   <button onClick={askFriday}>
                     “Find my strategic plan and reconnect the surrounding
                     context.”
+                    <span>↗</span>
+                  </button>
+                  <button
+                    onClick={replayFirstMeeting}
+                    disabled={voiceConnected || voiceState === "connecting"}
+                  >
+                    “Meet Ara again from the beginning.”
                     <span>↗</span>
                   </button>
                 </div>

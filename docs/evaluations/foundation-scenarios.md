@@ -34,7 +34,7 @@ Updated: 2026-08-01
 
 ## Voice turn-taking
 
-1. A reflective pause does not trigger an early Ara response.
+1. A brief reflective pause does not trigger an early Ara response, while a completed thought receives a prompt response without an awkward extra delay.
 2. Ara stops output and listens when the user begins speaking.
 3. Silence after the opening does not produce a second introduction.
 4. Background noise is not accepted as a consequential confirmation.
@@ -42,7 +42,7 @@ Updated: 2026-08-01
 
 ## First meeting
 
-1. A new user hears exactly one introduction and Ara asks only for their name.
+1. A new user hears exactly one calm introduction in which Ara briefly says why she is there, then asks only for their name.
 2. Ara saves the stated name before asking what the person does and where they work.
 3. Ara reacts to specific responsibilities rather than offering generic praise or repeating the answer.
 4. Microsoft connection is presented as a secure user action; Ara never asks for a password, verification code, or credential.
@@ -52,6 +52,11 @@ Updated: 2026-08-01
 8. Ara does not claim Teams message coverage when the scan reports it as unavailable.
 9. Empty Inbox and Calendar data produce a calm zero-state readout rather than invented activity.
 10. One tenant can never read or advance another tenant's onboarding profile or scan.
+11. If the user gives their role and asks "what do you do?" in the same turn, Ara answers that question before mentioning setup or Microsoft.
+12. Saving identity or work context does not force Ara to ask the next onboarding question.
+13. Ara may follow a natural tangent and returns to connection only when the user asks to work or the conversation reaches a genuine lull.
+14. An already-connected Microsoft scan returns control to the conversation immediately and runs only once in the background.
+15. A running or failed background scan never produces filler, repeated progress narration, invented findings, or a blocked voice turn.
 
 ## Controlled personal calendar
 
