@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   resolveCalendarReadWindow,
+  resolveRequestedCalendarSlot,
   resolveSchedulingWindow,
 } from "../app/lib/calendar-window.ts";
 
@@ -36,4 +37,31 @@ test("keeps before-next-Wednesday as a deadline instead of a single day", () => 
   assert.equal(window.end.getDay(), 3);
   assert.equal(window.end.getDate(), 5);
   assert.equal(window.end.getHours(), 17);
+});
+
+test("preserves a requested weekday and local afternoon time", () => {
+  const slot = resolveRequestedCalendarSlot(
+    "next Friday at 2",
+    60,
+    friday,
+  );
+
+  assert.ok(slot);
+  assert.equal(slot.start.getDay(), 5);
+  assert.equal(slot.start.getDate(), 7);
+  assert.equal(slot.start.getHours(), 14);
+  assert.equal(slot.end.getHours(), 15);
+});
+
+test("understands a weekday inside next week and noon", () => {
+  const slot = resolveRequestedCalendarSlot(
+    "Wednesday next week at noon",
+    30,
+    friday,
+  );
+
+  assert.ok(slot);
+  assert.equal(slot.start.getDay(), 3);
+  assert.equal(slot.start.getDate(), 5);
+  assert.equal(slot.start.getHours(), 12);
 });

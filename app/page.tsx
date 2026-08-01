@@ -14,11 +14,14 @@ import {
   readMicrosoftCalendar,
   readMicrosoftMeetingTranscript,
   repairMicrosoftCalendarAccess,
+  resolveMicrosoftCalendarConflict,
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
   updateMicrosoftMeeting,
   type MicrosoftMeetingProposal,
+  type MicrosoftCalendarConflict,
+  type MicrosoftCalendarItemType,
   type MicrosoftMeetingResult,
   type MicrosoftMeetingUpdateProposal,
   type MicrosoftMeetingUpdateResult,
@@ -55,6 +58,7 @@ type Stage =
   | "ready"
   | "approved"
   | "meetingReady"
+  | "meetingConflict"
   | "meetingBooked"
   | "meetingUpdateReady"
   | "meetingUpdated"
@@ -153,14 +157,19 @@ const conversations = {
     body: "Your go-ahead is recorded. Once Teams is connected, Ara will take it from here.",
   },
   meetingReady: {
-    eyebrow: "Ara · Calendar proposal",
+    eyebrow: "Ara · Calendar",
     title: "I found a clear opening.",
-    body: "I resolved the attendees and checked your calendar. Review the Teams meeting below—how does that sound?",
+    body: "I checked your calendar and kept the details simple. How does that sound?",
+  },
+  meetingConflict: {
+    eyebrow: "Ara · Calendar conflict",
+    title: "There’s something in the way.",
+    body: "Ara found the conflict and the safest choices without changing anything yet.",
   },
   meetingBooked: {
-    eyebrow: "Ara · Meeting booked",
+    eyebrow: "Ara · Calendar updated",
     title: "Done—it’s on the calendar.",
-    body: "The Teams meeting is live and invitations have been sent to everyone listed below.",
+    body: "The time below is the exact time saved in Outlook.",
   },
   meetingUpdateReady: {
     eyebrow: "Ara · Invite update",
@@ -279,6 +288,8 @@ export default function Home() {
   );
   const [pendingMeeting, setPendingMeeting] =
     useState<MicrosoftMeetingProposal | null>(null);
+  const [calendarConflicts, setCalendarConflicts] =
+    useState<MicrosoftCalendarConflict[]>([]);
   const [bookedMeeting, setBookedMeeting] =
     useState<MicrosoftMeetingResult | null>(null);
   const [pendingMeetingUpdate, setPendingMeetingUpdate] =
@@ -310,6 +321,7 @@ export default function Home() {
   const transcriptRef = useRef("");
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
+  const calendarConflictsRef = useRef<MicrosoftCalendarConflict[]>([]);
   const bookedMeetingRef = useRef<MicrosoftMeetingResult | null>(null);
   const pendingMeetingUpdateRef =
     useRef<MicrosoftMeetingUpdateProposal | null>(null);
@@ -339,7 +351,7 @@ export default function Home() {
 
   const noteForMicrosoftSnapshot = (snapshot: MicrosoftSnapshot) =>
     snapshot.capabilities.calendar === "ready"
-      ? "Read access is live · calendar actions need your approval"
+      ? "Calendar access is live · changes happen after you confirm the details"
       : snapshot.calendarIssue?.message ??
         "Microsoft is connected, but Calendar needs attention.";
 
@@ -654,8 +666,7 @@ export default function Home() {
         calendar_event_count: calendar.events.length,
         upcoming_calendar: calendar.events.map((event) => ({
           subject: event.subject || "(No title)",
-          start: event.start?.dateTime,
-          end: event.end?.dateTime,
+          time: event.displayTime,
           organizer:
             event.organizer?.emailAddress?.name ??
             event.organizer?.emailAddress?.address ??
@@ -663,7 +674,7 @@ export default function Home() {
           online_meeting: event.isOnlineMeeting === true,
         })),
         instruction:
-          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If Nick asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no events, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
+          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If Nick asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no calendar items, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
       };
     } catch (error) {
       const issue = describeMicrosoftCalendarError(error);
@@ -838,7 +849,7 @@ export default function Home() {
             .slice(0, 10)
             .map((event) => ({
               subject: event.subject || "(No title)",
-              start: event.start?.dateTime,
+              time: event.displayTime,
               organizer:
                 event.organizer?.emailAddress?.name ??
                 event.organizer?.emailAddress?.address ??
@@ -905,6 +916,22 @@ export default function Home() {
         typeof args.duration_minutes === "number"
           ? args.duration_minutes
           : 30;
+      const validItemTypes: MicrosoftCalendarItemType[] = [
+        "meeting",
+        "lunch",
+        "appointment",
+        "focus",
+      ];
+      const calendarItemType =
+        typeof args.calendar_item_type === "string" &&
+        validItemTypes.includes(
+          args.calendar_item_type as MicrosoftCalendarItemType,
+        )
+          ? (args.calendar_item_type as MicrosoftCalendarItemType)
+          : "meeting";
+      const onlineMeeting = args.online_meeting === true;
+      const location =
+        typeof args.location === "string" ? args.location.trim() : "";
 
       setVoiceNote("Ara is resolving people and checking your calendar");
       try {
@@ -916,6 +943,9 @@ export default function Home() {
           purpose,
           agendaItems,
           enableTranscription,
+          calendarItemType,
+          onlineMeeting,
+          location,
         });
 
         if (!preparation.proposal) {
@@ -936,8 +966,47 @@ export default function Home() {
 
         pendingMeetingRef.current = preparation.proposal;
         setPendingMeeting(preparation.proposal);
+        calendarConflictsRef.current = preparation.conflicts;
+        setCalendarConflicts(preparation.conflicts);
         setBookedMeeting(null);
         setApprovalMethod(null);
+        if (preparation.conflicts.length > 0) {
+          const conflict = preparation.conflicts[0];
+          moveToStage("meetingConflict");
+          return {
+            status: "calendar_conflict",
+            requested_item: preparation.proposal.subject,
+            requested_time: preparation.proposal.displayTime,
+            conflict_count: preparation.conflicts.length,
+            conflict: {
+              subject: conflict.subject,
+              time: conflict.displayTime,
+              nick_is_organizer: conflict.isOrganizer,
+              alternative_for_request:
+                conflict.suggestedRequestedDisplayTime,
+              alternative_for_existing_meeting:
+                conflict.suggestedExistingDisplayTime,
+            },
+            available_options: {
+              reschedule_requested: Boolean(
+                conflict.suggestedRequestedDisplayTime,
+              ),
+              move_existing:
+                preparation.conflicts.length === 1 &&
+                conflict.isOrganizer &&
+                Boolean(conflict.suggestedExistingDisplayTime),
+              decline_existing:
+                preparation.conflicts.length === 1 && !conflict.isOrganizer,
+            },
+            approval_required: true,
+            instruction:
+              preparation.conflicts.length > 1
+                ? "Tell Nick the requested time has multiple conflicts. Offer the returned alternative only when its time is not null; otherwise ask which other window to search. Ask one short question."
+                : conflict.isOrganizer
+                  ? "Tell Nick the requested time conflicts with the named meeting. Offer only returned options whose time is not null: move that meeting and book the new item, or use the alternative for the new item. Ask one short question."
+                  : "Tell Nick the requested time conflicts with an invitation he does not own. Offer to decline that invitation and book the new item, plus the alternative for the new item only when its time is not null. Ask one short question.",
+          };
+        }
         moveToStage("meetingReady");
         return {
           status: "pending_approval",
@@ -949,12 +1018,14 @@ export default function Home() {
           proposed_time: preparation.proposal.displayTime,
           deadline: preparation.proposal.deadline,
           directory_people_checked: preparation.directoryPeopleChecked,
-          teams_meeting: true,
+          calendar_item_type: preparation.proposal.calendarItemType,
+          teams_meeting: preparation.proposal.onlineMeeting,
           agenda: preparation.proposal.agendaItems,
           transcription_requested: preparation.proposal.enableTranscription,
+          confirmation_needed: true,
           approval_required: true,
           instruction:
-            "Briefly summarize the meeting, attendees, proposed time, and that the agenda will be included. Mention transcription only when requested. End with 'How does that sound?' Do not say it has been scheduled yet.",
+            "Say the proposed time once in one natural sentence and end with 'How does that sound?' Mention attendees only when useful. Never use the words approval, proposal, or event, and do not repeat Nick's request.",
         };
       } catch (error) {
         const detail =
@@ -978,7 +1049,7 @@ export default function Home() {
         /\b(put|add)\s+(it|that|this|the meeting)\s+(on|to)\s+(my|the)\s+calendar\b/i.test(
           confirmation,
         ) ||
-        /\b(that works|that sounds good|looks good|go ahead|let'?s do it|make it happen)\b/i.test(
+        /\b(that works|sounds good|that sounds good|looks good|perfect|go ahead|let'?s do it|make it happen)\b/i.test(
           confirmation,
         );
 
@@ -1001,7 +1072,7 @@ export default function Home() {
       }
 
       setMeetingActionPending(true);
-      setVoiceNote("Ara is creating the Teams meeting");
+      setVoiceNote("Ara is adding it to your calendar");
       try {
         const result = await createMicrosoftMeeting(
           pendingMeetingRef.current,
@@ -1015,11 +1086,12 @@ export default function Home() {
         return {
           meeting_created: true,
           subject: result.subject,
-          start: result.start,
+          booked_time: result.displayTime,
+          calendar_item_type: result.calendarItemType,
           attendees: result.attendees.map((attendee) => attendee.displayName),
           teams_join_url_available: Boolean(result.joinUrl),
           calendar_link_available: Boolean(result.webLink),
-          agenda_included: true,
+          agenda_included: pendingMeetingRef.current.agendaItems.length > 0,
           transcription_status: result.transcriptionStatus,
           fully_completed:
             !pendingMeetingRef.current.enableTranscription ||
@@ -1034,12 +1106,124 @@ export default function Home() {
         const detail =
           error instanceof Error
             ? error.message
-            : "Microsoft 365 could not create the event.";
+            : "Microsoft 365 could not add the calendar item.";
         return {
           meeting_created: false,
           detail,
           instruction:
             "Tell Nick briefly that the meeting was not created. Suggest reconnecting Microsoft 365 if access needs attention, and never claim invitations were sent.",
+        };
+      } finally {
+        setMeetingActionPending(false);
+      }
+    }
+
+    if (call.name === "resolve_calendar_conflict") {
+      const proposal = pendingMeetingRef.current;
+      const conflicts = calendarConflictsRef.current;
+      const conflict = conflicts[0];
+      const confirmation =
+        typeof args.confirmation === "string" ? args.confirmation.trim() : "";
+      const resolution =
+        args.resolution === "reschedule_requested" ||
+        args.resolution === "move_existing" ||
+        args.resolution === "decline_existing"
+          ? args.resolution
+          : null;
+      const languageMatches =
+        resolution === "reschedule_requested"
+          ? /\b(reschedule|another time|different time|move (?:the )?(?:new|lunch|appointment|request)|use that time)\b/i.test(
+              confirmation,
+            )
+          : resolution === "move_existing"
+            ? /\b(move|reschedule)\b/i.test(confirmation)
+            : resolution === "decline_existing"
+              ? /\b(decline|skip|turn down)\b/i.test(confirmation)
+              : false;
+
+      if (
+        stageRef.current !== "meetingConflict" ||
+        !proposal ||
+        !conflict ||
+        !resolution
+      ) {
+        return {
+          conflict_resolved: false,
+          reason: "There is no visible calendar conflict to resolve.",
+        };
+      }
+      if (!languageMatches) {
+        return {
+          conflict_resolved: false,
+          reason:
+            "Nick did not clearly choose which calendar item to move or decline. Ask one short clarifying question.",
+        };
+      }
+      if (conflicts.length > 1 && resolution !== "reschedule_requested") {
+        return {
+          conflict_resolved: false,
+          reason:
+            "More than one meeting conflicts, so safely offer the alternative time for the new request instead of changing multiple meetings.",
+        };
+      }
+
+      setMeetingActionPending(true);
+      setVoiceNote("Ara is updating the calendar exactly as requested");
+      try {
+        const result = await resolveMicrosoftCalendarConflict({
+          proposal,
+          conflict,
+          resolution,
+        });
+        if (result.proposal) {
+          pendingMeetingRef.current = result.proposal;
+          setPendingMeeting(result.proposal);
+          calendarConflictsRef.current = [];
+          setCalendarConflicts([]);
+          moveToStage("meetingReady");
+          return {
+            status: "pending_approval",
+            conflict_resolved: true,
+            proposed_time: result.proposal.displayTime,
+            confirmation_needed: true,
+            approval_required: true,
+            instruction:
+              "Say the alternative time once and end with 'How does that sound?' Do not repeat the original request or call this an approval.",
+          };
+        }
+
+        if (!result.created) {
+          throw new Error("The calendar change did not finish.");
+        }
+        bookedMeetingRef.current = result.created;
+        setBookedMeeting(result.created);
+        setApprovalMethod("voice");
+        calendarConflictsRef.current = [];
+        setCalendarConflicts([]);
+        moveToStage("meetingBooked");
+        const snapshot = await refreshMicrosoft365().catch(() => null);
+        if (snapshot) rememberMicrosoftSnapshot(snapshot);
+        return {
+          conflict_resolved: true,
+          meeting_created: true,
+          fully_completed: true,
+          requested_item: result.created.subject,
+          booked_time: result.created.displayTime,
+          existing_meeting_action:
+            resolution === "move_existing" ? "moved" : "declined",
+          existing_meeting: result.changedMeeting,
+          existing_meeting_new_time: result.changedMeetingTime,
+          instruction: 'Say exactly "Done." and nothing else.',
+        };
+      } catch (error) {
+        return {
+          conflict_resolved: false,
+          detail:
+            error instanceof Error
+              ? error.message
+              : "The calendar conflict could not be resolved.",
+          instruction:
+            "Tell Nick exactly what the detail says in one sentence, including any partial change. Do not guess beyond it.",
         };
       } finally {
         setMeetingActionPending(false);
@@ -1522,6 +1706,7 @@ export default function Home() {
           outcome.meeting_created === false ||
           outcome.meeting_updated === false ||
           outcome.document_published === false ||
+          outcome.conflict_resolved === false ||
           outcome.approval_recorded === false ||
           [
             "not_connected",
@@ -1554,6 +1739,20 @@ export default function Home() {
             autonomousCloseEligibleRef.current =
               outcome.fully_completed !== false;
             recoverableErrorRef.current = false;
+          } else {
+            autonomousCloseEligibleRef.current = false;
+            approvalPendingRef.current = Boolean(pendingMeetingRef.current);
+          }
+        }
+
+        if (call.name === "resolve_calendar_conflict") {
+          if (outcome.meeting_created === true) {
+            approvalPendingRef.current = false;
+            autonomousCloseEligibleRef.current = true;
+            recoverableErrorRef.current = false;
+          } else if (status === "pending_approval") {
+            approvalPendingRef.current = true;
+            autonomousCloseEligibleRef.current = false;
           } else {
             autonomousCloseEligibleRef.current = false;
             approvalPendingRef.current = Boolean(pendingMeetingRef.current);
@@ -2055,7 +2254,7 @@ export default function Home() {
           setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
         } else {
           setMicrosoftStatus("disconnected");
-          setMicrosoftNote("Ready for your approval");
+          setMicrosoftNote("Ready when you are");
         }
       })
       .catch(() => {
@@ -2157,7 +2356,7 @@ export default function Home() {
     if (!pendingMeetingRef.current || meetingActionPending) return;
 
     setMeetingActionPending(true);
-    setVoiceNote("Ara is creating the Teams meeting");
+    setVoiceNote("Ara is adding it to your calendar");
     try {
       const result = await createMicrosoftMeeting(pendingMeetingRef.current);
       bookedMeetingRef.current = result;
@@ -2176,8 +2375,8 @@ export default function Home() {
       });
       setVoiceNote(
         fullyCompleted
-          ? "The Teams meeting and agenda are on your calendar"
-          : "The meeting is booked · meeting intelligence still needs approval",
+          ? `${result.displayTime} · on your calendar`
+          : "The meeting is booked · meeting intelligence still needs access",
       );
       if (channelRef.current?.readyState === "open") {
         setMicrophoneEnabled(false);
@@ -2205,6 +2404,70 @@ export default function Home() {
       if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
       setVoiceNote(
         "The meeting was not created. Reconnect Microsoft 365 and try again.",
+      );
+    } finally {
+      setMeetingActionPending(false);
+    }
+  };
+
+  const resolveCalendarConflictWithButton = async (
+    resolution:
+      | "reschedule_requested"
+      | "move_existing"
+      | "decline_existing",
+  ) => {
+    const proposal = pendingMeetingRef.current;
+    const conflict = calendarConflictsRef.current[0];
+    if (!proposal || !conflict || meetingActionPending) return;
+    setMeetingActionPending(true);
+    setVoiceNote("Ara is updating the calendar exactly as requested");
+    try {
+      const result = await resolveMicrosoftCalendarConflict({
+        proposal,
+        conflict,
+        resolution,
+      });
+      if (result.proposal) {
+        pendingMeetingRef.current = result.proposal;
+        setPendingMeeting(result.proposal);
+        calendarConflictsRef.current = [];
+        setCalendarConflicts([]);
+        moveToStage("meetingReady");
+        setVoiceNote(`${result.proposal.displayTime} is open · how does that sound?`);
+        return;
+      }
+      if (!result.created) throw new Error("The calendar change did not finish.");
+      bookedMeetingRef.current = result.created;
+      setBookedMeeting(result.created);
+      setApprovalMethod("button");
+      calendarConflictsRef.current = [];
+      setCalendarConflicts([]);
+      moveToStage("meetingBooked");
+      approvalPendingRef.current = false;
+      autonomousCloseEligibleRef.current = true;
+      recoverableErrorRef.current = false;
+      setVoiceNote(`${result.created.displayTime} · on your calendar`);
+      if (channelRef.current?.readyState === "open") {
+        setMicrophoneEnabled(false);
+        channelRef.current.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions: 'Say exactly "Done." and nothing else.',
+            },
+          }),
+        );
+      }
+      const snapshot = await refreshMicrosoft365().catch(() => null);
+      if (snapshot) rememberMicrosoftSnapshot(snapshot);
+    } catch (error) {
+      autonomousCloseEligibleRef.current = false;
+      recoverableErrorRef.current = true;
+      setVoiceNote(
+        error instanceof Error
+          ? error.message
+          : "The calendar change did not finish. Check the calendar before retrying.",
       );
     } finally {
       setMeetingActionPending(false);
@@ -2323,10 +2586,12 @@ export default function Home() {
 
   const startAnotherRequest = () => {
     pendingMeetingRef.current = null;
+    calendarConflictsRef.current = [];
     bookedMeetingRef.current = null;
     pendingMeetingUpdateRef.current = null;
     pendingDocumentRef.current = null;
     setPendingMeeting(null);
+    setCalendarConflicts([]);
     setBookedMeeting(null);
     setPendingMeetingUpdate(null);
     setMeetingUpdateResult(null);
@@ -2442,6 +2707,7 @@ export default function Home() {
   const approvalWaiting =
     stage === "ready" ||
     stage === "meetingReady" ||
+    stage === "meetingConflict" ||
     stage === "meetingUpdateReady" ||
     stage === "documentReady";
 
@@ -2739,8 +3005,9 @@ export default function Home() {
             </div>
           ) : (
             <p className="connection-boundary">
-              Ara can read what you can see and book calendar meetings after
-              you approve them. Messages, file edits, and deletions remain off.
+              Ara can read what you can see and book meetings, lunches, and
+              appointments after you confirm the details. Messages, file edits,
+              and deletions remain off.
             </p>
           )}
 
@@ -2956,7 +3223,9 @@ export default function Home() {
             )}
 
             {pendingMeeting &&
-              (stage === "meetingReady" || stage === "meetingBooked") && (
+              (stage === "meetingReady" ||
+                stage === "meetingConflict" ||
+                stage === "meetingBooked") && (
                 <article
                   className={`meeting-card ${stage === "meetingBooked" ? "booked" : ""}`}
                 >
@@ -2964,12 +3233,16 @@ export default function Home() {
                     <div>
                       <p>
                         {stage === "meetingBooked"
-                          ? "TEAMS MEETING · BOOKED"
-                          : "PROPOSED TEAMS MEETING"}
+                          ? `${pendingMeeting.calendarItemType.toUpperCase()} · BOOKED`
+                          : stage === "meetingConflict"
+                            ? "CALENDAR CONFLICT"
+                            : `${pendingMeeting.calendarItemType.toUpperCase()} · FOUND A TIME`}
                       </p>
                       <h3>{pendingMeeting.subject}</h3>
                     </div>
-                    <span className="teams-badge">T</span>
+                    <span className="teams-badge">
+                      {pendingMeeting.onlineMeeting ? "T" : "C"}
+                    </span>
                   </div>
 
                   <div className="meeting-time">
@@ -2979,58 +3252,126 @@ export default function Home() {
                     <div>
                       <b>{pendingMeeting.displayTime}</b>
                       <small>
-                        {pendingMeeting.durationMinutes} minutes · Microsoft
-                        Teams
+                        {pendingMeeting.durationMinutes} minutes · {pendingMeeting.onlineMeeting
+                          ? "Microsoft Teams"
+                          : pendingMeeting.location || "Your calendar"}
                       </small>
                     </div>
                   </div>
 
-                  <div className="meeting-attendees">
-                    <p>ATTENDEES</p>
-                    {pendingMeeting.attendees.map((attendee) => (
-                      <div key={attendee.email}>
-                        <span className="mini-avatar">
-                          {attendee.displayName
-                            .split(/\s+/)
-                            .slice(0, 2)
-                            .map((part) => part[0]?.toUpperCase())
-                            .join("") || "·"}
-                        </span>
-                        <span>
-                          <b>{attendee.displayName}</b>
-                          <small>{attendee.email}</small>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  {pendingMeeting.attendees.length > 0 && (
+                    <div className="meeting-attendees">
+                      <p>ATTENDEES</p>
+                      {pendingMeeting.attendees.map((attendee) => (
+                        <div key={attendee.email}>
+                          <span className="mini-avatar">
+                            {attendee.displayName
+                              .split(/\s+/)
+                              .slice(0, 2)
+                              .map((part) => part[0]?.toUpperCase())
+                              .join("") || "·"}
+                          </span>
+                          <span>
+                            <b>{attendee.displayName}</b>
+                            <small>{attendee.email}</small>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {pendingMeeting.purpose && (
                     <p className="meeting-purpose">{pendingMeeting.purpose}</p>
                   )}
 
-                  <div className="meeting-agenda">
-                    <p>AGENDA</p>
-                    <ol>
-                      {pendingMeeting.agendaItems.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ol>
-                    {pendingMeeting.enableTranscription && (
-                      <span>
-                        ◇ Transcript-ready meeting requested
-                        {stage === "meetingBooked" && bookedMeeting
-                          ? bookedMeeting.transcriptionStatus === "enabled"
-                            ? " · enabled"
-                            : " · needs Meeting intelligence access"
-                          : ""}
-                      </span>
-                    )}
-                  </div>
+                  {(pendingMeeting.agendaItems.length > 0 ||
+                    pendingMeeting.enableTranscription) && (
+                    <div className="meeting-agenda">
+                      {pendingMeeting.agendaItems.length > 0 && (
+                        <>
+                          <p>AGENDA</p>
+                          <ol>
+                            {pendingMeeting.agendaItems.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ol>
+                        </>
+                      )}
+                      {pendingMeeting.enableTranscription && (
+                        <span>
+                          ◇ Transcript-ready meeting requested
+                          {stage === "meetingBooked" && bookedMeeting
+                            ? bookedMeeting.transcriptionStatus === "enabled"
+                              ? " · enabled"
+                              : " · needs Meeting intelligence access"
+                            : ""}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
-                  {stage === "meetingReady" ? (
+                  {stage === "meetingConflict" && calendarConflicts[0] ? (
+                    <div className="calendar-conflict-card">
+                      <p>CONFLICT AT THIS TIME</p>
+                      <h4>{calendarConflicts[0].subject}</h4>
+                      <span>{calendarConflicts[0].displayTime}</span>
+                      <small>
+                        {calendarConflicts.length > 1
+                          ? `${calendarConflicts.length} items overlap this time. Ara will keep them untouched.`
+                          : calendarConflicts[0].isOrganizer
+                            ? "You own this meeting, so Ara can move it after you choose that option."
+                            : "Someone else owns this meeting, so Ara can decline it after you choose that option."}
+                      </small>
+                      <div className="action-row">
+                        {calendarConflicts.length === 1 &&
+                          (calendarConflicts[0].isOrganizer ? (
+                            <button
+                              className="secondary"
+                              onClick={() =>
+                                void resolveCalendarConflictWithButton(
+                                  "move_existing",
+                                )
+                              }
+                              disabled={
+                                meetingActionPending ||
+                                !calendarConflicts[0].suggestedExistingStart
+                              }
+                            >
+                              Move {calendarConflicts[0].subject} + book this
+                            </button>
+                          ) : (
+                            <button
+                              className="secondary"
+                              onClick={() =>
+                                void resolveCalendarConflictWithButton(
+                                  "decline_existing",
+                                )
+                              }
+                              disabled={meetingActionPending}
+                            >
+                              Decline {calendarConflicts[0].subject} + book this
+                            </button>
+                          ))}
+                        <button
+                          className="primary"
+                          onClick={() =>
+                            void resolveCalendarConflictWithButton(
+                              "reschedule_requested",
+                            )
+                          }
+                          disabled={
+                            meetingActionPending ||
+                            !calendarConflicts[0].suggestedRequestedStart
+                          }
+                        >
+                          Use {calendarConflicts[0].suggestedRequestedDisplayTime ?? "another time"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : stage === "meetingReady" ? (
                     <>
                       <p className="voice-approval-hint">
-                        Respond naturally—“That works, book it.”
+                        Respond naturally—“Sounds good.”
                       </p>
                       <div className="action-row">
                         <button
@@ -3047,7 +3388,7 @@ export default function Home() {
                         >
                           {meetingActionPending
                             ? "Booking…"
-                            : "Book Teams meeting"}{" "}
+                            : `Book ${pendingMeeting.calendarItemType}`}{" "}
                           <span>→</span>
                         </button>
                       </div>
@@ -3055,9 +3396,11 @@ export default function Home() {
                   ) : (
                     <>
                       <div className="audit-line">
-                        <span>✓</span> Nick approved{" "}
-                        {approvalMethod === "voice" ? "by voice" : "with a tap"}{" "}
-                        · Invitations sent
+                        <span>✓</span> Confirmed{" "}
+                        {approvalMethod === "voice" ? "by voice" : "with a tap"}
+                        {pendingMeeting.attendees.length > 0
+                          ? " · Invitations sent"
+                          : " · Added to your calendar"}
                       </div>
                       <div className="meeting-links">
                         {bookedMeeting?.joinUrl && (
@@ -3484,11 +3827,16 @@ export default function Home() {
                 </span>
               </div>
 
-              {stage === "meetingReady" && pendingMeeting ? (
+              {(stage === "meetingReady" || stage === "meetingConflict") &&
+              pendingMeeting ? (
                 <div className="queue-item">
                   <span className="teams-badge">T</span>
                   <div>
-                    <p>TEAMS MEETING</p>
+                    <p>
+                      {stage === "meetingConflict"
+                        ? "CALENDAR CONFLICT"
+                        : pendingMeeting.calendarItemType.toUpperCase()}
+                    </p>
                     <h3>{pendingMeeting.subject}</h3>
                     <span>{pendingMeeting.displayTime} · {pendingMeeting.attendees.length} attendees</span>
                   </div>
@@ -3586,11 +3934,14 @@ export default function Home() {
                 </h2>
               </div>
             </div>
-            {stage === "meetingReady" && pendingMeeting ? (
+            {(stage === "meetingReady" || stage === "meetingConflict") &&
+            pendingMeeting ? (
               <div className="approval-summary">
                 <b>{pendingMeeting.subject}</b>
                 <span>
-                  {pendingMeeting.attendees.length} attendees ·{" "}
+                  {stage === "meetingConflict"
+                    ? "Conflict needs your choice · "
+                    : `${pendingMeeting.attendees.length} attendees · `}
                   {pendingMeeting.displayTime}
                 </span>
               </div>

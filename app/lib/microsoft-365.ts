@@ -11,6 +11,7 @@ import {
 } from "./people";
 import {
   resolveCalendarReadWindow,
+  resolveRequestedCalendarSlot,
   resolveSchedulingWindow,
 } from "./calendar-window";
 import {
@@ -22,6 +23,7 @@ import {
   normalizeAgendaItems,
   scoreMeetingReference,
 } from "./meeting-artifacts";
+import { buildMicrosoftCalendarPayload } from "./calendar-payload";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -99,6 +101,7 @@ export type GraphEvent = {
       address?: string;
     };
   }>;
+  displayTime?: string;
 };
 
 type GraphOnlineMeeting = {
@@ -216,6 +219,27 @@ export type MicrosoftMeetingAttendee = {
   email: string;
 };
 
+export type MicrosoftCalendarItemType =
+  | "meeting"
+  | "lunch"
+  | "appointment"
+  | "focus";
+
+export type MicrosoftCalendarConflict = {
+  eventId: string;
+  subject: string;
+  start: string;
+  end: string;
+  displayTime: string;
+  isOrganizer: boolean;
+  suggestedRequestedStart: string | null;
+  suggestedRequestedEnd: string | null;
+  suggestedRequestedDisplayTime: string | null;
+  suggestedExistingStart: string | null;
+  suggestedExistingEnd: string | null;
+  suggestedExistingDisplayTime: string | null;
+};
+
 export type MicrosoftMeetingProposal = {
   subject: string;
   purpose: string;
@@ -227,6 +251,10 @@ export type MicrosoftMeetingProposal = {
   deadline: string;
   durationMinutes: number;
   displayTime: string;
+  calendarItemType: MicrosoftCalendarItemType;
+  onlineMeeting: boolean;
+  location: string;
+  exactRequestedTime: boolean;
 };
 
 export type MicrosoftMeetingPreparation = {
@@ -234,6 +262,7 @@ export type MicrosoftMeetingPreparation = {
   unresolvedAttendees: string[];
   directoryStatus: "ready" | "unavailable";
   directoryPeopleChecked: number;
+  conflicts: MicrosoftCalendarConflict[];
 };
 
 export type MicrosoftMeetingResult = {
@@ -244,12 +273,28 @@ export type MicrosoftMeetingResult = {
   webLink: string | null;
   joinUrl: string | null;
   attendees: MicrosoftMeetingAttendee[];
+  displayTime: string;
+  calendarItemType: MicrosoftCalendarItemType;
+  onlineMeeting: boolean;
   transcriptionStatus:
     | "enabled"
     | "permission_required"
     | "not_online"
     | "unavailable"
     | "not_requested";
+};
+
+export type MicrosoftCalendarConflictResolution =
+  | "reschedule_requested"
+  | "move_existing"
+  | "decline_existing";
+
+export type MicrosoftCalendarConflictResolutionResult = {
+  resolution: MicrosoftCalendarConflictResolution;
+  proposal: MicrosoftMeetingProposal | null;
+  created: MicrosoftMeetingResult | null;
+  changedMeeting: string | null;
+  changedMeetingTime: string | null;
 };
 
 export type MicrosoftMeetingUpdateProposal = {
@@ -323,12 +368,14 @@ let directoryPeopleCache:
 const DIRECTORY_CACHE_MS = 5 * 60 * 1000;
 
 class MicrosoftGraphError extends Error {
-  constructor(
-    public status: number,
-    public code: string | null,
-  ) {
+  public status: number;
+  public code: string | null;
+
+  constructor(status: number, code: string | null) {
     super(`Microsoft 365 returned ${status}.`);
     this.name = "MicrosoftGraphError";
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -475,7 +522,8 @@ function roundUpToHalfHour(value: Date) {
   const rounded = new Date(value);
   rounded.setSeconds(0, 0);
   const minutes = rounded.getMinutes();
-  rounded.setMinutes(minutes <= 30 ? 30 : 60);
+  if (minutes === 0 || minutes === 30) return rounded;
+  rounded.setMinutes(minutes < 30 ? 30 : 60);
   return rounded;
 }
 
@@ -588,6 +636,7 @@ async function readMicrosoftSnapshot(
       graphRequest<GraphCollection<GraphEvent>>(
         token.accessToken,
         `/me/calendarView?startDateTime=${encodeURIComponent(now.toISOString())}&endDateTime=${encodeURIComponent(calendarEnd.toISOString())}&$top=50&$select=id,subject,start,end,organizer,isOnlineMeeting,onlineMeetingUrl,webLink&$orderby=start/dateTime`,
+        { headers: { Prefer: 'outlook.timezone="UTC"' } },
       ),
       graphRequest<GraphSite>(
         token.accessToken,
@@ -631,7 +680,10 @@ async function readMicrosoftSnapshot(
       mailResult.status === "fulfilled" ? mailResult.value.value ?? [] : [],
     upcomingEvents:
       calendarResult.status === "fulfilled"
-        ? calendarResult.value.value ?? []
+        ? (calendarResult.value.value ?? []).map((event) => ({
+            ...event,
+            displayTime: formatEventTime(event),
+          }))
         : [],
     sharePointSite:
       sharePointResult.status === "fulfilled" ? sharePointResult.value : null,
@@ -734,13 +786,17 @@ export async function readMicrosoftCalendar(
   const calendar = await graphRequest<GraphCollection<GraphEvent>>(
     token.accessToken,
     `/me/calendarView?startDateTime=${encodeURIComponent(window.start.toISOString())}&endDateTime=${encodeURIComponent(window.end.toISOString())}&$top=100&$select=id,subject,start,end,organizer,isOnlineMeeting,onlineMeetingUrl,webLink&$orderby=start/dateTime`,
+    { headers: { Prefer: 'outlook.timezone="UTC"' } },
   );
 
   return {
     label: window.label,
     start: window.start.toISOString(),
     end: window.end.toISOString(),
-    events: calendar.value ?? [],
+    events: (calendar.value ?? []).map((event) => ({
+      ...event,
+      displayTime: formatEventTime(event),
+    })),
   };
 }
 
@@ -855,6 +911,9 @@ export async function prepareMicrosoftMeeting({
   purpose,
   agendaItems = [],
   enableTranscription = false,
+  calendarItemType = "meeting",
+  onlineMeeting,
+  location = "",
 }: {
   subject: string;
   attendeeNames: string[];
@@ -863,6 +922,9 @@ export async function prepareMicrosoftMeeting({
   purpose: string;
   agendaItems?: string[];
   enableTranscription?: boolean;
+  calendarItemType?: MicrosoftCalendarItemType;
+  onlineMeeting?: boolean;
+  location?: string;
 }): Promise<MicrosoftMeetingPreparation> {
   const client = await getMicrosoftClient();
   const account = chooseAccount(client);
@@ -877,22 +939,13 @@ export async function prepareMicrosoftMeeting({
     Math.min(Number.isFinite(durationMinutes) ? durationMinutes : 30, 120),
   );
 
-  if (attendeeNames.length === 0) {
-    return {
-      proposal: null,
-      unresolvedAttendees: ["the attendee"],
-      directoryStatus: "ready",
-      directoryPeopleChecked: 0,
-    };
-  }
-
   let directoryPeople: DirectoryPerson[] =
     directoryPeopleCache && directoryPeopleCache.expiresAt > Date.now()
       ? directoryPeopleCache.people
       : [];
   let directoryStatus: MicrosoftMeetingPreparation["directoryStatus"] =
     "ready";
-  if (directoryPeople.length === 0) {
+  if (attendeeNames.length > 0 && directoryPeople.length === 0) {
     try {
       const directory = await graphRequest<GraphCollection<DirectoryPerson>>(
         token.accessToken,
@@ -952,6 +1005,7 @@ export async function prepareMicrosoftMeeting({
       unresolvedAttendees,
       directoryStatus,
       directoryPeopleChecked: directoryPeople.length,
+      conflicts: [],
     };
   }
 
@@ -960,20 +1014,42 @@ export async function prepareMicrosoftMeeting({
   if (schedulingWindow.end <= now) {
     throw new Error("The requested deadline has already passed.");
   }
+  const exactSlot = resolveRequestedCalendarSlot(
+    deadlineDescription,
+    normalizedDuration,
+    now,
+  );
+  if (exactSlot && exactSlot.end <= now) {
+    throw new Error("The requested time has already passed.");
+  }
+  const lookupStart = exactSlot
+    ? new Date(
+        Math.min(schedulingWindow.start.getTime(), exactSlot.start.getTime()),
+      )
+    : schedulingWindow.start;
+  const lookupEnd = exactSlot
+    ? new Date(
+        Math.max(schedulingWindow.end.getTime(), exactSlot.end.getTime()),
+      )
+    : schedulingWindow.end;
   const calendarStart = new Date(
-    Math.max(now.getTime(), schedulingWindow.start.getTime()),
+    Math.max(now.getTime(), lookupStart.getTime()),
   );
 
   const calendar = await graphRequest<GraphCollection<GraphEvent>>(
     token.accessToken,
-    `/me/calendarView?startDateTime=${encodeURIComponent(calendarStart.toISOString())}&endDateTime=${encodeURIComponent(schedulingWindow.end.toISOString())}&$top=100&$select=id,subject,start,end&$orderby=start/dateTime`,
+    `/me/calendarView?startDateTime=${encodeURIComponent(calendarStart.toISOString())}&endDateTime=${encodeURIComponent(lookupEnd.toISOString())}&$top=100&$select=id,subject,start,end,isOrganizer,organizer&$orderby=start/dateTime`,
+    { headers: { Prefer: 'outlook.timezone="UTC"' } },
   );
-  const available = findAvailableMeetingTime(
-    calendar.value ?? [],
-    schedulingWindow.start,
-    schedulingWindow.end,
-    normalizedDuration,
-  );
+  const calendarEvents = calendar.value ?? [];
+  const available = exactSlot
+    ? { start: exactSlot.start, end: exactSlot.end }
+    : findAvailableMeetingTime(
+        calendarEvents,
+        schedulingWindow.start,
+        schedulingWindow.end,
+        normalizedDuration,
+      );
 
   if (!available) {
     throw new Error("No open working-hours slot was found before the deadline.");
@@ -983,12 +1059,89 @@ export async function prepareMicrosoftMeeting({
   const finalAgenda =
     preparedAgenda.length > 0
       ? preparedAgenda
-      : [
+      : calendarItemType === "meeting"
+        ? [
           `Confirm the objective for ${subject}`,
           "Review the relevant context and open questions",
           "Agree on decisions, owners, and deadlines",
           "Confirm next steps",
-        ];
+          ]
+        : [];
+  const finalOnlineMeeting =
+    onlineMeeting ??
+    (calendarItemType === "meeting" && attendees.length > 0);
+
+  const conflicts = exactSlot
+    ? calendarEvents
+        .filter((event) => {
+          const eventStart = parseGraphDateTime(event.start);
+          const eventEnd = parseGraphDateTime(event.end);
+          return Boolean(
+            eventStart &&
+              eventEnd &&
+              exactSlot.start < eventEnd &&
+              exactSlot.end > eventStart,
+          );
+        })
+        .map((event): MicrosoftCalendarConflict | null => {
+          const eventStart = parseGraphDateTime(event.start);
+          const eventEnd = parseGraphDateTime(event.end);
+          if (!eventStart || !eventEnd) return null;
+          const suggestedRequested = findAvailableMeetingTime(
+            calendarEvents,
+            exactSlot.end,
+            schedulingWindow.end,
+            normalizedDuration,
+          );
+          const proposedBusyEvent: GraphEvent = {
+            id: "parallel-requested-slot",
+            start: { dateTime: exactSlot.start.toISOString(), timeZone: "UTC" },
+            end: { dateTime: exactSlot.end.toISOString(), timeZone: "UTC" },
+          };
+          const existingDuration = Math.max(
+            15,
+            Math.round((eventEnd.getTime() - eventStart.getTime()) / 60_000),
+          );
+          const suggestedExisting = findAvailableMeetingTime(
+            [...calendarEvents, proposedBusyEvent],
+            exactSlot.end,
+            schedulingWindow.end,
+            existingDuration,
+          );
+          return {
+            eventId: event.id,
+            subject: event.subject ?? "Existing meeting",
+            start: eventStart.toISOString(),
+            end: eventEnd.toISOString(),
+            displayTime: formatMeetingTime(eventStart, eventEnd),
+            isOrganizer: event.isOrganizer !== false,
+            suggestedRequestedStart:
+              suggestedRequested?.start.toISOString() ?? null,
+            suggestedRequestedEnd:
+              suggestedRequested?.end.toISOString() ?? null,
+            suggestedRequestedDisplayTime: suggestedRequested
+              ? formatMeetingTime(
+                  suggestedRequested.start,
+                  suggestedRequested.end,
+                )
+              : null,
+            suggestedExistingStart:
+              suggestedExisting?.start.toISOString() ?? null,
+            suggestedExistingEnd:
+              suggestedExisting?.end.toISOString() ?? null,
+            suggestedExistingDisplayTime: suggestedExisting
+              ? formatMeetingTime(
+                  suggestedExisting.start,
+                  suggestedExisting.end,
+                )
+              : null,
+          };
+        })
+        .filter(
+          (conflict): conflict is MicrosoftCalendarConflict =>
+            conflict !== null,
+        )
+    : [];
 
   return {
     proposal: {
@@ -1002,10 +1155,15 @@ export async function prepareMicrosoftMeeting({
       deadline: schedulingWindow.end.toISOString(),
       durationMinutes: normalizedDuration,
       displayTime: formatMeetingTime(available.start, available.end),
+      calendarItemType,
+      onlineMeeting: finalOnlineMeeting,
+      location: location.trim(),
+      exactRequestedTime: Boolean(exactSlot),
     },
     unresolvedAttendees: [],
     directoryStatus,
     directoryPeopleChecked: directoryPeople.length,
+    conflicts,
   };
 }
 
@@ -1027,52 +1185,200 @@ export async function createMicrosoftMeeting(
     "/me/events",
     {
       method: "POST",
-      body: JSON.stringify({
-        subject: proposal.subject,
-        body: {
-          contentType: meetingBody.contentType,
-          content: meetingBody.content,
-        },
-        start: {
-          dateTime: proposal.start.replace(/Z$/, ""),
-          timeZone: "UTC",
-        },
-        end: {
-          dateTime: proposal.end.replace(/Z$/, ""),
-          timeZone: "UTC",
-        },
-        attendees: proposal.attendees.map((attendee) => ({
-          emailAddress: {
-            address: attendee.email,
-            name: attendee.displayName,
-          },
-          type: "required",
-        })),
-        allowNewTimeProposals: true,
-        isOnlineMeeting: true,
-        onlineMeetingProvider: "teamsForBusiness",
-        transactionId: crypto.randomUUID(),
-      }),
+      headers: { Prefer: 'outlook.timezone="UTC"' },
+      body: JSON.stringify(
+        buildMicrosoftCalendarPayload(
+          proposal,
+          crypto.randomUUID(),
+          proposal.agendaItems.length > 0 ? meetingBody.content : undefined,
+        ),
+      ),
     },
   );
+
+  let createdStart = parseGraphDateTime(graphEvent.start);
+  let createdEnd = parseGraphDateTime(graphEvent.end);
+  const expectedStart = new Date(proposal.start);
+  const expectedEnd = new Date(proposal.end);
+  if (
+    !createdStart ||
+    !createdEnd ||
+    Math.abs(createdStart.getTime() - expectedStart.getTime()) > 60_000 ||
+    Math.abs(createdEnd.getTime() - expectedEnd.getTime()) > 60_000
+  ) {
+    const corrected = await graphRequest<GraphEvent>(
+      token.accessToken,
+      `/me/events/${encodeURIComponent(graphEvent.id)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: 'outlook.timezone="UTC"' },
+        body: JSON.stringify({
+          start: {
+            dateTime: proposal.start.replace(/Z$/, ""),
+            timeZone: "UTC",
+          },
+          end: {
+            dateTime: proposal.end.replace(/Z$/, ""),
+            timeZone: "UTC",
+          },
+        }),
+      },
+    );
+    createdStart = parseGraphDateTime(corrected.start);
+    createdEnd = parseGraphDateTime(corrected.end);
+    if (
+      !createdStart ||
+      !createdEnd ||
+      Math.abs(createdStart.getTime() - expectedStart.getTime()) > 60_000 ||
+      Math.abs(createdEnd.getTime() - expectedEnd.getTime()) > 60_000
+    ) {
+      throw new Error(
+        "Microsoft did not confirm the requested calendar time. Check Outlook before retrying.",
+      );
+    }
+  }
 
   const joinUrl =
     graphEvent.onlineMeeting?.joinUrl ??
     graphEvent.onlineMeetingUrl ??
     null;
-  const transcriptionStatus = proposal.enableTranscription
+  const transcriptionStatus =
+    proposal.enableTranscription && proposal.onlineMeeting
     ? await configureMicrosoftMeetingTranscription(client, account, joinUrl)
     : "not_requested";
 
   return {
     id: graphEvent.id,
     subject: graphEvent.subject ?? proposal.subject,
-    start: proposal.start,
-    end: proposal.end,
+    start: createdStart.toISOString(),
+    end: createdEnd.toISOString(),
     webLink: graphEvent.webLink ?? null,
     joinUrl,
     attendees: proposal.attendees,
+    displayTime: formatMeetingTime(createdStart, createdEnd),
+    calendarItemType: proposal.calendarItemType,
+    onlineMeeting: proposal.onlineMeeting,
     transcriptionStatus,
+  };
+}
+
+export async function resolveMicrosoftCalendarConflict({
+  proposal,
+  conflict,
+  resolution,
+}: {
+  proposal: MicrosoftMeetingProposal;
+  conflict: MicrosoftCalendarConflict;
+  resolution: MicrosoftCalendarConflictResolution;
+}): Promise<MicrosoftCalendarConflictResolutionResult> {
+  if (resolution === "reschedule_requested") {
+    if (
+      !conflict.suggestedRequestedStart ||
+      !conflict.suggestedRequestedEnd ||
+      !conflict.suggestedRequestedDisplayTime
+    ) {
+      throw new Error("No clear alternative time is available that day.");
+    }
+    return {
+      resolution,
+      proposal: {
+        ...proposal,
+        start: conflict.suggestedRequestedStart,
+        end: conflict.suggestedRequestedEnd,
+        displayTime: conflict.suggestedRequestedDisplayTime,
+        exactRequestedTime: false,
+      },
+      created: null,
+      changedMeeting: null,
+      changedMeetingTime: null,
+    };
+  }
+
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+
+  if (resolution === "move_existing") {
+    if (!conflict.isOrganizer) {
+      throw new Error("Only the organizer can move that meeting.");
+    }
+    if (
+      !conflict.suggestedExistingStart ||
+      !conflict.suggestedExistingEnd ||
+      !conflict.suggestedExistingDisplayTime
+    ) {
+      throw new Error("No safe time is available to move the existing meeting.");
+    }
+    const updated = await graphRequest<GraphEvent>(
+      token.accessToken,
+      `/me/events/${encodeURIComponent(conflict.eventId)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: 'outlook.timezone="UTC"' },
+        body: JSON.stringify({
+          start: {
+            dateTime: conflict.suggestedExistingStart.replace(/Z$/, ""),
+            timeZone: "UTC",
+          },
+          end: {
+            dateTime: conflict.suggestedExistingEnd.replace(/Z$/, ""),
+            timeZone: "UTC",
+          },
+        }),
+      },
+    );
+    const updatedStart = parseGraphDateTime(updated.start);
+    const updatedEnd = parseGraphDateTime(updated.end);
+    if (
+      !updatedStart ||
+      !updatedEnd ||
+      Math.abs(
+        updatedStart.getTime() -
+          new Date(conflict.suggestedExistingStart).getTime(),
+      ) > 60_000 ||
+      Math.abs(
+        updatedEnd.getTime() -
+          new Date(conflict.suggestedExistingEnd).getTime(),
+      ) > 60_000
+    ) {
+      throw new Error(
+        "Microsoft did not confirm the new time for the existing meeting.",
+      );
+    }
+  } else {
+    if (conflict.isOrganizer) {
+      throw new Error("An organizer cannot decline their own meeting.");
+    }
+    await graphRequest<Record<string, never>>(
+      token.accessToken,
+      `/me/events/${encodeURIComponent(conflict.eventId)}/decline`,
+      {
+        method: "POST",
+        body: JSON.stringify({ sendResponse: true }),
+      },
+    );
+  }
+
+  let created: MicrosoftMeetingResult;
+  try {
+    created = await createMicrosoftMeeting(proposal);
+  } catch {
+    throw new Error(
+      resolution === "move_existing"
+        ? `${conflict.subject} was moved, but ${proposal.subject} was not booked. Check the calendar before retrying.`
+        : `${conflict.subject} was declined, but ${proposal.subject} was not booked. Check the calendar before retrying.`,
+    );
+  }
+  return {
+    resolution,
+    proposal: null,
+    created,
+    changedMeeting: conflict.subject,
+    changedMeetingTime:
+      resolution === "move_existing"
+        ? conflict.suggestedExistingDisplayTime
+        : null,
   };
 }
 
@@ -1157,6 +1463,7 @@ async function resolveMeetingEvent(
     const event = await graphRequest<GraphEvent>(
       accessToken,
       `/me/events/${encodeURIComponent(eventId)}?$select=${eventSelect}`,
+      { headers: { Prefer: 'outlook.timezone="UTC"' } },
     );
     const organizerBlocked = requireOrganizer && event.isOrganizer === false;
     return {
@@ -1173,6 +1480,7 @@ async function resolveMeetingEvent(
   const calendar = await graphRequest<GraphCollection<GraphEvent>>(
     accessToken,
     `/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$top=200&$select=${eventSelect}&$orderby=start/dateTime`,
+    { headers: { Prefer: 'outlook.timezone="UTC"' } },
   );
   const scored = (calendar.value ?? [])
     .filter((event) => !requireOrganizer || event.isOrganizer !== false)

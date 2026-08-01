@@ -4,6 +4,12 @@ export type CalendarWindow = {
   label: string;
 };
 
+export type RequestedCalendarSlot = {
+  start: Date;
+  end: Date;
+  label: string;
+};
+
 const weekdays = [
   "sunday",
   "monday",
@@ -63,6 +69,63 @@ function weekdayDate(
     date: addDays(startOfDay(now), daysAhead),
     weekday: match[2],
   };
+}
+
+function requestedDate(description: string, now: Date) {
+  const normalized = description.trim().toLowerCase();
+  if (/\btomorrow\b/.test(normalized)) return addDays(startOfDay(now), 1);
+  if (/\btoday\b/.test(normalized)) return startOfDay(now);
+
+  const isoDate = normalized.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoDate) {
+    return new Date(Number(isoDate[1]), Number(isoDate[2]) - 1, Number(isoDate[3]));
+  }
+
+  const weekdayName = weekdays.find((weekday) =>
+    new RegExp(`\\b${weekday}\\b`).test(normalized),
+  );
+  if (weekdayName && /\bnext\s+week\b/.test(normalized)) {
+    const monday = nextMonday(now);
+    const offset = (weekdays.indexOf(weekdayName) + 6) % 7;
+    return addDays(monday, offset);
+  }
+
+  return weekdayDate(normalized, now)?.date ?? null;
+}
+
+function requestedClock(description: string) {
+  const normalized = description.toLowerCase();
+  if (/\bnoon\b/.test(normalized)) return { hour: 12, minute: 0 };
+
+  const match = normalized.match(
+    /\b(?:at|around|for)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?\b/,
+  );
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? 0);
+  if (hour > 12 || minute > 59) return null;
+
+  const meridian = match[3]?.replaceAll(".", "") ?? "";
+  if (meridian === "pm" && hour < 12) hour += 12;
+  if (meridian === "am" && hour === 12) hour = 0;
+  if (!meridian && hour >= 1 && hour <= 6) hour += 12;
+  return { hour, minute };
+}
+
+export function resolveRequestedCalendarSlot(
+  description: string,
+  durationMinutes = 30,
+  now = new Date(),
+): RequestedCalendarSlot | null {
+  const date = requestedDate(description, now);
+  const clock = requestedClock(description);
+  if (!date || !clock) return null;
+
+  const start = clone(date);
+  start.setHours(clock.hour, clock.minute, 0, 0);
+  const duration = Math.max(15, Math.min(durationMinutes, 12 * 60));
+  const end = new Date(start.getTime() + duration * 60 * 1000);
+  return { start, end, label: description.trim() };
 }
 
 export function resolveCalendarReadWindow(

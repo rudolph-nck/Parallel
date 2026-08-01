@@ -30,6 +30,16 @@ procedure, executive brief, or meeting record in Parallel's starter branded
 format, show a sandboxed HTML preview, and publish a new, non-overwriting copy
 to the connected SharePoint site's `Parallel Documents` folder after approval.
 
+Calendar conversation is intentionally human rather than procedural. Ara treats
+"book time" as permission to find an option, says the time once, and asks only
+"How does that sound?" Natural replies such as "sounds good" complete the booking.
+Exact requests such as "next Friday at 2" remain exact from the spoken proposal
+through the Microsoft write and a post-write time check. Personal lunches and
+appointments can be added only to Nick's calendar without attendees or a Teams
+link. If that time is busy, Ara surfaces the real conflict and can, after Nick
+chooses, move an organizer-owned meeting, decline someone else's invitation, or
+offer another time for the new request.
+
 The voice experience uses an OpenAI Realtime session created through the
 server, responds to live microphone volume, distinguishes the user from Ara
 visually, pauses the microphone while Ara speaks, and accepts natural

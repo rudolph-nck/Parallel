@@ -1067,6 +1067,20 @@ button { color: inherit; }
 .meeting-agenda ol { margin: 0; padding-left: 18px; color: #a3afbc; font-size: 10px; line-height: 1.65; }
 .meeting-agenda > span { display: block; margin-top: 10px; color: #6ab9a6; font-size: 9px; }
 .meeting-update-time { margin: 12px 0 0; color: #8090a2; font-size: 10px; }
+.calendar-conflict-card {
+  margin-top: 15px;
+  padding: 15px;
+  border: 1px solid rgba(225,161,96,.2);
+  border-radius: 10px;
+  background: rgba(225,161,96,.055);
+}
+.calendar-conflict-card > p { margin: 0 0 7px; color: #ae7e51; font-size: 8px; font-weight: 700; letter-spacing: .13em; }
+.calendar-conflict-card h4 { margin: 0 0 4px; font-family: Georgia, "Times New Roman", serif; font-size: 16px; font-weight: 400; }
+.calendar-conflict-card > span,.calendar-conflict-card > small { display: block; }
+.calendar-conflict-card > span { color: #9aabb9; font-size: 10px; }
+.calendar-conflict-card > small { margin-top: 8px; color: #746f69; font-size: 8px; line-height: 1.5; }
+.calendar-conflict-card .action-row { margin-top: 14px; }
+.calendar-conflict-card .secondary { max-width: 56%; white-space: normal; text-align: left; }
 .meeting-notes-card {
   margin-top: 17px;
   padding: 20px;
