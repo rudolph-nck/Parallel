@@ -1056,6 +1056,37 @@ button { color: inherit; }
   font-size: 10px;
   line-height: 1.55;
 }
+.meeting-agenda {
+  margin-top: 14px;
+  padding: 14px 15px;
+  border: 1px solid rgba(101,167,255,.14);
+  border-radius: 10px;
+  background: rgba(101,167,255,.045);
+}
+.meeting-agenda > p { margin: 0 0 9px; color: #617f9f; font-size: 8px; letter-spacing: .13em; font-weight: 700; }
+.meeting-agenda ol { margin: 0; padding-left: 18px; color: #a3afbc; font-size: 10px; line-height: 1.65; }
+.meeting-agenda > span { display: block; margin-top: 10px; color: #6ab9a6; font-size: 9px; }
+.meeting-update-time { margin: 12px 0 0; color: #8090a2; font-size: 10px; }
+.meeting-notes-card {
+  margin-top: 17px;
+  padding: 20px;
+  border: 1px solid rgba(114,225,211,.16);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(18,31,41,.96), rgba(13,22,31,.98));
+}
+.notes-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.notes-heading p { margin: 0 0 6px; color: #62bea7; font-size: 8px; letter-spacing: .14em; font-weight: 700; }
+.notes-heading h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 20px; font-weight: 400; }
+.notes-heading > span { color: #527064; font-size: 8px; white-space: nowrap; }
+.notes-summary { margin: 15px 0; color: #a7b3bf; font-family: Georgia, "Times New Roman", serif; font-size: 13px; line-height: 1.55; }
+.notes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.notes-grid section { padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.018); }
+.notes-grid section > p { margin: 0 0 8px; color: #60778f; font-size: 8px; letter-spacing: .13em; font-weight: 700; }
+.notes-grid ul { margin: 0; padding-left: 16px; color: #929fad; font-size: 9px; line-height: 1.55; }
+.notes-grid li + li { margin-top: 5px; }
+.notes-grid li small { display: block; color: #5f6f80; }
+.notes-grid section > span { color: #5f6f80; font-size: 9px; }
+.notes-boundary { margin: 14px 0 0; color: #526171; font-size: 8px; line-height: 1.5; }
 .meeting-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 13px; }
 .meeting-links a {
   color: #83b7f4;
@@ -1278,6 +1309,9 @@ button { color: inherit; }
   .connector-primary { width: 100%; }
   .connection-capabilities { display: grid; grid-template-columns: repeat(2, 1fr); }
   .connection-capabilities > span { min-width: 0; }
+  .notes-heading { display: block; }
+  .notes-heading > span { display: block; margin-top: 8px; }
+  .notes-grid { grid-template-columns: 1fr; }
   .document-card { grid-template-columns: 42px 1fr; }
   .open-file { grid-column: 2; justify-self: start; padding: 0; }
   .evidence { display: none; }

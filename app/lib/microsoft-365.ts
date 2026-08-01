@@ -17,6 +17,11 @@ import {
   describeMicrosoftCalendarError,
   type MicrosoftCalendarAccessIssue,
 } from "./microsoft-access";
+import {
+  mergeMeetingAgenda,
+  normalizeAgendaItems,
+  scoreMeetingReference,
+} from "./meeting-artifacts";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -29,6 +34,11 @@ export const MICROSOFT_GRAPH_SCOPES = [
   "People.Read",
   "User.ReadBasic.All",
   "Sites.Read.All",
+] as const;
+
+export const MICROSOFT_MEETING_INTELLIGENCE_SCOPES = [
+  "OnlineMeetings.ReadWrite",
+  "OnlineMeetingTranscript.Read.All",
 ] as const;
 
 type GraphCollection<T> = {
@@ -74,6 +84,29 @@ export type GraphEvent = {
     joinUrl?: string | null;
   } | null;
   webLink?: string;
+  isOrganizer?: boolean;
+  body?: {
+    contentType?: string;
+    content?: string;
+  };
+  attendees?: Array<{
+    emailAddress?: {
+      name?: string;
+      address?: string;
+    };
+  }>;
+};
+
+type GraphOnlineMeeting = {
+  id: string;
+  joinWebUrl?: string;
+  allowTranscription?: boolean;
+  recordAutomatically?: boolean;
+};
+
+type GraphTranscript = {
+  id: string;
+  createdDateTime?: string;
 };
 
 type GraphPerson = {
@@ -139,6 +172,7 @@ export type MicrosoftSnapshot = {
     calendar: MicrosoftCapabilityState;
     sharePoint: MicrosoftCapabilityState;
     directory: MicrosoftCapabilityState;
+    meetingIntelligence: MicrosoftCapabilityState;
   };
 };
 
@@ -159,6 +193,8 @@ export type MicrosoftMeetingAttendee = {
 export type MicrosoftMeetingProposal = {
   subject: string;
   purpose: string;
+  agendaItems: string[];
+  enableTranscription: boolean;
   attendees: MicrosoftMeetingAttendee[];
   start: string;
   end: string;
@@ -182,6 +218,69 @@ export type MicrosoftMeetingResult = {
   webLink: string | null;
   joinUrl: string | null;
   attendees: MicrosoftMeetingAttendee[];
+  transcriptionStatus:
+    | "enabled"
+    | "permission_required"
+    | "not_online"
+    | "unavailable"
+    | "not_requested";
+};
+
+export type MicrosoftMeetingUpdateProposal = {
+  eventId: string;
+  subject: string;
+  start: string | null;
+  displayTime: string;
+  webLink: string | null;
+  agendaItems: string[];
+  objective: string;
+  enableTranscription: boolean;
+  isOnlineMeeting: boolean;
+  joinUrl: string | null;
+};
+
+export type MicrosoftMeetingUpdatePreparation = {
+  proposal: MicrosoftMeetingUpdateProposal | null;
+  candidates: Array<{
+    eventId: string;
+    subject: string;
+    displayTime: string;
+  }>;
+  reason: "ready" | "not_found" | "ambiguous" | "not_organizer";
+};
+
+export type MicrosoftMeetingUpdateResult = {
+  eventId: string;
+  subject: string;
+  webLink: string | null;
+  agendaUpdated: boolean;
+  transcriptionStatus:
+    | "enabled"
+    | "permission_required"
+    | "not_online"
+    | "unavailable"
+    | "not_requested";
+};
+
+export type MicrosoftMeetingTranscript = {
+  eventId: string;
+  subject: string;
+  transcriptId: string;
+  content: string;
+  speakerAttribution: boolean;
+  truncated: boolean;
+};
+
+export type MicrosoftMeetingTranscriptReadResult = {
+  status:
+    | "ready"
+    | "permission_required"
+    | "admin_disabled"
+    | "not_available"
+    | "not_found"
+    | "ambiguous";
+  transcript: MicrosoftMeetingTranscript | null;
+  candidates: MicrosoftMeetingUpdatePreparation["candidates"];
 };
 
 export type MicrosoftCalendarWindow = {
@@ -253,6 +352,30 @@ async function acquireGraphToken(
   });
 }
 
+async function acquireMeetingIntelligenceToken(
+  client: PublicClientApplication,
+  account: AccountInfo,
+) {
+  return client.acquireTokenSilent({
+    account,
+    scopes: [...MICROSOFT_MEETING_INTELLIGENCE_SCOPES],
+  });
+}
+
+function readGraphErrorCode(responseText: string) {
+  try {
+    const body = JSON.parse(responseText) as {
+      error?: {
+        code?: string;
+        innerError?: { code?: string };
+      };
+    };
+    return body.error?.innerError?.code ?? body.error?.code ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function graphRequest<T>(
   accessToken: string,
   path: string,
@@ -269,19 +392,34 @@ async function graphRequest<T>(
 
   const responseText = await response.text();
   if (!response.ok) {
-    let code: string | null = null;
-    try {
-      const body = JSON.parse(responseText) as {
-        error?: { code?: string };
-      };
-      code = body.error?.code ?? null;
-    } catch {
-      // Status remains enough to select a safe recovery path.
-    }
-    throw new MicrosoftGraphError(response.status, code);
+    throw new MicrosoftGraphError(
+      response.status,
+      readGraphErrorCode(responseText),
+    );
   }
 
   return (responseText ? JSON.parse(responseText) : {}) as T;
+}
+
+async function graphTextRequest(
+  accessToken: string,
+  path: string,
+  accept: string,
+) {
+  const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: accept,
+    },
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new MicrosoftGraphError(
+      response.status,
+      readGraphErrorCode(responseText),
+    );
+  }
+  return responseText;
 }
 
 function parseGraphDateTime(
@@ -398,7 +536,13 @@ async function readMicrosoftSnapshot(
     "/me?$select=displayName,mail,userPrincipalName",
   );
 
-  const [mailResult, calendarResult, sharePointResult, directoryResult] =
+  const [
+    mailResult,
+    calendarResult,
+    sharePointResult,
+    directoryResult,
+    meetingIntelligenceResult,
+  ] =
     await Promise.allSettled([
       graphRequest<GraphCollection<GraphMessage>>(
         token.accessToken,
@@ -421,6 +565,7 @@ async function readMicrosoftSnapshot(
           },
         },
       ),
+      acquireMeetingIntelligenceToken(client, account),
     ]);
 
   if (directoryResult.status === "fulfilled") {
@@ -469,6 +614,10 @@ async function readMicrosoftSnapshot(
         sharePointResult.status === "fulfilled" ? "ready" : "provisioning",
       directory:
         directoryResult.status === "fulfilled" ? "ready" : "provisioning",
+      meetingIntelligence:
+        meetingIntelligenceResult.status === "fulfilled"
+          ? "ready"
+          : "permission_required",
     },
   };
 }
@@ -486,6 +635,18 @@ export async function repairMicrosoftCalendarAccess() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
     scopes: [...MICROSOFT_GRAPH_SCOPES],
+    redirectUri: getRedirectUri(),
+    prompt: "consent",
+  });
+}
+
+export async function enableMicrosoftMeetingIntelligence() {
+  const client = await getMicrosoftClient();
+  await client.loginRedirect({
+    scopes: [
+      ...MICROSOFT_GRAPH_SCOPES,
+      ...MICROSOFT_MEETING_INTELLIGENCE_SCOPES,
+    ],
     redirectUri: getRedirectUri(),
     prompt: "consent",
   });
@@ -638,12 +799,16 @@ export async function prepareMicrosoftMeeting({
   deadlineDescription,
   durationMinutes = 30,
   purpose,
+  agendaItems = [],
+  enableTranscription = false,
 }: {
   subject: string;
   attendeeNames: string[];
   deadlineDescription: string;
   durationMinutes?: number;
   purpose: string;
+  agendaItems?: string[];
+  enableTranscription?: boolean;
 }): Promise<MicrosoftMeetingPreparation> {
   const client = await getMicrosoftClient();
   const account = chooseAccount(client);
@@ -760,10 +925,23 @@ export async function prepareMicrosoftMeeting({
     throw new Error("No open working-hours slot was found before the deadline.");
   }
 
+  const preparedAgenda = normalizeAgendaItems(agendaItems);
+  const finalAgenda =
+    preparedAgenda.length > 0
+      ? preparedAgenda
+      : [
+          `Confirm the objective for ${subject}`,
+          "Review the relevant context and open questions",
+          "Agree on decisions, owners, and deadlines",
+          "Confirm next steps",
+        ];
+
   return {
     proposal: {
       subject,
       purpose,
+      agendaItems: finalAgenda,
+      enableTranscription,
       attendees,
       start: available.start.toISOString(),
       end: available.end.toISOString(),
@@ -784,6 +962,11 @@ export async function createMicrosoftMeeting(
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
   const token = await acquireGraphToken(client, account);
+  const meetingBody = mergeMeetingAgenda(
+    null,
+    proposal.agendaItems,
+    proposal.purpose,
+  );
 
   const graphEvent = await graphRequest<GraphEvent>(
     token.accessToken,
@@ -793,10 +976,8 @@ export async function createMicrosoftMeeting(
       body: JSON.stringify({
         subject: proposal.subject,
         body: {
-          contentType: "text",
-          content:
-            proposal.purpose ||
-            "Scheduled with Ara through Parallel after Nick's approval.",
+          contentType: meetingBody.contentType,
+          content: meetingBody.content,
         },
         start: {
           dateTime: proposal.start.replace(/Z$/, ""),
@@ -821,16 +1002,361 @@ export async function createMicrosoftMeeting(
     },
   );
 
+  const joinUrl =
+    graphEvent.onlineMeeting?.joinUrl ??
+    graphEvent.onlineMeetingUrl ??
+    null;
+  const transcriptionStatus = proposal.enableTranscription
+    ? await configureMicrosoftMeetingTranscription(client, account, joinUrl)
+    : "not_requested";
+
   return {
     id: graphEvent.id,
     subject: graphEvent.subject ?? proposal.subject,
     start: proposal.start,
     end: proposal.end,
     webLink: graphEvent.webLink ?? null,
-    joinUrl:
-      graphEvent.onlineMeeting?.joinUrl ??
-      graphEvent.onlineMeetingUrl ??
-      null,
+    joinUrl,
     attendees: proposal.attendees,
+    transcriptionStatus,
   };
+}
+
+function formatEventTime(event: GraphEvent) {
+  const start = parseGraphDateTime(event.start);
+  const end = parseGraphDateTime(event.end);
+  if (start && end) return formatMeetingTime(start, end);
+  if (start) {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(start);
+  }
+  return "Time unavailable";
+}
+
+async function findOnlineMeeting(
+  accessToken: string,
+  joinUrl: string,
+) {
+  const escapedJoinUrl = joinUrl.replaceAll("'", "''");
+  const filter = encodeURIComponent(`JoinWebUrl eq '${escapedJoinUrl}'`);
+  const meetings = await graphRequest<GraphCollection<GraphOnlineMeeting>>(
+    accessToken,
+    `/me/onlineMeetings?$filter=${filter}`,
+  );
+  return meetings.value?.[0] ?? null;
+}
+
+async function configureMicrosoftMeetingTranscription(
+  client: PublicClientApplication,
+  account: AccountInfo,
+  joinUrl: string | null,
+): Promise<MicrosoftMeetingUpdateResult["transcriptionStatus"]> {
+  if (!joinUrl) return "not_online";
+  let token;
+  try {
+    token = await acquireMeetingIntelligenceToken(client, account);
+  } catch {
+    return "permission_required";
+  }
+
+  try {
+    const onlineMeeting = await findOnlineMeeting(token.accessToken, joinUrl);
+    if (!onlineMeeting) return "unavailable";
+    await graphRequest<GraphOnlineMeeting>(
+      token.accessToken,
+      `/me/onlineMeetings/${encodeURIComponent(onlineMeeting.id)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          allowTranscription: true,
+          meetingSpokenLanguageTag: "en-US",
+        }),
+      },
+    );
+    return "enabled";
+  } catch (error) {
+    return error instanceof MicrosoftGraphError &&
+      (error.status === 401 || error.status === 403)
+      ? "permission_required"
+      : "unavailable";
+  }
+}
+
+async function resolveMeetingEvent(
+  accessToken: string,
+  eventId: string | undefined,
+  meetingReference: string,
+  requireOrganizer: boolean,
+): Promise<{
+  event: GraphEvent | null;
+  candidates: MicrosoftMeetingUpdatePreparation["candidates"];
+  reason: MicrosoftMeetingUpdatePreparation["reason"];
+}> {
+  const eventSelect =
+    "id,subject,start,end,isOrganizer,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,webLink,attendees";
+  if (eventId) {
+    const event = await graphRequest<GraphEvent>(
+      accessToken,
+      `/me/events/${encodeURIComponent(eventId)}?$select=${eventSelect}`,
+    );
+    const organizerBlocked = requireOrganizer && event.isOrganizer === false;
+    return {
+      event: organizerBlocked ? null : event,
+      candidates: [],
+      reason: organizerBlocked ? "not_organizer" : "ready",
+    };
+  }
+
+  const start = new Date();
+  start.setDate(start.getDate() - 30);
+  const end = new Date();
+  end.setDate(end.getDate() + 120);
+  const calendar = await graphRequest<GraphCollection<GraphEvent>>(
+    accessToken,
+    `/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$top=200&$select=${eventSelect}&$orderby=start/dateTime`,
+  );
+  const scored = (calendar.value ?? [])
+    .filter((event) => !requireOrganizer || event.isOrganizer !== false)
+    .map((event) => ({
+      event,
+      score: scoreMeetingReference(meetingReference, {
+        subject: event.subject,
+        attendeeNames: event.attendees?.map(
+          (attendee) => attendee.emailAddress?.name ?? "",
+        ),
+      }),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score);
+  const candidates = scored.slice(0, 5).map(({ event }) => ({
+    eventId: event.id,
+    subject: event.subject ?? "Untitled meeting",
+    displayTime: formatEventTime(event),
+  }));
+  if (scored.length === 0) {
+    return { event: null, candidates, reason: "not_found" };
+  }
+  if (scored.length > 1 && scored[0].score === scored[1].score) {
+    return { event: null, candidates, reason: "ambiguous" };
+  }
+  return { event: scored[0].event, candidates, reason: "ready" };
+}
+
+export async function prepareMicrosoftMeetingUpdate({
+  eventId,
+  meetingReference,
+  agendaItems,
+  objective,
+  enableTranscription,
+}: {
+  eventId?: string;
+  meetingReference: string;
+  agendaItems: string[];
+  objective: string;
+  enableTranscription: boolean;
+}): Promise<MicrosoftMeetingUpdatePreparation> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+  const resolved = await resolveMeetingEvent(
+    token.accessToken,
+    eventId,
+    meetingReference,
+    true,
+  );
+  if (!resolved.event) {
+    return {
+      proposal: null,
+      candidates: resolved.candidates,
+      reason: resolved.reason,
+    };
+  }
+
+  const normalizedAgenda = normalizeAgendaItems(agendaItems);
+  if (normalizedAgenda.length === 0) {
+    throw new Error("The agenda needs at least one clear discussion item.");
+  }
+  const joinUrl =
+    resolved.event.onlineMeeting?.joinUrl ??
+    resolved.event.onlineMeetingUrl ??
+    null;
+  const start = parseGraphDateTime(resolved.event.start);
+  return {
+    proposal: {
+      eventId: resolved.event.id,
+      subject: resolved.event.subject ?? "Untitled meeting",
+      start: start?.toISOString() ?? null,
+      displayTime: formatEventTime(resolved.event),
+      webLink: resolved.event.webLink ?? null,
+      agendaItems: normalizedAgenda,
+      objective: objective.trim(),
+      enableTranscription,
+      isOnlineMeeting: resolved.event.isOnlineMeeting === true,
+      joinUrl,
+    },
+    candidates: [],
+    reason: "ready",
+  };
+}
+
+export async function updateMicrosoftMeeting(
+  proposal: MicrosoftMeetingUpdateProposal,
+): Promise<MicrosoftMeetingUpdateResult> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireGraphToken(client, account);
+  const currentEvent = await graphRequest<GraphEvent>(
+    token.accessToken,
+    `/me/events/${encodeURIComponent(proposal.eventId)}?$select=id,subject,body,isOrganizer,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,webLink`,
+  );
+  if (currentEvent.isOrganizer === false) {
+    throw new Error("Only the organizer can update this meeting invite.");
+  }
+  const body = mergeMeetingAgenda(
+    currentEvent.body,
+    proposal.agendaItems,
+    proposal.objective,
+  );
+  const updatedEvent = await graphRequest<GraphEvent>(
+    token.accessToken,
+    `/me/events/${encodeURIComponent(proposal.eventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    },
+  );
+  const joinUrl =
+    currentEvent.onlineMeeting?.joinUrl ??
+    currentEvent.onlineMeetingUrl ??
+    proposal.joinUrl;
+  const transcriptionStatus = proposal.enableTranscription
+    ? await configureMicrosoftMeetingTranscription(client, account, joinUrl)
+    : "not_requested";
+
+  return {
+    eventId: proposal.eventId,
+    subject: updatedEvent.subject ?? currentEvent.subject ?? proposal.subject,
+    webLink:
+      updatedEvent.webLink ?? currentEvent.webLink ?? proposal.webLink,
+    agendaUpdated: true,
+    transcriptionStatus,
+  };
+}
+
+export async function readMicrosoftMeetingTranscript({
+  eventId,
+  meetingReference,
+}: {
+  eventId?: string;
+  meetingReference: string;
+}): Promise<MicrosoftMeetingTranscriptReadResult> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const baseToken = await acquireGraphToken(client, account);
+  const resolved = await resolveMeetingEvent(
+    baseToken.accessToken,
+    eventId,
+    meetingReference,
+    false,
+  );
+  if (!resolved.event) {
+    return {
+      status: resolved.reason === "ambiguous" ? "ambiguous" : "not_found",
+      transcript: null,
+      candidates: resolved.candidates,
+    };
+  }
+  let meetingToken;
+  try {
+    meetingToken = await acquireMeetingIntelligenceToken(client, account);
+  } catch {
+    return { status: "permission_required", transcript: null, candidates: [] };
+  }
+
+  const joinUrl =
+    resolved.event.onlineMeeting?.joinUrl ??
+    resolved.event.onlineMeetingUrl ??
+    null;
+  if (!joinUrl) {
+    return { status: "not_available", transcript: null, candidates: [] };
+  }
+
+  try {
+    const onlineMeeting = await findOnlineMeeting(
+      meetingToken.accessToken,
+      joinUrl,
+    );
+    if (!onlineMeeting) {
+      return { status: "not_available", transcript: null, candidates: [] };
+    }
+    const transcripts = await graphRequest<GraphCollection<GraphTranscript>>(
+      meetingToken.accessToken,
+      `/me/onlineMeetings/${encodeURIComponent(onlineMeeting.id)}/transcripts`,
+    );
+    const latest = [...(transcripts.value ?? [])].sort((left, right) =>
+      (right.createdDateTime ?? "").localeCompare(left.createdDateTime ?? ""),
+    )[0];
+    if (!latest) {
+      return { status: "not_available", transcript: null, candidates: [] };
+    }
+    const contentPath = `/me/onlineMeetings/${encodeURIComponent(onlineMeeting.id)}/transcripts/${encodeURIComponent(latest.id)}/content`;
+    let speakerAttribution = true;
+    let content: string;
+    try {
+      content = await graphTextRequest(
+        meetingToken.accessToken,
+        contentPath,
+        "text/vtt",
+      );
+    } catch (error) {
+      if (
+        error instanceof MicrosoftGraphError &&
+        error.code?.toLowerCase() === "speakerattributionnotallowed"
+      ) {
+        speakerAttribution = false;
+        content = await graphTextRequest(
+          meetingToken.accessToken,
+          contentPath,
+          "application/vnd.microsoft.graph.transcript+text",
+        );
+      } else {
+        throw error;
+      }
+    }
+    const maxTranscriptCharacters = 45_000;
+    return {
+      status: "ready",
+      transcript: {
+        eventId: resolved.event.id,
+        subject: resolved.event.subject ?? "Untitled meeting",
+        transcriptId: latest.id,
+        content: content.slice(0, maxTranscriptCharacters),
+        speakerAttribution,
+        truncated: content.length > maxTranscriptCharacters,
+      },
+      candidates: [],
+    };
+  } catch (error) {
+    if (
+      error instanceof MicrosoftGraphError &&
+      error.code?.toLowerCase() === "graphaccesstotranscriptsdisabled"
+    ) {
+      return { status: "admin_disabled", transcript: null, candidates: [] };
+    }
+    if (
+      error instanceof MicrosoftGraphError &&
+      (error.status === 401 || error.status === 403)
+    ) {
+      return { status: "permission_required", transcript: null, candidates: [] };
+    }
+    return { status: "not_available", transcript: null, candidates: [] };
+  }
 }

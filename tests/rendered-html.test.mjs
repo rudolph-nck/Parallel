@@ -82,7 +82,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /describeMicrosoftCalendarError/);
   assert.match(page, /Repair calendar access/);
   assert.match(page, /audioDrainGuardTimerRef/);
-  assert.match(page, /autonomousCloseEligibleRef\.current = true/);
+  assert.match(page, /autonomousCloseEligibleRef\.current = fullyCompleted/);
+  assert.match(page, /prepareMicrosoftMeetingUpdate/);
+  assert.match(page, /updateMicrosoftMeeting/);
+  assert.match(page, /readMicrosoftMeetingTranscript/);
+  assert.match(page, /Enable meeting intelligence/);
+  assert.match(page, /Transcript-ready meeting requested/);
   assert.match(page, /searchRecallWorkspace/);
   assert.match(page, /Say exactly \"Done\.\" and nothing else/);
   assert.doesNotMatch(page, /scrollIntoView/);
@@ -108,6 +113,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"approve_pending_action"/);
   assert.match(route, /name:\s*"prepare_calendar_meeting"/);
   assert.match(route, /name:\s*"approve_calendar_meeting"/);
+  assert.match(route, /name:\s*"prepare_meeting_update"/);
+  assert.match(route, /name:\s*"approve_meeting_update"/);
+  assert.match(route, /name:\s*"read_meeting_transcript"/);
+  assert.match(route, /name:\s*"prepare_meeting_notes"/);
+  assert.match(route, /Never claim notes were saved to SharePoint/);
   assert.match(route, /name:\s*"remember_user_preference"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
@@ -117,7 +127,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Skip preambles for direct answers/);
   assert.match(route, /never restate or paraphrase Nick's request/i);
   assert.match(route, /Let me pull up the full week/);
-  assert.match(route, /say exactly \"Done\.\" and/);
+  assert.match(route, /say\s+exactly \"Done\.\" and/);
   assert.match(route, /What would make today feel like a win/);
   assert.match(route, /turn messy meeting notes into/i);
   assert.match(route, /How does that sound/);
@@ -135,6 +145,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(microsoft365, /prompt:\s*"consent"/);
   assert.match(microsoft365, /MicrosoftGraphError/);
   assert.match(microsoft365, /calendarIssue/);
+  assert.match(microsoft365, /OnlineMeetings\.ReadWrite/);
+  assert.match(microsoft365, /OnlineMeetingTranscript\.Read\.All/);
+  assert.match(microsoft365, /mergeMeetingAgenda/);
+  assert.match(microsoft365, /allowTranscription:\s*true/);
 
   assert.match(gitignore, /\.env\*/);
 });

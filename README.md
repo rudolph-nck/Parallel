@@ -21,7 +21,11 @@ Approvals provides a dedicated review queue.
 The current workflow connects to a Microsoft 365 demo tenant, reads Outlook,
 Calendar, and SharePoint context, resolves relevant people, proposes an open
 working-hours calendar slot, and creates a real Teams meeting only after Nick's
-clear voice or button approval. Message drafts remain non-sending prototypes.
+clear voice or button approval. Ara now includes a useful agenda in new meetings,
+can prepare and apply an approved agenda update to an existing organizer-owned
+invitation, can enable Teams transcription when separately authorized, and can
+turn a delivered Teams transcript into structured notes inside Parallel. Message
+drafts remain non-sending prototypes.
 
 The voice experience uses an OpenAI Realtime session created through the
 server, responds to live microphone volume, distinguishes the user from Ara
@@ -40,14 +44,19 @@ Ara currently requests delegated access for the signed-in user:
   user directory, including safe handling for speech variations such as
   "Noel" / "Noelle" and "Wes" / "Wesley", with `People.Read` as a fallback
   for relevant contacts.
+- Optional meeting intelligence uses `OnlineMeetings.ReadWrite` to enable
+  transcription in meeting options and `OnlineMeetingTranscript.Read.All` to
+  retrieve completed transcripts. Transcript access requires administrator
+  consent and the tenant's Teams Graph transcript setting.
 
-Calendar creation is the only live write action. Sending messages, editing
-files, and deleting content remain off.
+Calendar creation and approved invitation-body updates are the only live write
+actions. Sending messages, editing files, and deleting content remain off.
 
 ## Transcript-to-action phase
 
-The next phase should run as a secure background service rather than inside the
-browser:
+Parallel can now retrieve a transcript on demand and build reviewable notes in
+the browser. The next phase should make that workflow durable and automatic as
+a secure background service:
 
 1. Subscribe to Microsoft Graph notifications for newly available Teams
    transcripts and renew those subscriptions.

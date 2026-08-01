@@ -98,9 +98,10 @@ connection.
 
 When Nick asks you to schedule, book, arrange, or set up a meeting, use
 prepare_calendar_meeting. Include every named attendee, the subject, the requested
-deadline in Nick's own words, and a short purpose. If he did not specify a duration,
-use 30 minutes. The tool resolves people and checks Nick's calendar for a working-hours
-opening before the deadline.
+deadline in Nick's own words, a short purpose, and a useful three-to-five item agenda.
+If he did not specify a duration, use 30 minutes. The tool resolves people and checks
+Nick's calendar for a working-hours opening before the deadline. Set
+enable_transcription true only when Nick asks for transcription or transcript notes.
 
 Interpret "next week" as the following Monday through Friday, not as seven rolling
 days and never as the current Friday. Preserve phrases such as "before next Wednesday"
@@ -116,6 +117,26 @@ clearly tells you to proceed. Natural confirmations include "that works, book it
 "yes," silence, background sound, a partial phrase, or unrelated speech is not
 confirmation. Only say the meeting is on the calendar when the tool reports
 meeting_created true.
+
+# Meeting agendas and transcript notes
+
+When Nick asks for an agenda after a meeting already exists, use
+prepare_meeting_update. If it is the meeting you just created, set use_recent_meeting
+true. Draft a specific agenda from the meeting purpose and known context; do not use
+empty filler. Updating an invitation sends a real meeting update, so show the proposal
+and wait for clear approval before calling approve_meeting_update.
+
+When Nick asks for notes from a completed meeting, call read_meeting_transcript. After
+the transcript is returned, analyze it and immediately call prepare_meeting_notes with
+structured decisions, actions, owners, due dates, risks, and open questions. Do not
+read the raw transcript aloud. If speaker identity or ownership is uncertain, label it
+unclear instead of guessing.
+
+Meeting transcription requires Microsoft Meeting intelligence access and a tenant
+administrator may also need to enable Graph transcript access in Teams. Enabling
+transcription permits the Teams feature; it does not mean a transcript already exists.
+Never claim notes were saved to SharePoint. Parallel can prepare notes for review, but
+branded document creation and SharePoint publishing are a later governed action.
 
 # Actions and confirmation
 
@@ -138,7 +159,8 @@ window he requests, and you can create a Teams calendar meeting after his explic
 approval. The prototype still cannot send chat messages or email, modify files, or
 delete anything. After recording approval for a message draft, acknowledge it with
 exactly "Got it." but never claim the message was sent. Meeting creation is different:
-when approve_calendar_meeting confirms success, say exactly "Done." and nothing else.
+when approve_calendar_meeting or approve_meeting_update confirms full success, say
+exactly "Done." and nothing else.
 Treat that successful "Done." as the natural end of the call; do not ask another
 question or reopen the conversation unless Nick speaks again.
 
@@ -283,6 +305,17 @@ const sessionConfig = {
             description:
               "One short sentence explaining what the meeting is for.",
           },
+          agenda_items: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Three to five specific agenda items that will be included in the invitation.",
+          },
+          enable_transcription: {
+            type: "boolean",
+            description:
+              "True only when Nick asked for Teams transcription or transcript notes.",
+          },
         },
         required: [
           "subject",
@@ -290,6 +323,8 @@ const sessionConfig = {
           "deadline",
           "duration_minutes",
           "purpose",
+          "agenda_items",
+          "enable_transcription",
         ],
       },
     },
@@ -308,6 +343,134 @@ const sessionConfig = {
           },
         },
         required: ["confirmation"],
+      },
+    },
+    {
+      type: "function",
+      name: "prepare_meeting_update",
+      description:
+        "Prepare a governed update to an existing organizer-owned Outlook or Teams invitation, including an agenda and optional transcription setting. This does not change the invitation.",
+      parameters: {
+        type: "object",
+        properties: {
+          meeting_reference: {
+            type: "string",
+            description:
+              "Nick's description of the meeting, including title, attendee, topic, or date when known.",
+          },
+          use_recent_meeting: {
+            type: "boolean",
+            description:
+              "True only when Nick means the meeting Ara just created in this conversation.",
+          },
+          objective: {
+            type: "string",
+            description: "A concise outcome the meeting should produce.",
+          },
+          agenda_items: {
+            type: "array",
+            items: { type: "string" },
+            description: "Three to seven specific, useful discussion items.",
+          },
+          enable_transcription: {
+            type: "boolean",
+            description:
+              "True only when Nick asked Ara to permit Teams transcription for this meeting.",
+          },
+        },
+        required: [
+          "meeting_reference",
+          "use_recent_meeting",
+          "objective",
+          "agenda_items",
+          "enable_transcription",
+        ],
+      },
+    },
+    {
+      type: "function",
+      name: "approve_meeting_update",
+      description:
+        "Apply the currently visible agenda or transcription update to the live invitation only after Nick clearly approves it.",
+      parameters: {
+        type: "object",
+        properties: {
+          confirmation: {
+            type: "string",
+            description:
+              "Nick's exact words clearly approving the invitation update.",
+          },
+        },
+        required: ["confirmation"],
+      },
+    },
+    {
+      type: "function",
+      name: "read_meeting_transcript",
+      description:
+        "Retrieve the completed Microsoft Teams transcript for a meeting so Ara can prepare notes. This is read-only.",
+      parameters: {
+        type: "object",
+        properties: {
+          meeting_reference: {
+            type: "string",
+            description:
+              "The meeting title, topic, attendee, or date Nick referenced.",
+          },
+          use_recent_meeting: {
+            type: "boolean",
+            description:
+              "True only when Nick means the meeting Ara just created in this conversation.",
+          },
+        },
+        required: ["meeting_reference", "use_recent_meeting"],
+      },
+    },
+    {
+      type: "function",
+      name: "prepare_meeting_notes",
+      description:
+        "Turn a retrieved Teams transcript into structured, reviewable meeting notes in Parallel. This does not publish or send the notes.",
+      parameters: {
+        type: "object",
+        properties: {
+          meeting_subject: { type: "string" },
+          transcript_source_id: { type: "string" },
+          summary: { type: "string" },
+          decisions: {
+            type: "array",
+            items: { type: "string" },
+          },
+          action_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                owner: { type: "string" },
+                action: { type: "string" },
+                due: { type: "string" },
+              },
+              required: ["owner", "action", "due"],
+            },
+          },
+          risks: {
+            type: "array",
+            items: { type: "string" },
+          },
+          open_questions: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: [
+          "meeting_subject",
+          "transcript_source_id",
+          "summary",
+          "decisions",
+          "action_items",
+          "risks",
+          "open_questions",
+        ],
       },
     },
     {

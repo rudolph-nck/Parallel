@@ -6,14 +6,20 @@ import {
   createMicrosoftMeeting,
   describeMicrosoftCalendarError,
   disconnectMicrosoft365,
+  enableMicrosoftMeetingIntelligence,
   prepareMicrosoftMeeting,
+  prepareMicrosoftMeetingUpdate,
   readMicrosoftCalendar,
+  readMicrosoftMeetingTranscript,
   repairMicrosoftCalendarAccess,
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
+  updateMicrosoftMeeting,
   type MicrosoftMeetingProposal,
   type MicrosoftMeetingResult,
+  type MicrosoftMeetingUpdateProposal,
+  type MicrosoftMeetingUpdateResult,
   type MicrosoftSnapshot,
 } from "./lib/microsoft-365";
 import {
@@ -41,7 +47,10 @@ type Stage =
   | "ready"
   | "approved"
   | "meetingReady"
-  | "meetingBooked";
+  | "meetingBooked"
+  | "meetingUpdateReady"
+  | "meetingUpdated"
+  | "notesReady";
 type VoiceState =
   | "idle"
   | "connecting"
@@ -65,6 +74,16 @@ type PreferenceCategory =
   | "communication_style"
   | "proactivity";
 type UserProfile = Partial<Record<PreferenceCategory, string>>;
+
+type MeetingNotesDraft = {
+  subject: string;
+  summary: string;
+  decisions: string[];
+  actionItems: Array<{ owner: string; action: string; due: string }>;
+  risks: string[];
+  openQuestions: string[];
+  transcriptSource: string;
+};
 
 type RecallDocument = {
   title: string;
@@ -132,6 +151,21 @@ const conversations = {
     eyebrow: "Ara · Meeting booked",
     title: "Done—it’s on the calendar.",
     body: "The Teams meeting is live and invitations have been sent to everyone listed below.",
+  },
+  meetingUpdateReady: {
+    eyebrow: "Ara · Invite update",
+    title: "I built the agenda.",
+    body: "Review what Ara will add to the existing invitation before everyone receives the update.",
+  },
+  meetingUpdated: {
+    eyebrow: "Ara · Invite updated",
+    title: "Done—the agenda is live.",
+    body: "The existing Outlook and Teams invitation now includes the approved agenda.",
+  },
+  notesReady: {
+    eyebrow: "Ara · Meeting intelligence",
+    title: "I turned the transcript into working notes.",
+    body: "Decisions, actions, risks, and open questions are separated so the follow-through is clear.",
   },
 };
 
@@ -227,6 +261,11 @@ export default function Home() {
     useState<MicrosoftMeetingProposal | null>(null);
   const [bookedMeeting, setBookedMeeting] =
     useState<MicrosoftMeetingResult | null>(null);
+  const [pendingMeetingUpdate, setPendingMeetingUpdate] =
+    useState<MicrosoftMeetingUpdateProposal | null>(null);
+  const [meetingUpdateResult, setMeetingUpdateResult] =
+    useState<MicrosoftMeetingUpdateResult | null>(null);
+  const [meetingNotes, setMeetingNotes] = useState<MeetingNotesDraft | null>(null);
   const [meetingActionPending, setMeetingActionPending] = useState(false);
   const quoteIndex = useSyncExternalStore(
     subscribeToLocalDate,
@@ -246,6 +285,9 @@ export default function Home() {
   const transcriptRef = useRef("");
   const microsoftSnapshotRef = useRef<MicrosoftSnapshot | null>(null);
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
+  const bookedMeetingRef = useRef<MicrosoftMeetingResult | null>(null);
+  const pendingMeetingUpdateRef =
+    useRef<MicrosoftMeetingUpdateProposal | null>(null);
   const initialResponseRef = useRef<string | null>(null);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
@@ -826,6 +868,13 @@ export default function Home() {
           : "within the next seven days";
       const purpose =
         typeof args.purpose === "string" ? args.purpose.trim() : "";
+      const agendaItems = Array.isArray(args.agenda_items)
+        ? args.agenda_items.filter(
+            (item): item is string =>
+              typeof item === "string" && item.trim().length > 0,
+          )
+        : [];
+      const enableTranscription = args.enable_transcription === true;
       const requestedDuration =
         typeof args.duration_minutes === "number"
           ? args.duration_minutes
@@ -839,6 +888,8 @@ export default function Home() {
           deadlineDescription,
           durationMinutes: requestedDuration,
           purpose,
+          agendaItems,
+          enableTranscription,
         });
 
         if (!preparation.proposal) {
@@ -873,9 +924,11 @@ export default function Home() {
           deadline: preparation.proposal.deadline,
           directory_people_checked: preparation.directoryPeopleChecked,
           teams_meeting: true,
+          agenda: preparation.proposal.agendaItems,
+          transcription_requested: preparation.proposal.enableTranscription,
           approval_required: true,
           instruction:
-            "Briefly summarize the meeting, attendees, and proposed time in a natural way. End with 'How does that sound?' Do not say it has been scheduled yet.",
+            "Briefly summarize the meeting, attendees, proposed time, and that the agenda will be included. Mention transcription only when requested. End with 'How does that sound?' Do not say it has been scheduled yet.",
         };
       } catch (error) {
         const detail =
@@ -927,6 +980,7 @@ export default function Home() {
         const result = await createMicrosoftMeeting(
           pendingMeetingRef.current,
         );
+        bookedMeetingRef.current = result;
         setBookedMeeting(result);
         setApprovalMethod("voice");
         moveToStage("meetingBooked");
@@ -939,7 +993,16 @@ export default function Home() {
           attendees: result.attendees.map((attendee) => attendee.displayName),
           teams_join_url_available: Boolean(result.joinUrl),
           calendar_link_available: Boolean(result.webLink),
-          instruction: 'Say exactly "Done." and nothing else.',
+          agenda_included: true,
+          transcription_status: result.transcriptionStatus,
+          fully_completed:
+            !pendingMeetingRef.current.enableTranscription ||
+            result.transcriptionStatus === "enabled",
+          instruction:
+            pendingMeetingRef.current.enableTranscription &&
+            result.transcriptionStatus !== "enabled"
+              ? "Tell Nick the meeting and agenda are live, but Meeting intelligence needs to be enabled on Today before Ara can configure transcription."
+              : 'Say exactly "Done." and nothing else.',
         };
       } catch (error) {
         const detail =
@@ -955,6 +1018,235 @@ export default function Home() {
       } finally {
         setMeetingActionPending(false);
       }
+    }
+
+    if (call.name === "prepare_meeting_update") {
+      if (!microsoftSnapshotRef.current) {
+        return {
+          status: "not_connected",
+          instruction:
+            "Tell Nick Microsoft 365 needs to be connected before Ara can update an invitation.",
+        };
+      }
+      const meetingReference =
+        typeof args.meeting_reference === "string"
+          ? args.meeting_reference.trim()
+          : "the recent meeting";
+      const agendaItems = Array.isArray(args.agenda_items)
+        ? args.agenda_items.filter(
+            (item): item is string =>
+              typeof item === "string" && item.trim().length > 0,
+          )
+        : [];
+      const objective =
+        typeof args.objective === "string" ? args.objective.trim() : "";
+      const useRecentMeeting = args.use_recent_meeting === true;
+      setVoiceNote("Ara is preparing the agenda and checking the invitation");
+      try {
+        const preparation = await prepareMicrosoftMeetingUpdate({
+          eventId: useRecentMeeting
+            ? bookedMeetingRef.current?.id
+            : undefined,
+          meetingReference,
+          agendaItems,
+          objective,
+          enableTranscription: args.enable_transcription === true,
+        });
+        if (!preparation.proposal) {
+          return {
+            status:
+              preparation.reason === "ambiguous"
+                ? "needs_meeting_selection"
+                : "could_not_prepare",
+            reason: preparation.reason,
+            candidates: preparation.candidates,
+            instruction:
+              preparation.reason === "ambiguous"
+                ? "Ask Nick one short question to identify which listed meeting he means."
+                : preparation.reason === "not_organizer"
+                  ? "Tell Nick only the organizer can edit that invitation."
+                  : "Tell Nick you could not find an organizer-owned meeting that safely matches that description. Ask for the meeting title or date.",
+          };
+        }
+        pendingMeetingUpdateRef.current = preparation.proposal;
+        setPendingMeetingUpdate(preparation.proposal);
+        setMeetingUpdateResult(null);
+        setApprovalMethod(null);
+        moveToStage("meetingUpdateReady");
+        return {
+          status: "pending_approval",
+          meeting: preparation.proposal.subject,
+          meeting_time: preparation.proposal.displayTime,
+          agenda: preparation.proposal.agendaItems,
+          objective: preparation.proposal.objective,
+          transcription_requested: preparation.proposal.enableTranscription,
+          approval_required: true,
+          instruction:
+            "Summarize the proposed agenda in one compact sentence and say it will update the existing invite. Mention transcription only if requested. End with 'How does that sound?'",
+        };
+      } catch (error) {
+        return {
+          status: "could_not_prepare",
+          detail:
+            error instanceof Error ? error.message : "The update could not be prepared.",
+          instruction:
+            "Tell Nick briefly that the invitation update could not be prepared safely yet.",
+        };
+      }
+    }
+
+    if (call.name === "approve_meeting_update") {
+      const confirmation =
+        typeof args.confirmation === "string" ? args.confirmation.trim() : "";
+      const isExplicitApproval =
+        /\b(update|add|send|apply|save)\s+(it|that|this|the agenda|the invite|the invitation)\b/i.test(
+          confirmation,
+        ) ||
+        /\b(that works|that sounds good|looks good|go ahead|let'?s do it|make it happen)\b/i.test(
+          confirmation,
+        );
+      if (
+        stageRef.current !== "meetingUpdateReady" ||
+        !pendingMeetingUpdateRef.current
+      ) {
+        return {
+          meeting_updated: false,
+          reason: "There is no visible invitation update to approve.",
+        };
+      }
+      if (!isExplicitApproval) {
+        return {
+          meeting_updated: false,
+          reason:
+            "Nick's intent was not clear enough to send an updated invitation. Ask one short confirmation question.",
+        };
+      }
+      setMeetingActionPending(true);
+      setVoiceNote("Ara is updating the Outlook and Teams invitation");
+      try {
+        const proposal = pendingMeetingUpdateRef.current;
+        const result = await updateMicrosoftMeeting(proposal);
+        setMeetingUpdateResult(result);
+        setApprovalMethod("voice");
+        moveToStage("meetingUpdated");
+        const fullyCompleted =
+          !proposal.enableTranscription ||
+          result.transcriptionStatus === "enabled";
+        return {
+          meeting_updated: true,
+          agenda_updated: result.agendaUpdated,
+          transcription_status: result.transcriptionStatus,
+          fully_completed: fullyCompleted,
+          instruction: fullyCompleted
+            ? 'Say exactly "Done." and nothing else.'
+            : "Tell Nick the agenda is live, but Meeting intelligence needs to be enabled on Today before transcription can be configured.",
+        };
+      } catch (error) {
+        return {
+          meeting_updated: false,
+          detail:
+            error instanceof Error
+              ? error.message
+              : "Microsoft could not update the invitation.",
+          instruction:
+            "Tell Nick the invitation was not changed and give the brief next step from the error.",
+        };
+      } finally {
+        setMeetingActionPending(false);
+      }
+    }
+
+    if (call.name === "read_meeting_transcript") {
+      const useRecentMeeting = args.use_recent_meeting === true;
+      const meetingReference =
+        typeof args.meeting_reference === "string"
+          ? args.meeting_reference.trim()
+          : "the recent meeting";
+      setVoiceNote("Ara is checking Teams for the completed transcript");
+      const result = await readMicrosoftMeetingTranscript({
+        eventId: useRecentMeeting ? bookedMeetingRef.current?.id : undefined,
+        meetingReference,
+      });
+      if (result.status !== "ready" || !result.transcript) {
+        const instructions = {
+          permission_required:
+            "Tell Nick to choose Enable meeting intelligence on Today. It requires Microsoft administrator approval.",
+          admin_disabled:
+            "Tell Nick transcript access is approved for the app, but the Microsoft Teams admin setting for Graph transcript access is still off.",
+          not_available:
+            "Tell Nick Teams has not delivered a transcript for that meeting yet. Do not imply the meeting failed.",
+          not_found:
+            "Ask Nick for the meeting title or date because no matching meeting was found.",
+          ambiguous:
+            "Ask Nick one short question to choose between the matching meetings.",
+          ready: "",
+        } as const;
+        return {
+          status: result.status,
+          candidates: result.candidates,
+          instruction: instructions[result.status],
+        };
+      }
+      return {
+        status: "transcript_ready",
+        meeting_subject: result.transcript.subject,
+        transcript_source_id: result.transcript.transcriptId,
+        speaker_attribution: result.transcript.speakerAttribution,
+        transcript_truncated: result.transcript.truncated,
+        transcript: result.transcript.content,
+        instruction:
+          "Analyze this transcript, then call prepare_meeting_notes with a concise summary, decisions, action items with owners and dates, risks, and open questions. Preserve uncertainty when speaker attribution or ownership is unclear. Do not read the raw transcript aloud.",
+      };
+    }
+
+    if (call.name === "prepare_meeting_notes") {
+      const stringList = (value: unknown) =>
+        Array.isArray(value)
+          ? value.filter(
+              (item): item is string =>
+                typeof item === "string" && item.trim().length > 0,
+            )
+          : [];
+      const actionItems = Array.isArray(args.action_items)
+        ? args.action_items
+            .filter(
+              (item): item is Record<string, unknown> =>
+                Boolean(item) && typeof item === "object",
+            )
+            .map((item) => ({
+              owner:
+                typeof item.owner === "string" ? item.owner.trim() : "Unclear",
+              action:
+                typeof item.action === "string" ? item.action.trim() : "",
+              due: typeof item.due === "string" ? item.due.trim() : "Not stated",
+            }))
+            .filter((item) => item.action)
+        : [];
+      const notes: MeetingNotesDraft = {
+        subject:
+          typeof args.meeting_subject === "string"
+            ? args.meeting_subject.trim()
+            : "Meeting notes",
+        summary: typeof args.summary === "string" ? args.summary.trim() : "",
+        decisions: stringList(args.decisions),
+        actionItems,
+        risks: stringList(args.risks),
+        openQuestions: stringList(args.open_questions),
+        transcriptSource:
+          typeof args.transcript_source_id === "string"
+            ? args.transcript_source_id
+            : "Microsoft Teams transcript",
+      };
+      setMeetingNotes(notes);
+      moveToStage("notesReady");
+      return {
+        notes_prepared: true,
+        decision_count: notes.decisions.length,
+        action_count: notes.actionItems.length,
+        risk_count: notes.risks.length,
+        instruction:
+          "Tell Nick the notes are ready in Parallel. Give only the most important decision and next action, then stop. Do not claim the notes were saved to SharePoint yet.",
+      };
     }
 
     if (call.name === "prepare_message_for_approval") {
@@ -1072,11 +1364,18 @@ export default function Home() {
           Boolean(outcome.error) ||
           outcome.temporarily_unavailable === true ||
           outcome.meeting_created === false ||
+          outcome.meeting_updated === false ||
           outcome.approval_recorded === false ||
           [
             "not_connected",
             "needs_attendee_details",
+            "needs_meeting_selection",
             "could_not_prepare",
+            "permission_required",
+            "admin_disabled",
+            "not_available",
+            "not_found",
+            "ambiguous",
           ].includes(status);
 
         sessionAuditRef.current?.tools.push({
@@ -1094,11 +1393,26 @@ export default function Home() {
         if (call.name === "approve_calendar_meeting") {
           if (outcome.meeting_created === true) {
             approvalPendingRef.current = false;
-            autonomousCloseEligibleRef.current = true;
+            autonomousCloseEligibleRef.current =
+              outcome.fully_completed !== false;
             recoverableErrorRef.current = false;
           } else {
             autonomousCloseEligibleRef.current = false;
             approvalPendingRef.current = Boolean(pendingMeetingRef.current);
+          }
+        }
+
+        if (call.name === "approve_meeting_update") {
+          if (outcome.meeting_updated === true) {
+            approvalPendingRef.current = false;
+            autonomousCloseEligibleRef.current =
+              outcome.fully_completed !== false;
+            recoverableErrorRef.current = false;
+          } else {
+            autonomousCloseEligibleRef.current = false;
+            approvalPendingRef.current = Boolean(
+              pendingMeetingUpdateRef.current,
+            );
           }
         }
 
@@ -1358,7 +1672,7 @@ export default function Home() {
 
       const audio = document.createElement("audio");
       audio.autoplay = true;
-      audio.playsInline = true;
+      audio.setAttribute("playsinline", "true");
       remoteAudioRef.current = audio;
 
       peer.ontrack = (event) => {
@@ -1677,17 +1991,25 @@ export default function Home() {
     setVoiceNote("Ara is creating the Teams meeting");
     try {
       const result = await createMicrosoftMeeting(pendingMeetingRef.current);
+      bookedMeetingRef.current = result;
       setBookedMeeting(result);
       setApprovalMethod("button");
       moveToStage("meetingBooked");
       approvalPendingRef.current = false;
-      autonomousCloseEligibleRef.current = true;
+      const fullyCompleted =
+        !pendingMeetingRef.current.enableTranscription ||
+        result.transcriptionStatus === "enabled";
+      autonomousCloseEligibleRef.current = fullyCompleted;
       recoverableErrorRef.current = false;
       sessionAuditRef.current?.tools.push({
         name: "approve_calendar_meeting",
         succeeded: true,
       });
-      setVoiceNote("The Teams meeting is on your calendar");
+      setVoiceNote(
+        fullyCompleted
+          ? "The Teams meeting and agenda are on your calendar"
+          : "The meeting is booked · meeting intelligence still needs approval",
+      );
       if (channelRef.current?.readyState === "open") {
         setMicrophoneEnabled(false);
         channelRef.current.send(
@@ -1695,7 +2017,9 @@ export default function Home() {
             type: "response.create",
             response: {
               input: [],
-              instructions: 'Say exactly "Done." and nothing else.',
+            instructions: fullyCompleted
+              ? 'Say exactly "Done." and nothing else.'
+              : "Tell Nick the meeting and agenda are live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
             },
           }),
         );
@@ -1718,10 +2042,68 @@ export default function Home() {
     }
   };
 
+  const approveMeetingUpdateWithButton = async () => {
+    if (!pendingMeetingUpdateRef.current || meetingActionPending) return;
+    setMeetingActionPending(true);
+    setVoiceNote("Ara is updating the Outlook and Teams invitation");
+    try {
+      const proposal = pendingMeetingUpdateRef.current;
+      const result = await updateMicrosoftMeeting(proposal);
+      setMeetingUpdateResult(result);
+      setApprovalMethod("button");
+      moveToStage("meetingUpdated");
+      approvalPendingRef.current = false;
+      const fullyCompleted =
+        !proposal.enableTranscription ||
+        result.transcriptionStatus === "enabled";
+      autonomousCloseEligibleRef.current = fullyCompleted;
+      recoverableErrorRef.current = false;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_meeting_update",
+        succeeded: true,
+      });
+      setVoiceNote(
+        fullyCompleted
+          ? "The agenda is live on the invitation"
+          : "The agenda is live · meeting intelligence still needs approval",
+      );
+      if (channelRef.current?.readyState === "open") {
+        setMicrophoneEnabled(false);
+        channelRef.current.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions: fullyCompleted
+                ? 'Say exactly "Done." and nothing else.'
+                : "Tell Nick the agenda is live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
+            },
+          }),
+        );
+      }
+    } catch {
+      autonomousCloseEligibleRef.current = false;
+      recoverableErrorRef.current = true;
+      sessionAuditRef.current?.tools.push({
+        name: "approve_meeting_update",
+        succeeded: false,
+      });
+      if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
+      setVoiceNote("The invitation was not changed. Please try again.");
+    } finally {
+      setMeetingActionPending(false);
+    }
+  };
+
   const startAnotherRequest = () => {
     pendingMeetingRef.current = null;
+    bookedMeetingRef.current = null;
+    pendingMeetingUpdateRef.current = null;
     setPendingMeeting(null);
     setBookedMeeting(null);
+    setPendingMeetingUpdate(null);
+    setMeetingUpdateResult(null);
+    setMeetingNotes(null);
     moveToStage("briefing");
   };
 
@@ -1774,6 +2156,22 @@ export default function Home() {
     }
   };
 
+  const enableMeetingIntelligence = async () => {
+    if (microsoftActionPending) return;
+    setMicrosoftStatus("connecting");
+    setMicrosoftNote(
+      "Opening Microsoft to approve meeting settings and transcript access",
+    );
+    try {
+      await enableMicrosoftMeetingIntelligence();
+    } catch {
+      setMicrosoftStatus("connected");
+      setMicrosoftNote(
+        "Meeting intelligence was not enabled. Microsoft administrator approval may be required.",
+      );
+    }
+  };
+
   const disconnectMicrosoft = async () => {
     await disconnectMicrosoft365();
     rememberMicrosoftSnapshot(null);
@@ -1792,6 +2190,8 @@ export default function Home() {
   const calendarNeedsAttention =
     Boolean(microsoftSnapshot) &&
     microsoftSnapshot?.capabilities.calendar !== "ready";
+  const meetingIntelligenceNeedsPermission =
+    microsoftSnapshot?.capabilities.meetingIntelligence !== "ready";
 
   return (
     <>
@@ -2050,6 +2450,22 @@ export default function Home() {
                   {microsoftSnapshot.capabilities.directory === "ready"
                     ? `${microsoftSnapshot.directoryPeople} available`
                     : "Reconnect"}
+                  </small>
+              </span>
+              <span
+                className={
+                  microsoftSnapshot.capabilities.meetingIntelligence ===
+                  "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                Meeting notes
+                <small>
+                  {microsoftSnapshot.capabilities.meetingIntelligence ===
+                  "ready"
+                    ? "Enabled"
+                    : "Enable access"}
                 </small>
               </span>
             </div>
@@ -2070,6 +2486,15 @@ export default function Home() {
                     disabled={microsoftActionPending}
                   >
                     Repair calendar access
+                  </button>
+                )}
+                {meetingIntelligenceNeedsPermission && (
+                  <button
+                    className="connector-primary"
+                    onClick={enableMeetingIntelligence}
+                    disabled={microsoftActionPending}
+                  >
+                    Enable meeting intelligence
                   </button>
                 )}
                 <button
@@ -2306,6 +2731,25 @@ export default function Home() {
                     <p className="meeting-purpose">{pendingMeeting.purpose}</p>
                   )}
 
+                  <div className="meeting-agenda">
+                    <p>AGENDA</p>
+                    <ol>
+                      {pendingMeeting.agendaItems.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ol>
+                    {pendingMeeting.enableTranscription && (
+                      <span>
+                        ◇ Transcript-ready meeting requested
+                        {stage === "meetingBooked" && bookedMeeting
+                          ? bookedMeeting.transcriptionStatus === "enabled"
+                            ? " · enabled"
+                            : " · needs Meeting intelligence access"
+                          : ""}
+                      </span>
+                    )}
+                  </div>
+
                   {stage === "meetingReady" ? (
                     <>
                       <p className="voice-approval-hint">
@@ -2363,6 +2807,155 @@ export default function Home() {
                 </article>
               )}
 
+            {pendingMeetingUpdate &&
+              (stage === "meetingUpdateReady" ||
+                stage === "meetingUpdated") && (
+                <article
+                  className={`meeting-card meeting-update-card ${stage === "meetingUpdated" ? "booked" : ""}`}
+                >
+                  <div className="meeting-head">
+                    <div>
+                      <p>
+                        {stage === "meetingUpdated"
+                          ? "OUTLOOK INVITE · UPDATED"
+                          : "PROPOSED INVITE UPDATE"}
+                      </p>
+                      <h3>{pendingMeetingUpdate.subject}</h3>
+                    </div>
+                    <span className="teams-badge">T</span>
+                  </div>
+                  <p className="meeting-update-time">
+                    {pendingMeetingUpdate.displayTime}
+                  </p>
+                  {pendingMeetingUpdate.objective && (
+                    <p className="meeting-purpose">
+                      <b>Objective</b> · {pendingMeetingUpdate.objective}
+                    </p>
+                  )}
+                  <div className="meeting-agenda">
+                    <p>AGENDA TO ADD</p>
+                    <ol>
+                      {pendingMeetingUpdate.agendaItems.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ol>
+                    {pendingMeetingUpdate.enableTranscription && (
+                      <span>
+                        ◇ Enable transcription in Teams meeting options
+                      </span>
+                    )}
+                  </div>
+                  {stage === "meetingUpdateReady" ? (
+                    <>
+                      <p className="voice-approval-hint">
+                        Respond naturally—“That looks good, update it.”
+                      </p>
+                      <div className="action-row">
+                        <button
+                          className="secondary"
+                          onClick={startAnotherRequest}
+                          disabled={meetingActionPending}
+                        >
+                          Keep it unchanged
+                        </button>
+                        <button
+                          className="primary approve"
+                          onClick={() => void approveMeetingUpdateWithButton()}
+                          disabled={meetingActionPending}
+                        >
+                          {meetingActionPending
+                            ? "Updating…"
+                            : "Update invitation"}{" "}
+                          <span>→</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="audit-line">
+                        <span>✓</span> Agenda added to the live invitation
+                        {meetingUpdateResult?.transcriptionStatus === "enabled"
+                          ? " · Transcription enabled"
+                          : ""}
+                      </div>
+                      {meetingUpdateResult?.webLink && (
+                        <div className="meeting-links">
+                          <a
+                            href={meetingUpdateResult.webLink}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open updated invitation ↗
+                          </a>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </article>
+              )}
+
+            {stage === "notesReady" && meetingNotes && (
+              <article className="meeting-notes-card">
+                <div className="notes-heading">
+                  <div>
+                    <p>ARA · TRANSCRIPT NOTES</p>
+                    <h3>{meetingNotes.subject}</h3>
+                  </div>
+                  <span>Verified source · Microsoft Teams</span>
+                </div>
+                <p className="notes-summary">{meetingNotes.summary}</p>
+                <div className="notes-grid">
+                  <section>
+                    <p>DECISIONS</p>
+                    {meetingNotes.decisions.length ? (
+                      <ul>
+                        {meetingNotes.decisions.map((decision) => (
+                          <li key={decision}>{decision}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span>None stated clearly.</span>
+                    )}
+                  </section>
+                  <section>
+                    <p>ACTION ITEMS</p>
+                    {meetingNotes.actionItems.length ? (
+                      <ul>
+                        {meetingNotes.actionItems.map((item) => (
+                          <li key={`${item.owner}-${item.action}`}>
+                            <b>{item.owner}</b> · {item.action}
+                            <small>{item.due}</small>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span>None assigned clearly.</span>
+                    )}
+                  </section>
+                  <section>
+                    <p>RISKS</p>
+                    <ul>
+                      {meetingNotes.risks.map((risk) => (
+                        <li key={risk}>{risk}</li>
+                      ))}
+                    </ul>
+                  </section>
+                  <section>
+                    <p>OPEN QUESTIONS</p>
+                    <ul>
+                      {meetingNotes.openQuestions.map((question) => (
+                        <li key={question}>{question}</li>
+                      ))}
+                    </ul>
+                  </section>
+                </div>
+                <p className="notes-boundary">
+                  Drafted in Parallel from the Teams transcript. SharePoint
+                  publishing will be added with your approved brand template.
+                </p>
+              </article>
+            )}
+
             {stage === "found" && (
               <div className="action-row">
                 <button className="secondary" onClick={() => moveToStage("briefing")}>Not this one</button>
@@ -2407,7 +3000,10 @@ export default function Home() {
               </article>
             )}
 
-            {(stage === "approved" || stage === "meetingBooked") && (
+            {(stage === "approved" ||
+              stage === "meetingBooked" ||
+              stage === "meetingUpdated" ||
+              stage === "notesReady") && (
               <button className="new-request" onClick={startAnotherRequest}>Start another request</button>
             )}
           </div>
