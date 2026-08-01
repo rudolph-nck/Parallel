@@ -1034,6 +1034,20 @@ button { color: inherit; }
 .meeting-time b, .meeting-time small { display: block; }
 .meeting-time b { margin-bottom: 4px; color: #d5dde7; font-size: 12px; }
 .meeting-time small { color: #6c7a8b; font-size: 9px; }
+.personal-calendar-notes {
+  display: grid;
+  gap: 5px;
+  margin-top: 13px;
+  padding: 13px;
+  border: 1px solid rgba(119,227,213,.12);
+  border-radius: 9px;
+  background: rgba(119,227,213,.035);
+}
+.personal-calendar-notes p { margin: 0 0 3px; color: #6fa99f; font-size: 8px; font-weight: 700; letter-spacing: .13em; }
+.personal-calendar-notes b { color: #c0d0d0; font-size: 11px; }
+.personal-calendar-notes span, .personal-calendar-notes small { color: #70828d; font-size: 9px; line-height: 1.5; }
+.privacy-choice { margin-top: 15px; padding: 13px; border: 1px solid rgba(101,167,255,.18); border-radius: 9px; background: rgba(101,167,255,.045); }
+.privacy-choice > p { margin: 0; color: #b7c7da; font-family: Georgia, "Times New Roman", serif; font-size: 15px; }
 .meeting-attendees {
   display: flex;
   flex-wrap: wrap;
@@ -1237,6 +1251,30 @@ button { color: inherit; }
 .usage-summary small { margin-top: 4px; color: #5d6c7d; font-size: 8px; }
 .profile-link { display: flex; justify-content: space-between; width: 100%; margin-top: 15px; padding: 12px 0 0; border-top: 1px solid var(--line); background: transparent; color: #89b8f5; font-size: 9px; text-align: left; }
 
+.blueprint-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+.blueprint-card {
+  min-width: 0;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(17,25,35,.62);
+}
+.blueprint-card > span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; color: #8db7e8; background: rgba(101,167,255,.07); font-size: 8px; }
+.blueprint-card.ready > span { color: #8bcfc2; background: rgba(119,227,213,.07); }
+.blueprint-card.guarded > span { color: #d0b076; background: rgba(208,176,118,.07); }
+.blueprint-card div { margin-top: 16px; }
+.blueprint-card p { margin: 0 0 6px; color: #59748d; font-size: 7px; font-weight: 700; letter-spacing: .12em; }
+.blueprint-card h3 { margin: 0; color: #bdc8d2; font-family: Georgia, "Times New Roman", serif; font-size: 15px; font-weight: 400; line-height: 1.25; }
+.blueprint-card small { display: block; margin-top: auto; padding-top: 12px; color: #5f6f80; font-size: 8px; line-height: 1.5; }
+
 .platform-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1388,6 +1426,7 @@ button { color: inherit; }
   .document-publish-detail,.document-published-result { align-items: flex-start; flex-direction: column; }
   .document-publish-detail > span { text-align: left; }
   .operating-grid, .platform-grid { grid-template-columns: 1fr; }
+  .blueprint-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .governance-card { grid-column: auto; }
   .attention-strip { grid-template-columns: 1fr 1fr; }
   .attention-strip > div:nth-child(2) { border-right: 0; }
@@ -1468,6 +1507,7 @@ button { color: inherit; }
   .commitment-form { grid-template-columns: 1fr; }
   .commitment-form button { min-height: 38px; }
   .route-meter { grid-template-columns: 1fr 1fr; }
+  .blueprint-grid { grid-template-columns: 1fr; }
   .usage-summary { grid-template-columns: 1fr; }
   .usage-summary > span { border-right: 0; border-bottom: 1px solid var(--line); }
   .usage-summary > span:last-child { border-bottom: 0; }

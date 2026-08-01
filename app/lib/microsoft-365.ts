@@ -47,6 +47,10 @@ export const MICROSOFT_DOCUMENT_PUBLISHING_SCOPES = [
   "Files.ReadWrite",
 ] as const;
 
+export const MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES = [
+  "Mail.Send",
+] as const;
+
 type GraphCollection<T> = {
   value?: T[];
   "@odata.count"?: number;
@@ -194,6 +198,7 @@ export type MicrosoftSnapshot = {
     directory: MicrosoftCapabilityState;
     meetingIntelligence: MicrosoftCapabilityState;
     documentPublishing: MicrosoftCapabilityState;
+    outboundCommunication: MicrosoftCapabilityState;
   };
 };
 
@@ -254,6 +259,11 @@ export type MicrosoftMeetingProposal = {
   calendarItemType: MicrosoftCalendarItemType;
   onlineMeeting: boolean;
   location: string;
+  address: string;
+  personalNotes: string[];
+  menuItems: string[];
+  isPrivate: boolean;
+  privacyChoicePending: boolean;
   exactRequestedTime: boolean;
 };
 
@@ -445,6 +455,16 @@ async function acquireDocumentPublishingToken(
   });
 }
 
+async function acquireOutboundCommunicationToken(
+  client: PublicClientApplication,
+  account: AccountInfo,
+) {
+  return client.acquireTokenSilent({
+    account,
+    scopes: [...MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES],
+  });
+}
+
 function readGraphErrorCode(responseText: string) {
   try {
     const body = JSON.parse(responseText) as {
@@ -627,6 +647,7 @@ async function readMicrosoftSnapshot(
     directoryResult,
     meetingIntelligenceResult,
     documentPublishingResult,
+    outboundCommunicationResult,
   ] =
     await Promise.allSettled([
       graphRequest<GraphCollection<GraphMessage>>(
@@ -653,6 +674,7 @@ async function readMicrosoftSnapshot(
       ),
       acquireMeetingIntelligenceToken(client, account),
       acquireDocumentPublishingToken(client, account),
+      acquireOutboundCommunicationToken(client, account),
     ]);
 
   if (directoryResult.status === "fulfilled") {
@@ -712,6 +734,10 @@ async function readMicrosoftSnapshot(
         documentPublishingResult.status === "fulfilled"
           ? "ready"
           : "permission_required",
+      outboundCommunication:
+        outboundCommunicationResult.status === "fulfilled"
+          ? "ready"
+          : "permission_required",
     },
   };
 }
@@ -758,6 +784,18 @@ export async function enableMicrosoftDocumentPublishing() {
   });
 }
 
+export async function enableMicrosoftOutboundCommunication() {
+  const client = await getMicrosoftClient();
+  await client.loginRedirect({
+    scopes: [
+      ...MICROSOFT_GRAPH_SCOPES,
+      ...MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES,
+    ],
+    redirectUri: getRedirectUri(),
+    prompt: "consent",
+  });
+}
+
 export { describeMicrosoftCalendarError };
 
 export async function restoreMicrosoft365() {
@@ -773,6 +811,79 @@ export async function refreshMicrosoft365() {
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
   return readMicrosoftSnapshot(client, account);
+}
+
+export async function sendMicrosoftEmail({
+  recipient,
+  subject,
+  message,
+}: {
+  recipient: string;
+  subject: string;
+  message: string;
+}) {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+  const token = await acquireOutboundCommunicationToken(client, account);
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  let resolved: MicrosoftMeetingAttendee | null = emailPattern.test(recipient)
+    ? { displayName: recipient, email: recipient }
+    : null;
+
+  if (!resolved) {
+    const graphToken = await acquireGraphToken(client, account);
+    const directoryPeople =
+      directoryPeopleCache && directoryPeopleCache.expiresAt > Date.now()
+        ? directoryPeopleCache.people
+        : [];
+    resolved = await resolveDirectoryAttendee(
+      graphToken.accessToken,
+      recipient,
+      directoryPeople,
+    ).catch(() => null);
+    if (!resolved) {
+      resolved = await resolveRelevantPerson(
+        graphToken.accessToken,
+        recipient,
+      ).catch(() => null);
+    }
+  }
+
+  if (!resolved) {
+    throw new Error("I couldn't safely resolve that recipient. Please give me their work email.");
+  }
+
+  await graphRequest<Record<string, never>>(
+    token.accessToken,
+    "/me/sendMail",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        message: {
+          subject: subject.trim() || "Message from Nick",
+          body: {
+            contentType: "Text",
+            content: message.trim(),
+          },
+          toRecipients: [
+            {
+              emailAddress: {
+                address: resolved.email,
+                name: resolved.displayName,
+              },
+            },
+          ],
+        },
+        saveToSentItems: true,
+      }),
+    },
+  );
+
+  return {
+    recipient: resolved,
+    subject: subject.trim() || "Message from Nick",
+  };
 }
 
 export async function readMicrosoftCalendar(
@@ -914,6 +1025,10 @@ export async function prepareMicrosoftMeeting({
   calendarItemType = "meeting",
   onlineMeeting,
   location = "",
+  address = "",
+  personalNotes = [],
+  menuItems = [],
+  privacy = "normal",
 }: {
   subject: string;
   attendeeNames: string[];
@@ -925,6 +1040,10 @@ export async function prepareMicrosoftMeeting({
   calendarItemType?: MicrosoftCalendarItemType;
   onlineMeeting?: boolean;
   location?: string;
+  address?: string;
+  personalNotes?: string[];
+  menuItems?: string[];
+  privacy?: "private" | "normal" | "ask";
 }): Promise<MicrosoftMeetingPreparation> {
   const client = await getMicrosoftClient();
   const account = chooseAccount(client);
@@ -1055,7 +1174,9 @@ export async function prepareMicrosoftMeeting({
     throw new Error("No open working-hours slot was found before the deadline.");
   }
 
-  const preparedAgenda = normalizeAgendaItems(agendaItems);
+  const preparedAgenda = normalizeAgendaItems(
+    calendarItemType === "meeting" ? agendaItems : [],
+  );
   const finalAgenda =
     preparedAgenda.length > 0
       ? preparedAgenda
@@ -1148,7 +1269,8 @@ export async function prepareMicrosoftMeeting({
       subject,
       purpose,
       agendaItems: finalAgenda,
-      enableTranscription,
+      enableTranscription:
+        calendarItemType === "meeting" && enableTranscription,
       attendees,
       start: available.start.toISOString(),
       end: available.end.toISOString(),
@@ -1158,6 +1280,12 @@ export async function prepareMicrosoftMeeting({
       calendarItemType,
       onlineMeeting: finalOnlineMeeting,
       location: location.trim(),
+      address: address.trim(),
+      personalNotes: personalNotes.map((note) => note.trim()).filter(Boolean).slice(0, 8),
+      menuItems: menuItems.map((item) => item.trim()).filter(Boolean).slice(0, 8),
+      isPrivate: privacy === "private",
+      privacyChoicePending:
+        calendarItemType !== "meeting" && privacy === "ask",
       exactRequestedTime: Boolean(exactSlot),
     },
     unresolvedAttendees: [],

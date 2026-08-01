@@ -144,3 +144,76 @@ export const auditEvents = sqliteTable("audit_events", {
   detail: text("detail").notNull(),
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("audit_tenant_created_idx").on(table.tenantId, table.createdAt)]);
+
+export const meetingKnowledgeRecords = sqliteTable("meeting_knowledge_records", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  externalMeetingId: text("external_meeting_id"),
+  transcriptSourceId: text("transcript_source_id"),
+  subject: text("subject").notNull(),
+  summary: text("summary").notNull(),
+  decisionsJson: text("decisions_json").notNull(),
+  actionsJson: text("actions_json").notNull(),
+  risksJson: text("risks_json").notNull(),
+  questionsJson: text("questions_json").notNull(),
+  lifecycleState: text("lifecycle_state").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("meeting_knowledge_tenant_updated_idx").on(table.tenantId, table.updatedAt),
+  uniqueIndex("meeting_knowledge_tenant_transcript_idx").on(table.tenantId, table.transcriptSourceId),
+]);
+
+export const workItems = sqliteTable("work_items", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  sourceKey: text("source_key").notNull(),
+  title: text("title").notNull(),
+  ownerLabel: text("owner_label").notNull(),
+  ownershipRole: text("ownership_role").notNull(),
+  ownershipBasis: text("ownership_basis").notNull(),
+  ownershipConfidence: integer("ownership_confidence").notNull(),
+  dueAt: integer("due_at"),
+  status: text("status").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("work_item_tenant_source_idx").on(table.tenantId, table.sourceKey),
+  index("work_item_tenant_role_status_idx").on(table.tenantId, table.ownershipRole, table.status),
+]);
+
+export const delegations = sqliteTable("delegations", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  workItemId: text("work_item_id").notNull(),
+  fromPersonId: text("from_person_id").notNull(),
+  toPersonLabel: text("to_person_label").notNull(),
+  status: text("status").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("delegation_tenant_status_idx").on(table.tenantId, table.status)]);
+
+export const desktopActionRequests = sqliteTable("desktop_action_requests", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  application: text("application").notNull(),
+  action: text("action").notNull(),
+  target: text("target").notNull(),
+  status: text("status").notNull(),
+  authority: text("authority").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("desktop_action_tenant_status_idx").on(table.tenantId, table.status)]);
+
+export const outboundMessages = sqliteTable("outbound_messages", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  channel: text("channel").notNull(),
+  recipient: text("recipient").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull(),
+  sentAt: integer("sent_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("outbound_tenant_status_idx").on(table.tenantId, table.status)]);

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { estimatedUsageUnits, routeModelTask } from "../app/lib/model-router.ts";
 import { buildReadOnlyAttentionItems } from "../app/lib/parallel-platform.ts";
+import { resolveWorkOwnership } from "../app/lib/ownership.ts";
 
 test("routes deterministic, utility, realtime, and deep work to explicit tiers", () => {
   assert.equal(routeModelTask({ task: "policy_check" }).tier, "A");
@@ -38,4 +39,17 @@ test("attention monitoring only surfaces unread or high-priority messages and ne
 
   assert.deepEqual(items.map((item) => item.externalId), ["e1", "m1", "m2"]);
   assert.equal(items[0].urgency, "high");
+});
+
+test("keeps Nick-owned work separate from another person's dependency", () => {
+  const own = resolveWorkOwnership("Nick");
+  const dependency = resolveWorkOwnership("Noelle");
+  const unclear = resolveWorkOwnership("Unclear");
+
+  assert.equal(own.role, "owner");
+  assert.equal(own.araMayAct, true);
+  assert.equal(dependency.role, "dependency");
+  assert.equal(dependency.araMayAct, false);
+  assert.equal(unclear.role, "unclear");
+  assert.equal(unclear.araMayAct, false);
 });

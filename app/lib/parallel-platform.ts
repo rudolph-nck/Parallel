@@ -38,6 +38,21 @@ export type PlatformWorkspace = {
   attention: AttentionItem[];
   commitments: Commitment[];
   usage: { sessions: number; totalTokens: number; usageUnits: number; tierC: number; tierD: number };
+  capabilities: {
+    meetingKnowledge: number;
+    ownedWork: number;
+    dependencies: number;
+    pendingDelegations: number;
+    desktopRequests: number;
+    outboundSent: number;
+  };
+  recentMeetingKnowledge: Array<{
+    id: string;
+    subject: string;
+    summary: string;
+    lifecycleState: string;
+    updatedAt: number;
+  }>;
 };
 
 type AttentionSnapshot = {

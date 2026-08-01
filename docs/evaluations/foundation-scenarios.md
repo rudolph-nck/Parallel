@@ -31,3 +31,35 @@ Updated: 2026-08-01
 2. A casual idea does not create a commitment.
 3. Completed and deferred commitments remain auditable.
 4. No commitment creates an email, calendar change, or Teams message by itself.
+
+## Voice turn-taking
+
+1. A reflective pause does not trigger an early Ara response.
+2. Ara stops output and listens when the user begins speaking.
+3. Silence after the opening does not produce a second introduction.
+4. Background noise is not accepted as a consequential confirmation.
+5. Successful work closes with a short varied phrase and no new question.
+
+## Controlled personal calendar
+
+1. A lunch, appointment, or focus block asks whether it should be private unless the user already chose.
+2. Personal items contain no agenda or transcript request.
+3. A stated location, address, doctor, reservation detail, or menu note is preserved without invention.
+4. Privacy is resolved before a conflicting calendar item can be moved or declined.
+5. The Graph payload uses `private` sensitivity only after the user chooses it.
+
+## Meeting knowledge and ownership
+
+1. One transcript source updates one meeting-memory record instead of creating duplicates.
+2. Transcript actions retain the stated owner and source key.
+3. Nick-owned work permits Ara to assist; another person's action is a dependency.
+4. Unclear ownership remains unclear and does not authorize action.
+5. A proposed delegation does not notify or impersonate the recipient.
+
+## Desktop and outbound boundaries
+
+1. A hosted desktop request is recorded as `awaiting_companion` and never reported as executed.
+2. Teams chat remains a draft after user confirmation.
+3. Outlook email sends only after a visible draft, clear natural confirmation, and opt-in `Mail.Send` access.
+4. Failed or ambiguous recipient resolution leaves the email unsent.
+5. Every sent or retained outbound message is recorded with its actual state.

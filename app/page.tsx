@@ -8,6 +8,7 @@ import {
   disconnectMicrosoft365,
   enableMicrosoftDocumentPublishing,
   enableMicrosoftMeetingIntelligence,
+  enableMicrosoftOutboundCommunication,
   prepareMicrosoftMeeting,
   prepareMicrosoftMeetingUpdate,
   publishMicrosoftBrandedDocument,
@@ -18,6 +19,7 @@ import {
   refreshMicrosoft365,
   restoreMicrosoft365,
   searchMicrosoft365Files,
+  sendMicrosoftEmail,
   updateMicrosoftMeeting,
   type MicrosoftMeetingProposal,
   type MicrosoftCalendarConflict,
@@ -58,6 +60,7 @@ import {
   type DecisionProfile,
   type PlatformWorkspace,
 } from "./lib/parallel-platform";
+import { resolveWorkOwnership } from "./lib/ownership";
 
 type Stage =
   | "briefing"
@@ -162,7 +165,7 @@ const conversations = {
   approved: {
     eyebrow: "Ara · In sync",
     title: "Perfect—I’ve got it.",
-    body: "Your go-ahead is recorded. Once Teams is connected, Ara will take it from here.",
+    body: "The result below shows exactly what Ara completed—or kept safely as a draft.",
   },
   meetingReady: {
     eyebrow: "Ara · Calendar",
@@ -176,7 +179,7 @@ const conversations = {
   },
   meetingBooked: {
     eyebrow: "Ara · Calendar updated",
-    title: "Done—it’s on the calendar.",
+    title: "All set—it’s on the calendar.",
     body: "The time below is the exact time saved in Outlook.",
   },
   meetingUpdateReady: {
@@ -186,7 +189,7 @@ const conversations = {
   },
   meetingUpdated: {
     eyebrow: "Ara · Invite updated",
-    title: "Done—the agenda is live.",
+    title: "Taken care of—the agenda is live.",
     body: "The existing Outlook and Teams invitation now includes the approved agenda.",
   },
   notesReady: {
@@ -201,7 +204,7 @@ const conversations = {
   },
   documentPublished: {
     eyebrow: "Ara · SharePoint",
-    title: "Done—it’s published.",
+    title: "You’re good—it’s published.",
     body: "The approved document is in the Parallel Documents folder as a new, non-overwriting copy.",
   },
 };
@@ -228,8 +231,12 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
-  "Hey Nick—I’m Ara. I’m really excited to work with you. Think of me as the calm, connected friend who helps you cut through the noise and keep work moving. What would make today feel like a win?";
-const demoIntroductionInstruction = `This is the demo opening. Say exactly: "${defaultIntroduction}" Do not say anything before or after it.`;
+  "Hey Nick—I’m Ara. I’m glad we’re working together. Think of me as your close work friend who helps keep things moving. What’s on your mind?";
+const demoIntroductionInstruction = `This is the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If Nick is silent, do not speak again until he says something.`;
+const returningIntroductionInstruction =
+  'Say exactly: "Hey Nick—good to hear from you. What’s up?" Then wait. Do not give another greeting if he is silent.';
+const naturalCompletionInstruction =
+  'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const capabilityIntroduction =
   "Nick asked what he can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make his day easier right now.";
 const startupPhrases = [
@@ -364,9 +371,17 @@ export default function Home() {
   const outputAudioDrainedRef = useRef(false);
   const unresolvedQuestionRef = useRef(false);
   const recoverableErrorRef = useRef(false);
+  const userInterruptedResponseRef = useRef(false);
   const [message, setMessage] = useState(
     "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed."
   );
+  const [messageRecipient, setMessageRecipient] = useState("Matt Walsh");
+  const [messageChannel, setMessageChannel] = useState("Microsoft Teams");
+  const [messageSubject, setMessageSubject] = useState("Follow-up from Nick");
+  const messageRef = useRef(message);
+  const messageRecipientRef = useRef(messageRecipient);
+  const messageChannelRef = useRef(messageChannel);
+  const messageSubjectRef = useRef(messageSubject);
   const copy = conversations[stage];
 
   const rememberMicrosoftSnapshot = (snapshot: MicrosoftSnapshot | null) => {
@@ -621,6 +636,7 @@ export default function Home() {
     outputAudioDrainedRef.current = false;
     unresolvedQuestionRef.current = false;
     recoverableErrorRef.current = false;
+    userInterruptedResponseRef.current = false;
     setVoiceConnected(false);
     setVoiceState("idle");
     setVoiceNote(note);
@@ -654,7 +670,7 @@ export default function Home() {
       closingTimerRef.current = null;
       if (conversationStateRef.current !== "WRAP_UP") return;
       stopVoiceSession(
-        "Done. Tap to start a new conversation",
+        "Conversation complete · tap to talk again",
         "completed_action",
       );
     }, conversationPolicy.closingInterruptionWindowMs);
@@ -1014,6 +1030,24 @@ export default function Home() {
       const onlineMeeting = args.online_meeting === true;
       const location =
         typeof args.location === "string" ? args.location.trim() : "";
+      const address =
+        typeof args.address === "string" ? args.address.trim() : "";
+      const personalNotes = Array.isArray(args.personal_notes)
+        ? args.personal_notes.filter(
+            (item): item is string => typeof item === "string" && item.trim().length > 0,
+          )
+        : [];
+      const menuItems = Array.isArray(args.menu_items)
+        ? args.menu_items.filter(
+            (item): item is string => typeof item === "string" && item.trim().length > 0,
+          )
+        : [];
+      const privacy =
+        args.privacy === "private" || args.privacy === "normal" || args.privacy === "ask"
+          ? args.privacy
+          : calendarItemType === "meeting"
+            ? "normal"
+            : "ask";
 
       setVoiceNote("Ara is resolving people and checking your calendar");
       try {
@@ -1028,6 +1062,10 @@ export default function Home() {
           calendarItemType,
           onlineMeeting,
           location,
+          address,
+          personalNotes,
+          menuItems,
+          privacy,
         });
 
         if (!preparation.proposal) {
@@ -1052,6 +1090,19 @@ export default function Home() {
         setCalendarConflicts(preparation.conflicts);
         setBookedMeeting(null);
         setApprovalMethod(null);
+        if (preparation.proposal.privacyChoicePending) {
+          moveToStage("meetingReady");
+          return {
+            status: "privacy_choice_required",
+            subject: preparation.proposal.subject,
+            proposed_time: preparation.proposal.displayTime,
+            calendar_item_type: preparation.proposal.calendarItemType,
+            location: preparation.proposal.location,
+            has_conflict: preparation.conflicts.length > 0,
+            instruction:
+              'Ask exactly, "Want me to make this private?" Do not discuss the time or conflict until Nick answers.',
+          };
+        }
         if (preparation.conflicts.length > 0) {
           const conflict = preparation.conflicts[0];
           moveToStage("meetingConflict");
@@ -1103,6 +1154,8 @@ export default function Home() {
           calendar_item_type: preparation.proposal.calendarItemType,
           teams_meeting: preparation.proposal.onlineMeeting,
           agenda: preparation.proposal.agendaItems,
+          personal_notes: preparation.proposal.personalNotes,
+          private: preparation.proposal.isPrivate,
           transcription_requested: preparation.proposal.enableTranscription,
           confirmation_needed: true,
           approval_required: true,
@@ -1119,6 +1172,51 @@ export default function Home() {
             "Tell Nick briefly that you could not prepare a safe calendar option yet. If the detail says the deadline passed or no slot was found, explain that plainly; otherwise suggest reconnecting Microsoft 365 and trying again.",
         };
       }
+    }
+
+    if (call.name === "set_calendar_privacy") {
+      const proposal = pendingMeetingRef.current;
+      if (!proposal || proposal.calendarItemType === "meeting") {
+        return {
+          privacy_updated: false,
+          reason: "There is no prepared personal calendar item waiting for a privacy choice.",
+        };
+      }
+      const isPrivate = args.privacy === "private";
+      const updated = {
+        ...proposal,
+        isPrivate,
+        privacyChoicePending: false,
+      };
+      pendingMeetingRef.current = updated;
+      setPendingMeeting(updated);
+      const conflict = calendarConflictsRef.current[0];
+      if (conflict) {
+        moveToStage("meetingConflict");
+        return {
+          status: "calendar_conflict",
+          privacy_updated: true,
+          private: isPrivate,
+          conflict: {
+            subject: conflict.subject,
+            time: conflict.displayTime,
+            nick_is_organizer: conflict.isOrganizer,
+            alternative_for_request: conflict.suggestedRequestedDisplayTime,
+          },
+          instruction:
+            "Confirm the privacy choice in a few words, then explain the named conflict and offer the safe returned options. Ask one short question.",
+        };
+      }
+      moveToStage("meetingReady");
+      return {
+        status: "pending_approval",
+        privacy_updated: true,
+        private: isPrivate,
+        proposed_time: updated.displayTime,
+        approval_required: true,
+        instruction:
+          "Confirm the privacy choice briefly, say the proposed time once, and end with 'How does that sound?'",
+      };
     }
 
     if (call.name === "approve_calendar_meeting") {
@@ -1142,6 +1240,14 @@ export default function Home() {
         return {
           meeting_created: false,
           reason: "There is no visible meeting proposal to approve.",
+        };
+      }
+
+      if (pendingMeetingRef.current.privacyChoicePending) {
+        return {
+          meeting_created: false,
+          reason: "Nick still needs to choose whether this personal item is private.",
+          instruction: 'Ask exactly, "Want me to make this private?"',
         };
       }
 
@@ -1182,7 +1288,7 @@ export default function Home() {
             pendingMeetingRef.current.enableTranscription &&
             result.transcriptionStatus !== "enabled"
               ? "Tell Nick the meeting and agenda are live, but Meeting intelligence needs to be enabled on Today before Ara can configure transcription."
-              : 'Say exactly "Done." and nothing else.',
+              : naturalCompletionInstruction,
         };
       } catch (error) {
         const detail =
@@ -1263,6 +1369,15 @@ export default function Home() {
           calendarConflictsRef.current = [];
           setCalendarConflicts([]);
           moveToStage("meetingReady");
+          if (result.proposal.privacyChoicePending) {
+            return {
+              status: "privacy_choice_required",
+              conflict_resolved: true,
+              proposed_time: result.proposal.displayTime,
+              instruction:
+                'The alternative is clear. Ask exactly, "Want me to make this private?" Do not ask for booking confirmation yet.',
+            };
+          }
           return {
             status: "pending_approval",
             conflict_resolved: true,
@@ -1295,7 +1410,7 @@ export default function Home() {
             resolution === "move_existing" ? "moved" : "declined",
           existing_meeting: result.changedMeeting,
           existing_meeting_new_time: result.changedMeetingTime,
-          instruction: 'Say exactly "Done." and nothing else.',
+          instruction: naturalCompletionInstruction,
         };
       } catch (error) {
         return {
@@ -1430,7 +1545,7 @@ export default function Home() {
           transcription_status: result.transcriptionStatus,
           fully_completed: fullyCompleted,
           instruction: fullyCompleted
-            ? 'Say exactly "Done." and nothing else.'
+            ? naturalCompletionInstruction
             : "Tell Nick the agenda is live, but Meeting intelligence needs to be enabled on Today before transcription can be configured.",
         };
       } catch (error) {
@@ -1530,14 +1645,91 @@ export default function Home() {
             : "Microsoft Teams transcript",
       };
       setMeetingNotes(notes);
+      await updatePlatform("meeting.record", {
+        transcriptSourceId: notes.transcriptSource,
+        subject: notes.subject,
+        summary: notes.summary,
+        decisions: notes.decisions,
+        actions: notes.actionItems,
+        risks: notes.risks,
+        questions: notes.openQuestions,
+      });
+      await Promise.all(
+        notes.actionItems.map((item, index) => {
+          const ownership = resolveWorkOwnership(item.owner);
+          const parsedDue = Date.parse(item.due);
+          return updatePlatform("work.create", {
+            sourceKey: `${notes.transcriptSource}:${index}`,
+            title: item.action,
+            ownerLabel: ownership.ownerLabel,
+            ownershipRole: ownership.role,
+            ownershipBasis: ownership.basis,
+            ownershipConfidence: Math.round(ownership.confidence * 100),
+            dueAt: Number.isFinite(parsedDue) ? parsedDue : null,
+          });
+        }),
+      );
+      await refreshPlatformWorkspace();
       moveToStage("notesReady");
       return {
         notes_prepared: true,
+        meeting_memory_recorded: true,
         decision_count: notes.decisions.length,
         action_count: notes.actionItems.length,
         risk_count: notes.risks.length,
         instruction:
           "Tell Nick the notes are ready in Parallel. Give only the most important decision and next action, then stop. Do not claim the notes were saved to SharePoint yet.",
+      };
+    }
+
+    if (call.name === "propose_delegation") {
+      const title = typeof args.title === "string" ? args.title.trim() : "";
+      const recipient =
+        typeof args.recipient === "string" ? args.recipient.trim() : "";
+      if (!title || !recipient) {
+        return {
+          delegation_proposed: false,
+          instruction: "Ask one short question for the missing task or person.",
+        };
+      }
+      const work = await updatePlatform("work.create", {
+        sourceKey: `delegation:${crypto.randomUUID()}`,
+        title,
+        ownerLabel: recipient,
+        ownershipRole: "dependency",
+        ownershipBasis: "explicit_assignment",
+        ownershipConfidence: 100,
+      });
+      await updatePlatform("delegation.propose", {
+        workItemId: work.id,
+        toPersonLabel: recipient,
+      });
+      await refreshPlatformWorkspace();
+      return {
+        delegation_proposed: true,
+        recipient,
+        notification_sent: false,
+        instruction:
+          "Say briefly that the delegation is prepared in Parallel, but no message was sent.",
+      };
+    }
+
+    if (call.name === "prepare_desktop_action") {
+      const application =
+        typeof args.application === "string" ? args.application.trim() : "Desktop";
+      const desktopAction =
+        typeof args.action === "string" ? args.action.trim() : "open";
+      const target = typeof args.target === "string" ? args.target.trim() : "";
+      const result = await updatePlatform("desktop.prepare", {
+        application,
+        desktopAction,
+        target,
+      });
+      await refreshPlatformWorkspace();
+      return {
+        ...result,
+        instruction:
+          "Explain in one sentence that the action is prepared, but the secure Parallel desktop companion is required before it can run. Never claim the application opened.",
       };
     }
 
@@ -1657,7 +1849,7 @@ export default function Home() {
           sharepoint_site: published.siteName,
           folder: published.folderPath,
           web_url: published.webUrl,
-          instruction: 'Say exactly "Done." and nothing else.',
+          instruction: naturalCompletionInstruction,
         };
       } catch {
         return {
@@ -1676,7 +1868,26 @@ export default function Home() {
         typeof args.message === "string" && args.message.trim()
           ? args.message.trim()
           : "Hi Matt — here is the latest version of the IT Core Strategic Plan we discussed.";
+      messageRef.current = proposedMessage;
       setMessage(proposedMessage);
+      const proposedRecipient =
+        typeof args.recipient === "string" && args.recipient.trim()
+          ? args.recipient.trim()
+          : "Matt Walsh";
+      const proposedChannel =
+        typeof args.channel === "string" && args.channel.trim()
+          ? args.channel.trim()
+          : "Microsoft Teams";
+      const proposedSubject =
+        typeof args.subject === "string" && args.subject.trim()
+          ? args.subject.trim()
+          : "Follow-up from Nick";
+      messageRecipientRef.current = proposedRecipient;
+      messageChannelRef.current = proposedChannel;
+      messageSubjectRef.current = proposedSubject;
+      setMessageRecipient(proposedRecipient);
+      setMessageChannel(proposedChannel);
+      setMessageSubject(proposedSubject);
       setApprovalMethod(null);
       moveToStage("ready");
       return {
@@ -1719,8 +1930,70 @@ export default function Home() {
         };
       }
 
+      const currentChannel = messageChannelRef.current;
+      const currentRecipient = messageRecipientRef.current;
+      const currentSubject = messageSubjectRef.current;
+      const currentMessage = messageRef.current;
+      const isEmail = /outlook|email/i.test(currentChannel);
+      if (isEmail) {
+        if (
+          microsoftSnapshotRef.current?.capabilities.outboundCommunication !==
+          "ready"
+        ) {
+          return {
+            approval_recorded: false,
+            status: "permission_required",
+            reason: "Outlook sending access has not been enabled.",
+            instruction:
+              "Tell Nick to choose Enable Outlook sending on Today. The draft remains untouched.",
+          };
+        }
+        try {
+          const sent = await sendMicrosoftEmail({
+            recipient: currentRecipient,
+            subject: currentSubject,
+            message: currentMessage,
+          });
+          await updatePlatform("outbound.record", {
+            channel: "outlook",
+            recipient: sent.recipient.email,
+            subject: sent.subject,
+            message: currentMessage,
+            sent: true,
+          });
+          setApprovalMethod("voice");
+          moveToStage("approved");
+          return {
+            approval_recorded: true,
+            message_sent: true,
+            fully_completed: true,
+            recipient: sent.recipient.displayName,
+            channel: "Outlook",
+            instruction: naturalCompletionInstruction,
+          };
+        } catch (error) {
+          return {
+            approval_recorded: false,
+            message_sent: false,
+            reason:
+              error instanceof Error
+                ? error.message
+                : "Outlook could not send the message.",
+            instruction:
+              "Tell Nick the message was not sent and give the returned reason in one sentence.",
+          };
+        }
+      }
+
       setApprovalMethod("voice");
       moveToStage("approved");
+      await updatePlatform("outbound.record", {
+        channel: currentChannel,
+        recipient: currentRecipient,
+        subject: currentSubject,
+        message: currentMessage,
+        sent: false,
+      }).catch(() => undefined);
       return {
         approval_recorded: true,
         approval_method: "voice",
@@ -1817,6 +2090,7 @@ export default function Home() {
           outcome.meeting_updated === false ||
           outcome.document_published === false ||
           outcome.commitment_created === false ||
+          outcome.privacy_updated === false ||
           outcome.conflict_resolved === false ||
           outcome.approval_recorded === false ||
           [
@@ -1900,6 +2174,7 @@ export default function Home() {
           outcome.approval_recorded === true
         ) {
           approvalPendingRef.current = false;
+          autonomousCloseEligibleRef.current = outcome.message_sent === true;
         }
 
         if (
@@ -1959,6 +2234,9 @@ export default function Home() {
 
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
+        if (conversationStateRef.current === "RESPONDING") {
+          userInterruptedResponseRef.current = true;
+        }
         if (idleTimerRef.current !== null) {
           window.clearTimeout(idleTimerRef.current);
           idleTimerRef.current = null;
@@ -1980,12 +2258,12 @@ export default function Home() {
         unresolvedQuestionRef.current = false;
         setFridayTranscript("");
         setVoiceState("listening");
-        setVoiceNote("Speak naturally — Ara is listening");
+        setVoiceNote("I’m listening — take your time");
         break;
       }
       case "input_audio_buffer.speech_stopped":
         moveConversationState("USER_SPEECH_STOPPED");
-        setMicrophoneEnabled(false);
+        setMicrophoneEnabled(true);
         setVoiceNote("Ara is thinking");
         break;
       case "response.created":
@@ -1993,14 +2271,14 @@ export default function Home() {
         moveConversationState("RESPONSE_STARTED");
         responseCompletedRef.current = false;
         outputAudioDrainedRef.current = false;
-        setMicrophoneEnabled(false);
+        setMicrophoneEnabled(true);
         setVoiceNote("Ara is thinking");
         break;
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
-        setMicrophoneEnabled(false);
+        setMicrophoneEnabled(true);
         setVoiceState("speaking");
-        setVoiceNote("Ara is responding — your mic is paused");
+        setVoiceNote("Ara is responding — jump in anytime");
         break;
       case "response.output_audio_transcript.delta":
         transcriptRef.current += event.delta ?? "";
@@ -2027,6 +2305,17 @@ export default function Home() {
           event.response?.status &&
           event.response.status !== "completed"
         ) {
+          if (
+            userInterruptedResponseRef.current &&
+            event.response.status === "cancelled"
+          ) {
+            userInterruptedResponseRef.current = false;
+            recoverableErrorRef.current = false;
+            setMicrophoneEnabled(true);
+            setVoiceState("listening");
+            setVoiceNote("I’m listening — go ahead");
+            return;
+          }
           recoverableErrorRef.current = true;
           autonomousCloseEligibleRef.current = false;
           if (sessionAuditRef.current) sessionAuditRef.current.errorCount += 1;
@@ -2138,6 +2427,7 @@ export default function Home() {
     outputAudioDrainedRef.current = false;
     unresolvedQuestionRef.current = false;
     recoverableErrorRef.current = false;
+    userInterruptedResponseRef.current = false;
     sessionAuditRef.current = startConversationSession(crypto.randomUUID());
     moveConversationState("START_CONNECTING");
     initialResponseRef.current = openingInstruction ?? null;
@@ -2202,7 +2492,7 @@ export default function Home() {
       channel.onmessage = (event) => handleRealtimeEvent(event, channel);
       channel.onopen = () => {
         moveConversationState("CONNECTION_OPEN");
-        setMicrophoneEnabled(false);
+        setMicrophoneEnabled(true);
         setVoiceConnected(true);
         setVoiceState("speaking");
         setVoiceNote("Ara is joining you");
@@ -2214,7 +2504,7 @@ export default function Home() {
           initialResponseRef.current ??
           (firstVisit
             ? demoIntroductionInstruction
-            : "Greet Nick warmly in one brief sentence, then invite him to tell you what needs his attention.");
+            : returningIntroductionInstruction);
         channel.send(
           JSON.stringify({
             type: "response.create",
@@ -2454,7 +2744,45 @@ export default function Home() {
       }[lastSession.closeReason]
     : "";
 
-  const approveWithButton = () => {
+  const approveWithButton = async () => {
+    const isEmail = /outlook|email/i.test(messageChannel);
+    if (isEmail) {
+      if (
+        microsoftSnapshotRef.current?.capabilities.outboundCommunication !==
+        "ready"
+      ) {
+        setVoiceNote("Enable Outlook sending on Today first");
+        return;
+      }
+      try {
+        const sent = await sendMicrosoftEmail({
+          recipient: messageRecipient,
+          subject: messageSubject,
+          message,
+        });
+        await updatePlatform("outbound.record", {
+          channel: "outlook",
+          recipient: sent.recipient.email,
+          subject: sent.subject,
+          message,
+          sent: true,
+        });
+        autonomousCloseEligibleRef.current = true;
+      } catch (error) {
+        setVoiceNote(
+          error instanceof Error ? error.message : "Outlook could not send that message.",
+        );
+        return;
+      }
+    } else {
+      await updatePlatform("outbound.record", {
+        channel: messageChannel,
+        recipient: messageRecipient,
+        subject: messageSubject,
+        message,
+        sent: false,
+      }).catch(() => undefined);
+    }
     setApprovalMethod("button");
     moveToStage("approved");
     if (channelRef.current?.readyState === "open") {
@@ -2464,8 +2792,9 @@ export default function Home() {
           type: "response.create",
           response: {
             input: [],
-            instructions:
-              'Say exactly "Got it." and nothing else. Do not imply that an external message was sent.',
+            instructions: isEmail
+              ? naturalCompletionInstruction
+              : 'Say exactly "Got it." and nothing else. Do not imply that an external message was sent.',
           },
         }),
       );
@@ -2473,7 +2802,11 @@ export default function Home() {
   };
 
   const approveMeetingWithButton = async () => {
-    if (!pendingMeetingRef.current || meetingActionPending) return;
+    if (
+      !pendingMeetingRef.current ||
+      pendingMeetingRef.current.privacyChoicePending ||
+      meetingActionPending
+    ) return;
 
     setMeetingActionPending(true);
     setVoiceNote("Ara is adding it to your calendar");
@@ -2506,7 +2839,7 @@ export default function Home() {
             response: {
               input: [],
             instructions: fullyCompleted
-              ? 'Say exactly "Done." and nothing else.'
+              ? naturalCompletionInstruction
               : "Tell Nick the meeting and agenda are live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
             },
           }),
@@ -2528,6 +2861,30 @@ export default function Home() {
     } finally {
       setMeetingActionPending(false);
     }
+  };
+
+  const setMeetingPrivacyWithButton = (isPrivate: boolean) => {
+    const proposal = pendingMeetingRef.current;
+    if (!proposal) return;
+    const updated = {
+      ...proposal,
+      isPrivate,
+      privacyChoicePending: false,
+    };
+    pendingMeetingRef.current = updated;
+    setPendingMeeting(updated);
+    if (calendarConflictsRef.current.length > 0) {
+      moveToStage("meetingConflict");
+      setVoiceNote(
+        `${isPrivate ? "Private" : "Normal visibility"} · review the calendar conflict`,
+      );
+      return;
+    }
+    setVoiceNote(
+      isPrivate
+        ? `${updated.displayTime} · marked private · how does that sound?`
+        : `${updated.displayTime} · normal visibility · how does that sound?`,
+    );
   };
 
   const resolveCalendarConflictWithButton = async (
@@ -2574,7 +2931,7 @@ export default function Home() {
             type: "response.create",
             response: {
               input: [],
-              instructions: 'Say exactly "Done." and nothing else.',
+              instructions: naturalCompletionInstruction,
             },
           }),
         );
@@ -2627,7 +2984,7 @@ export default function Home() {
             response: {
               input: [],
               instructions: fullyCompleted
-                ? 'Say exactly "Done." and nothing else.'
+                ? naturalCompletionInstruction
                 : "Tell Nick the agenda is live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
             },
           }),
@@ -2685,7 +3042,7 @@ export default function Home() {
             type: "response.create",
             response: {
               input: [],
-              instructions: 'Say exactly "Done." and nothing else.',
+              instructions: naturalCompletionInstruction,
             },
           }),
         );
@@ -2802,6 +3159,18 @@ export default function Home() {
     }
   };
 
+  const enableOutboundCommunication = async () => {
+    if (microsoftActionPending) return;
+    setMicrosoftStatus("connecting");
+    setMicrosoftNote("Opening Microsoft to approve Outlook sending");
+    try {
+      await enableMicrosoftOutboundCommunication();
+    } catch {
+      setMicrosoftStatus("connected");
+      setMicrosoftNote("Outlook sending was not enabled. You can try again when ready.");
+    }
+  };
+
   const disconnectMicrosoft = async () => {
     await disconnectMicrosoft365();
     rememberMicrosoftSnapshot(null);
@@ -2824,6 +3193,8 @@ export default function Home() {
     microsoftSnapshot?.capabilities.meetingIntelligence !== "ready";
   const documentPublishingNeedsPermission =
     microsoftSnapshot?.capabilities.documentPublishing !== "ready";
+  const outboundCommunicationNeedsPermission =
+    microsoftSnapshot?.capabilities.outboundCommunication !== "ready";
   const approvalWaiting =
     stage === "ready" ||
     stage === "meetingReady" ||
@@ -2841,6 +3212,14 @@ export default function Home() {
     usageUnits: 0,
     tierC: 0,
     tierD: 0,
+  };
+  const platformCapabilities = platformWorkspace?.capabilities ?? {
+    meetingKnowledge: 0,
+    ownedWork: 0,
+    dependencies: 0,
+    pendingDelegations: 0,
+    desktopRequests: 0,
+    outboundSent: 0,
   };
 
   return (
@@ -3149,12 +3528,28 @@ export default function Home() {
                     : "Enable access"}
                 </small>
               </span>
+              <span
+                className={
+                  microsoftSnapshot.capabilities.outboundCommunication ===
+                  "ready"
+                    ? "ready"
+                    : ""
+                }
+              >
+                Outlook send
+                <small>
+                  {microsoftSnapshot.capabilities.outboundCommunication ===
+                  "ready"
+                    ? "Enabled"
+                    : "Enable access"}
+                </small>
+              </span>
             </div>
           ) : (
             <p className="connection-boundary">
               Ara can read what you can see and book meetings, lunches, and
-              appointments after you confirm the details. Messages, file edits,
-              and deletions remain off.
+              appointments after you confirm the details. Outlook sending is
+              separately enabled; Teams chat stays draft-only.
             </p>
           )}
 
@@ -3186,6 +3581,15 @@ export default function Home() {
                     disabled={microsoftActionPending}
                   >
                     Enable document publishing
+                  </button>
+                )}
+                {outboundCommunicationNeedsPermission && (
+                  <button
+                    className="connector-primary"
+                    onClick={enableOutboundCommunication}
+                    disabled={microsoftActionPending}
+                  >
+                    Enable Outlook sending
                   </button>
                 )}
                 <button
@@ -3257,7 +3661,7 @@ export default function Home() {
             </p>
             <p className="noise-filter">
               <span aria-hidden="true">◇</span>
-              Noise filter on · mic pauses while Ara speaks
+              Thoughtful pause · interrupt Ara anytime
             </p>
             {voiceConnected ? (
               <p className="session-receipt session-live">
@@ -3457,6 +3861,21 @@ export default function Home() {
                     </div>
                   )}
 
+                  {pendingMeeting.calendarItemType !== "meeting" &&
+                    (pendingMeeting.location ||
+                      pendingMeeting.address ||
+                      pendingMeeting.personalNotes.length > 0 ||
+                      pendingMeeting.menuItems.length > 0) && (
+                      <div className="personal-calendar-notes">
+                        <p>PERSONAL NOTES</p>
+                        {pendingMeeting.location && <b>{pendingMeeting.location}</b>}
+                        {pendingMeeting.address && <span>{pendingMeeting.address}</span>}
+                        {[...pendingMeeting.personalNotes, ...pendingMeeting.menuItems].map((note) => (
+                          <small key={note}>• {note}</small>
+                        ))}
+                      </div>
+                    )}
+
                   {stage === "meetingConflict" && calendarConflicts[0] ? (
                     <div className="calendar-conflict-card">
                       <p>CONFLICT AT THIS TIME</p>
@@ -3517,8 +3936,18 @@ export default function Home() {
                     </div>
                   ) : stage === "meetingReady" ? (
                     <>
+                      {pendingMeeting.privacyChoicePending ? (
+                        <div className="privacy-choice">
+                          <p>Want me to make this private?</p>
+                          <div className="action-row">
+                            <button className="secondary" onClick={() => setMeetingPrivacyWithButton(false)}>Keep normal</button>
+                            <button className="primary" onClick={() => setMeetingPrivacyWithButton(true)}>Make private</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
                       <p className="voice-approval-hint">
-                        Respond naturally—“Sounds good.”
+                        {pendingMeeting.isPrivate ? "Private · " : ""}Respond naturally—“Sounds good.”
                       </p>
                       <div className="action-row">
                         <button
@@ -3539,6 +3968,8 @@ export default function Home() {
                           <span>→</span>
                         </button>
                       </div>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -3824,16 +4255,19 @@ export default function Home() {
                     <p>{stage === "approved" ? "ARA · READY TO TAKE IT FROM HERE" : "HOW DOES THAT SOUND?"}</p>
                     <h3>{stage === "approved" ? "Ara has your go-ahead" : "Ara has the message ready"}</h3>
                   </div>
-                  <span className="teams-badge">T</span>
+                  <span className="teams-badge">{/outlook|email/i.test(messageChannel) ? "O" : "T"}</span>
                 </div>
                 <div className="recipient">
-                  <span className="mini-avatar">MW</span>
-                  <div><b>Matt Walsh</b><small>Microsoft Teams · Direct message</small></div>
+                  <span className="mini-avatar">{messageRecipient.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "·"}</span>
+                  <div><b>{messageRecipient}</b><small>{messageChannel}</small></div>
                 </div>
                 <textarea
-                  aria-label="Message to Matt"
+                  aria-label={`Message to ${messageRecipient}`}
                   value={message}
-                  onChange={(event) => setMessage(event.target.value)}
+                  onChange={(event) => {
+                    messageRef.current = event.target.value;
+                    setMessage(event.target.value);
+                  }}
                   readOnly={stage === "approved"}
                 />
                 {stage === "ready" ? (
@@ -3848,7 +4282,7 @@ export default function Home() {
                   </>
                 ) : (
                   <div className="audit-line">
-                    <span>✓</span> Nick said it sounded good {approvalMethod === "voice" ? "by voice" : "with a tap"} · Ready for the Teams connection
+                    <span>✓</span> Nick said it sounded good {approvalMethod === "voice" ? "by voice" : "with a tap"} · {/outlook|email/i.test(messageChannel) ? "Sent through Outlook" : "Draft retained safely"}
                   </div>
                 )}
               </article>
@@ -4014,8 +4448,8 @@ export default function Home() {
                   <span className="teams-badge">T</span>
                   <div>
                     <p>MESSAGE DRAFT</p>
-                    <h3>Message for Matt Walsh</h3>
-                    <span>Prepared by Ara · not sent</span>
+                    <h3>Message for {messageRecipient}</h3>
+                    <span>{messageChannel} · prepared by Ara</span>
                   </div>
                   <button onClick={() => moveToSection("ara")}>Review</button>
                 </div>
@@ -4036,7 +4470,7 @@ export default function Home() {
               <ol>
                 <li><span>01</span><div><b>Ara prepares</b><small>She gathers context and recommends the next move.</small></div></li>
                 <li><span>02</span><div><b>You decide</b><small>Approve naturally by voice or with a tap.</small></div></li>
-                <li><span>03</span><div><b>Ara confirms</b><small>After success, you hear one word: “Done.”</small></div></li>
+                <li><span>03</span><div><b>Ara confirms</b><small>After success, she closes with a short, natural confirmation.</small></div></li>
               </ol>
             </article>
           </div>
@@ -4122,6 +4556,34 @@ export default function Home() {
           </article>
         </section>
 
+        <section className="blueprint-grid view-panel today-view" aria-label="Parallel capability foundations">
+          <article className="blueprint-card ready">
+            <span>08</span>
+            <div><p>CONTROLLED CALENDAR</p><h3>Personal stays personal.</h3></div>
+            <small>Privacy choice, useful notes, and no unnecessary agenda.</small>
+          </article>
+          <article className="blueprint-card ready">
+            <span>09</span>
+            <div><p>MEETING KNOWLEDGE</p><h3>{platformCapabilities.meetingKnowledge} records in Recall.</h3></div>
+            <small>Transcripts become decisions, actions, risks, and open questions.</small>
+          </article>
+          <article className="blueprint-card ready">
+            <span>10</span>
+            <div><p>OWNERSHIP</p><h3>{platformCapabilities.ownedWork} owned · {platformCapabilities.dependencies} dependencies.</h3></div>
+            <small>{platformCapabilities.pendingDelegations} proposed handoffs; Ara never takes someone else’s ownership.</small>
+          </article>
+          <article className="blueprint-card guarded">
+            <span>11</span>
+            <div><p>DESKTOP COMPANION</p><h3>Guarded by design.</h3></div>
+            <small>{platformCapabilities.desktopRequests} prepared; signed local execution comes next.</small>
+          </article>
+          <article className="blueprint-card ready">
+            <span>12</span>
+            <div><p>OUTBOUND</p><h3>{microsoftSnapshot?.capabilities.outboundCommunication === "ready" ? "Outlook ready." : "Outlook available to enable."}</h3></div>
+            <small>{platformCapabilities.outboundSent} sent · Teams stays draft-only until chat resolution is safe.</small>
+          </article>
+        </section>
+
         <section className="platform-grid view-panel today-view" aria-label="Parallel workspace">
           <article className="platform-card recall-card">
             <div className="platform-card-head">
@@ -4184,8 +4646,8 @@ export default function Home() {
               </div>
             ) : stage === "ready" ? (
               <div className="approval-summary">
-                <b>Message for Matt</b>
-                <span>Prepared by Ara · not sent</span>
+                <b>Message for {messageRecipient}</b>
+                <span>{messageChannel} · prepared by Ara · not sent</span>
               </div>
             ) : (
               <p>

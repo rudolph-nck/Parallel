@@ -8,6 +8,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 - a polished Today, Ara, Recall, and Approvals workspace;
 - a live OpenAI Realtime voice connection over WebRTC;
+- semantic turn detection with low eagerness, live barge-in, and a single opening per voice session;
 - Microsoft 365 delegated sign-in and live mailbox, calendar, directory, SharePoint, and file lookup;
 - attendee resolution from spoken names;
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
@@ -17,33 +18,37 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - a governed four-tier model router with measured voice usage;
 - a read-only Outlook and Calendar attention picture;
 - commitments captured from Today or naturally through Ara.
+- private personal lunches and appointments with factual location notes and no work agenda;
+- durable meeting-knowledge, work-ownership, delegation, desktop-request, and outbound-message records;
+- reviewed Outlook email sending through separately granted Microsoft permission.
 
 ## Runtime and boundaries
 
 - UI/runtime: Next.js 16, React 19, Vinext, Cloudflare-compatible output.
-- Voice: `gpt-realtime-2.1`, low reasoning, server VAD, Marin voice.
-- External action boundary: Teams calendar creation is live. Message and email sending remain prototypes and must never be represented as completed.
+- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at low eagerness, interruption enabled, Marin voice.
+- External action boundary: governed calendar changes, non-overwriting SharePoint publishing, and reviewed Outlook email are live. Teams chat remains draft-only. Desktop requests remain prepare-only until a signed local companion exists.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
 - Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.
 - Tenant model: data access is tenant- and user-scoped. The private demo retains an explicit single-owner fallback until production authentication is mandatory.
 
 ## What is reliable today
 
-- The microphone pauses while Ara responds, reducing echo and background interruptions.
+- Ara remains interruptible while speaking; browser echo cancellation and semantic turn detection reduce false turns without muting the user.
 - Microsoft directory lookup can resolve short spoken names and refuses ambiguous first-name matches.
 - A meeting is prepared before it is created, and the final creation requires a natural-language approval.
-- Ara is instructed to say exactly `Done.` only after Microsoft confirms meeting creation.
+- Ara varies short natural completion phrases only after the external tool confirms success.
 - The main views render independently; sidebar actions no longer merely scroll the page.
 
 ## Gaps against the blueprint
 
-1. Voice has presentation states, but not a formal conversation lifecycle with safety invariants.
-2. A completed task does not autonomously end its voice session.
-3. Background Microsoft change notifications, queues, retries, and rechecks are not implemented.
-4. Attention currently uses the foreground Microsoft snapshot, not Graph subscriptions.
-5. Teams signals and ServiceNow ingestion are not connected.
-6. Pricing reconciliation still needs a versioned server-side rate table.
-7. Recall remains connected search plus declared memory, not yet the blueprint's complete work graph.
+1. Background Microsoft change notifications, queues, retries, and rechecks are not implemented.
+2. Attention currently uses the foreground Microsoft snapshot, not Graph subscriptions.
+3. Teams signals, Teams chat sending, and ServiceNow ingestion are not connected.
+4. Meeting knowledge currently stores transcript analysis; pre-meeting source ranking, workspace creation, evidence timestamps, and destination adapters remain.
+5. Ownership is user-scoped and duplicate-safe by source key, but real cross-user acceptance and assistant-to-assistant handoff require production tenancy.
+6. Desktop requests are durable and explicitly non-executing; device enrollment, signatures, application registry, and the local companion remain.
+7. Pricing reconciliation still needs a versioned server-side rate table.
+8. Recall remains connected search plus declared and meeting memory, not yet the blueprint's complete work graph.
 
 ## Naming decision
 
@@ -51,4 +56,4 @@ The blueprint uses both Aura and Ara. The product name remains **Ara**, matching
 
 ## Recommended order
 
-Next, add controlled calendar authority and meeting-knowledge ingestion on top of the new policy, attention, and accountability foundations. Background monitoring should follow only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.
+Next, deepen knowledge-aware meeting creation and transcript evidence, then build production tenant membership and the signed desktop companion. Background monitoring should follow only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.

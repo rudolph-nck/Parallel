@@ -47,6 +47,10 @@ test("server-renders the Parallel Ara dashboard", async () => {
   assert.match(html, /ATTENTION · READ ONLY/i);
   assert.match(html, /COMMITMENTS · ACCOUNTABILITY/i);
   assert.match(html, /Ara uses the least costly capable route/i);
+  assert.match(html, /CONTROLLED CALENDAR/i);
+  assert.match(html, /MEETING KNOWLEDGE/i);
+  assert.match(html, /DESKTOP COMPANION/i);
+  assert.match(html, /OUTBOUND/i);
   assert.match(html, /\/og-ara\.png/);
   assert.doesNotMatch(html, /\/og-v2\.png/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
@@ -67,14 +71,14 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /search_recall/);
   assert.match(page, /approve_pending_action/);
   assert.match(page, /setMicrophoneEnabled\(false\)/);
-  assert.match(page, /Noise filter on/);
+  assert.match(page, /Thoughtful pause · interrupt Ara anytime/);
   assert.match(page, /That sounds good, send it/);
   assert.match(page, /Respond naturally—“Sounds good\.”/);
   assert.match(page, /resolveCalendarConflictWithButton/);
   assert.match(page, /calendarConflicts/);
   assert.match(page, /How does that sound/);
   assert.match(page, /Looks good/);
-  assert.match(page, /Once Teams is connected/);
+  assert.match(page, /kept safely as a draft/);
   assert.match(page, /prepare_calendar_meeting/);
   assert.match(page, /approve_calendar_meeting/);
   assert.match(page, /Book \$\{pendingMeeting\.calendarItemType\}/);
@@ -98,7 +102,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /Publish to SharePoint/);
   assert.match(page, /Transcript-ready meeting requested/);
   assert.match(page, /searchRecallWorkspace/);
-  assert.match(page, /Say exactly \"Done\.\" and nothing else/);
+  assert.match(page, /Close naturally in one to four words/);
+  assert.match(page, /Want me to make this private/);
+  assert.match(page, /sendMicrosoftEmail/);
+  assert.match(page, /resolveWorkOwnership/);
   assert.doesNotMatch(page, /scrollIntoView/);
   assert.doesNotMatch(page, /YOUR APPROVAL IS REQUIRED/);
   assert.doesNotMatch(page, /say 'I approve'/i);
@@ -111,10 +118,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /reasoning:\s*\{\s*effort:\s*"low"/);
   assert.match(route, /voice:\s*"marin"/);
   assert.match(route, /name:\s*"search_recall"/);
-  assert.match(route, /type:\s*"server_vad"/);
-  assert.match(route, /threshold:\s*0\.75/);
-  assert.match(route, /silence_duration_ms:\s*450/);
-  assert.match(route, /interrupt_response:\s*false/);
+  assert.match(route, /type:\s*"semantic_vad"/);
+  assert.match(route, /eagerness:\s*"low"/);
+  assert.match(route, /interrupt_response:\s*true/);
   assert.match(route, /calendar_period/);
   assert.match(route, /name:\s*"read_calendar_window"/);
   assert.match(route, /following Monday through Friday/);
@@ -137,6 +143,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /new, non-overwriting branded HTML document/);
   assert.match(route, /name:\s*"remember_user_preference"/);
   assert.match(route, /name:\s*"create_commitment"/);
+  assert.match(route, /name:\s*"set_calendar_privacy"/);
+  assert.match(route, /name:\s*"propose_delegation"/);
+  assert.match(route, /name:\s*"prepare_desktop_action"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who knows Nick well/);
@@ -145,13 +154,13 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Skip preambles for direct answers/);
   assert.match(route, /never restate or paraphrase Nick's request/i);
   assert.match(route, /Let me pull up the full week/);
-  assert.match(route, /say\s+exactly \"Done\.\" and/);
-  assert.match(route, /What would make today feel like a win/);
+  assert.match(route, /close naturally in one to four words/i);
+  assert.match(route, /What’s on your mind/);
   assert.match(route, /turn messy meeting notes into/i);
   assert.match(route, /How does that sound/);
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
-  assert.match(route, /cannot send chat messages/);
+  assert.match(route, /Teams chat remains draft-only/);
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);
@@ -173,6 +182,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(microsoft365, /Files\.ReadWrite/);
   assert.match(microsoft365, /Parallel Documents/);
   assert.match(microsoft365, /publishMicrosoftBrandedDocument/);
+  assert.match(microsoft365, /Mail\.Send/);
+  assert.match(microsoft365, /sendMicrosoftEmail/);
 
   assert.match(gitignore, /\.env\*/);
 });

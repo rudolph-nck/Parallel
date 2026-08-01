@@ -35,12 +35,40 @@ test("writes the same absolute UTC slot that Ara proposed", () => {
 });
 
 test("keeps a personal lunch on Nick's calendar without a Teams link", () => {
-  const payload = buildMicrosoftCalendarPayload(baseProposal, "personal-id");
+  const payload = buildMicrosoftCalendarPayload(
+    { ...baseProposal, location: "River House" },
+    "personal-id",
+  );
 
   assert.equal(payload.isOnlineMeeting, false);
   assert.deepEqual(payload.attendees, []);
   assert.equal(payload.onlineMeetingProvider, undefined);
   assert.match(payload.body.content, /Catch up over lunch/);
+  assert.match(payload.body.content, /Explore the menu and popular items/);
+  assert.doesNotMatch(payload.body.content, /Agenda/);
+});
+
+test("marks a personal appointment private and carries useful factual notes", () => {
+  const payload = buildMicrosoftCalendarPayload(
+    {
+      ...baseProposal,
+      subject: "Dentist appointment",
+      calendarItemType: "appointment",
+      purpose: "Routine cleaning.",
+      location: "Harbor Dental",
+      address: "100 Main Street",
+      personalNotes: ["Dr. Rivera", "Bring insurance card"],
+      menuItems: [],
+      isPrivate: true,
+    },
+    "private-id",
+  );
+
+  assert.equal(payload.sensitivity, "private");
+  assert.match(payload.body.content, /Harbor Dental/);
+  assert.match(payload.body.content, /100 Main Street/);
+  assert.match(payload.body.content, /Dr\. Rivera/);
+  assert.match(payload.body.content, /Open location in Maps/);
   assert.doesNotMatch(payload.body.content, /Agenda/);
 });
 
