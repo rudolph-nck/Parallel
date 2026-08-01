@@ -13,6 +13,7 @@ import {
   prepareMicrosoftMeetingUpdate,
   publishMicrosoftBrandedDocument,
   readMicrosoftCalendar,
+  readMicrosoftFirstDayScan,
   readMicrosoftMeetingTranscript,
   repairMicrosoftCalendarAccess,
   resolveMicrosoftCalendarConflict,
@@ -58,6 +59,8 @@ import {
   updatePlatform,
   type Commitment,
   type DecisionProfile,
+  type OnboardingLifecycleState,
+  type OnboardingProfile,
   type PlatformWorkspace,
 } from "./lib/parallel-platform";
 import { resolveWorkOwnership } from "./lib/ownership";
@@ -144,7 +147,7 @@ type RealtimeEvent = {
 const conversations = {
   briefing: {
     eyebrow: "Ara · Morning briefing",
-    title: "Good morning, Nick.",
+    title: "Your day, in focus.",
     body: "I reviewed your workspace. You have three decisions that deserve your attention, but we can start wherever you need.",
   },
   searching: {
@@ -231,14 +234,12 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
-  "Hey Nick—I’m Ara. I’m glad we’re working together. Think of me as your close work friend who helps keep things moving. What’s on your mind?";
-const demoIntroductionInstruction = `This is the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If Nick is silent, do not speak again until he says something.`;
-const returningIntroductionInstruction =
-  'Say exactly: "Hey Nick—good to hear from you. What’s up?" Then wait. Do not give another greeting if he is silent.';
+  "Hey—I’m Ara. It’s really nice to meet you. What’s your name?";
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If the user is silent, do not speak again until they say something.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const capabilityIntroduction =
-  "Nick asked what he can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make his day easier right now.";
+  "The user asked what they can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make their day easier right now.";
 const startupPhrases = [
   "Move through work with clarity.",
   "Find the signal in the noise.",
@@ -255,6 +256,52 @@ const emptyProfile: UserProfile = {
   interruption_threshold: "high_signal",
   accountability_style: "supportive_direct",
   delegation_boundaries: "propose_before_action",
+};
+
+const onboardingStateOrder: OnboardingLifecycleState[] = [
+  "NEW",
+  "NAME_LEARNED",
+  "WORK_CONTEXT_LEARNED",
+  "CONNECTION_READY",
+  "FIRST_VALUE_DELIVERED",
+  "COMPLETE",
+];
+
+const buildFirstMeetingInstruction = (
+  onboarding: OnboardingProfile | null | undefined,
+  microsoftConnected: boolean,
+) => {
+  if (!onboarding || onboarding.lifecycle_state === "NEW") {
+    return demoIntroductionInstruction;
+  }
+
+  const name = onboarding.preferred_name || "there";
+  const context = [
+    onboarding.job_title,
+    onboarding.company,
+    onboarding.role_summary,
+  ].filter(Boolean).join(" · ");
+
+  if (onboarding.lifecycle_state === "NAME_LEARNED") {
+    return `Resume the first meeting without introducing yourself again. Say, "Hey ${name}—good to see you again." Then ask one natural question that learns what they do and where they work. Wait for the answer.`;
+  }
+
+  if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
+    return `Resume the first meeting with ${name}. Known work context: ${context}. Make one specific, sincere observation tied to that context, then call prepare_workspace_connection. Do not ask for credentials.`;
+  }
+
+  if (
+    onboarding.lifecycle_state === "CONNECTION_READY" ||
+    (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
+  ) {
+    return `Resume the first meeting with ${name}. Microsoft 365 is securely connected. Say one short natural working line, then call scan_first_day_workspace. Do not reintroduce yourself.`;
+  }
+
+  if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
+    return `Resume with ${name} without another greeting. The verified first-day scan is: ${JSON.stringify(onboarding.first_day_scan)}. Give a concise evidence-based readout if it has not been discussed in this voice session, then suggest starting with the clearest attention item. State the bounded email sample and lack of Teams coverage only once.`;
+  }
+
+  return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
 };
 
 const subscribeToLocalDate = () => () => {};
@@ -289,6 +336,8 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<UserProfile>(emptyProfile);
   const [platformWorkspace, setPlatformWorkspace] =
     useState<PlatformWorkspace | null>(null);
+  const [onboardingConnectionPrompt, setOnboardingConnectionPrompt] =
+    useState(false);
   const [platformNote, setPlatformNote] = useState("Preparing your operating picture");
   const [commitmentDraft, setCommitmentDraft] = useState("");
   const [commitmentDue, setCommitmentDue] = useState("");
@@ -341,6 +390,7 @@ export default function Home() {
     getServerDay,
   );
   const visualRef = useRef<HTMLDivElement>(null);
+  const platformWorkspaceRef = useRef<PlatformWorkspace | null>(null);
   const stageRef = useRef<Stage>("briefing");
   const streamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -377,7 +427,7 @@ export default function Home() {
   );
   const [messageRecipient, setMessageRecipient] = useState("Matt Walsh");
   const [messageChannel, setMessageChannel] = useState("Microsoft Teams");
-  const [messageSubject, setMessageSubject] = useState("Follow-up from Nick");
+  const [messageSubject, setMessageSubject] = useState("A quick follow-up");
   const messageRef = useRef(message);
   const messageRecipientRef = useRef(messageRecipient);
   const messageChannelRef = useRef(messageChannel);
@@ -429,8 +479,10 @@ export default function Home() {
   const refreshPlatformWorkspace = async () => {
     try {
       const workspace = await readPlatformWorkspace();
+      platformWorkspaceRef.current = workspace;
       setPlatformWorkspace(workspace);
       setUserProfile({ ...emptyProfile, ...workspace.profile });
+      setFirstVisit(workspace.onboarding.lifecycle_state === "NEW");
       setPlatformNote("Ara's operating picture is current");
       return workspace;
     } catch {
@@ -446,7 +498,8 @@ export default function Home() {
     try {
       await updatePlatform("commitment.create", {
         title,
-        ownerLabel: "Nick",
+        ownerLabel:
+          platformWorkspaceRef.current?.onboarding.preferred_name || "You",
         dueAt: commitmentDue ? new Date(`${commitmentDue}T17:00:00`).getTime() : null,
         source: "today_workspace",
       });
@@ -747,7 +800,7 @@ export default function Home() {
       return {
         connected: false,
         instruction:
-          "Tell Nick Microsoft 365 still needs to be connected from the dashboard before you can check it.",
+          "Tell the user Microsoft 365 still needs to be connected from the dashboard before you can check it.",
       };
     }
 
@@ -772,7 +825,7 @@ export default function Home() {
           online_meeting: event.isOnlineMeeting === true,
         })),
         instruction:
-          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If Nick asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no calendar items, say that the connected calendar is clear for that window. Keep it concise unless Nick asks for a day-by-day readout.",
+          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If the user asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no calendar items, say that the connected calendar is clear for that window. Keep it concise unless the user asks for a day-by-day readout.",
       };
     } catch (error) {
       const issue = describeMicrosoftCalendarError(error);
@@ -803,16 +856,126 @@ export default function Home() {
               : "Refresh Microsoft 365 and try once more.",
         instruction:
           issue.kind === "permission_required"
-            ? "Tell Nick the Microsoft connection is present, but Calendar permission needs one repair. Direct him to Repair calendar access on Today."
+            ? "Tell the user the Microsoft connection is present, but Calendar permission needs one repair. Direct them to Repair calendar access on Today."
             : issue.kind === "mailbox_not_ready"
-              ? "Tell Nick Microsoft is connected, but the Exchange calendar is not provisioned for this account yet. An Exchange Online mailbox and license must be active before Ara can read it."
-              : "Tell Nick briefly that Microsoft Calendar is temporarily unavailable and suggest one refresh.",
+              ? "Tell the user Microsoft is connected, but the Exchange calendar is not provisioned for this account yet. An Exchange Online mailbox and license must be active before Ara can read it."
+              : "Tell the user briefly that Microsoft Calendar is temporarily unavailable and suggest one refresh.",
       };
     }
   };
 
   const runFridayFunction = async (call: RealtimeFunctionCall) => {
     const args = parseFunctionArguments(call);
+
+    if (call.name === "save_onboarding_identity") {
+      const preferredName =
+        typeof args.preferred_name === "string" ? args.preferred_name.trim() : "";
+      if (!preferredName) {
+        return {
+          saved: false,
+          instruction: "Ask one natural question to clarify the name they want you to use.",
+        };
+      }
+      await updatePlatform("onboarding.save_identity", {
+        preferredName,
+        fullName:
+          typeof args.full_name === "string" && args.full_name.trim()
+            ? args.full_name.trim()
+            : preferredName,
+      });
+      await refreshPlatformWorkspace();
+      return {
+        saved: true,
+        preferred_name: preferredName,
+        instruction:
+          "React warmly in one short sentence, then ask what they do and where they work. Ask only that one question.",
+      };
+    }
+
+    if (call.name === "save_onboarding_work_context") {
+      await updatePlatform("onboarding.save_work_context", {
+        company: typeof args.company === "string" ? args.company : "",
+        jobTitle: typeof args.job_title === "string" ? args.job_title : "",
+        roleSummary: typeof args.role_summary === "string" ? args.role_summary : "",
+        teamSize: typeof args.team_size === "number" ? args.team_size : null,
+        responsibilities: Array.isArray(args.responsibilities)
+          ? args.responsibilities.filter((item): item is string => typeof item === "string")
+          : [],
+        biggestPressure:
+          typeof args.biggest_pressure === "string" ? args.biggest_pressure : "",
+      });
+      await refreshPlatformWorkspace();
+      return {
+        saved: true,
+        microsoft_connected: Boolean(microsoftSnapshotRef.current),
+        instruction: microsoftSnapshotRef.current
+          ? "Make one specific human observation about the responsibilities they described, then say you can already see Microsoft is connected and call scan_first_day_workspace."
+          : "Make one specific human observation about the responsibilities they described, then call prepare_workspace_connection. Do not use generic praise.",
+      };
+    }
+
+    if (call.name === "prepare_workspace_connection") {
+      if (microsoftSnapshotRef.current) {
+        await updatePlatform("onboarding.connection_ready");
+        await refreshPlatformWorkspace();
+        return {
+          connected: true,
+          instruction:
+            "Microsoft 365 is already connected. Say one short working line, then call scan_first_day_workspace.",
+        };
+      }
+      setOnboardingConnectionPrompt(true);
+      setVoiceNote("Secure Microsoft sign-in is ready below");
+      return {
+        connected: false,
+        requires_user_action: true,
+        instruction:
+          "Tell the user the secure Microsoft sign-in is ready on screen. Ask them to choose Connect Microsoft 365, and explain that you will pick up here when they return. Never request credentials aloud.",
+      };
+    }
+
+    if (call.name === "scan_first_day_workspace") {
+      if (!microsoftSnapshotRef.current) {
+        setOnboardingConnectionPrompt(true);
+        return {
+          scanned: false,
+          instruction:
+            "Microsoft 365 still needs to be connected. Direct the user to the secure connection button below without asking for credentials.",
+        };
+      }
+      setVoiceNote("Ara is building your first operating picture");
+      try {
+        const scan = await readMicrosoftFirstDayScan();
+        await updatePlatform("onboarding.scan_saved", { scan });
+        await refreshPlatformWorkspace();
+        setOnboardingConnectionPrompt(false);
+        return {
+          scanned: true,
+          ...scan,
+          instruction:
+            "Lead with the most striking verified fact, then give at most three more compact facts and name the clearest attention candidate. Sound energized, not alarmist. Explicitly say the attention review sampled the newest 50 Inbox messages and Teams messages are not included yet. End by suggesting the single best place to start.",
+        };
+      } catch (error) {
+        return {
+          scanned: false,
+          detail: error instanceof Error ? error.message : "The first-day scan could not finish.",
+          instruction:
+            "Say the workspace is connected but the first readout could not finish yet. Suggest refreshing Microsoft 365 once; do not invent any counts.",
+        };
+      }
+    }
+
+    if (call.name === "complete_first_meeting") {
+      await updatePlatform("onboarding.complete", {
+        outcome: typeof args.outcome === "string" ? args.outcome : "First useful workspace readout delivered",
+      });
+      await refreshPlatformWorkspace();
+      return {
+        completed: true,
+        instruction:
+          "Continue naturally with the work at hand. Do not announce that onboarding is complete.",
+      };
+    }
 
     if (call.name === "read_calendar_window") {
       const period =
@@ -826,7 +989,7 @@ export default function Home() {
       const query =
         typeof args.query === "string"
           ? args.query
-          : "Nick's current strategic plan";
+          : "the user's current strategic plan";
       moveToStage("searching");
       setVoiceNote(
         microsoftSnapshotRef.current
@@ -844,7 +1007,7 @@ export default function Home() {
               matches: [],
               source: "Connected Microsoft 365 workspace",
               instruction:
-                "Tell Nick briefly that you checked his connected Microsoft 365 workspace but did not find a matching file yet. Do not invent a result.",
+                "Tell the user briefly that you checked their connected Microsoft 365 workspace but did not find a matching file yet. Do not invent a result.",
             };
           }
 
@@ -875,7 +1038,7 @@ export default function Home() {
             source: "Connected Microsoft 365 workspace",
             temporarily_unavailable: true,
             instruction:
-              "Tell Nick briefly that Microsoft 365 is connected but the search could not complete just now, and suggest trying again.",
+              "Tell the user briefly that Microsoft 365 is connected but the search could not complete just now, and suggest trying again.",
           };
         }
       }
@@ -898,7 +1061,7 @@ export default function Home() {
         return {
           connected: false,
           instruction:
-            "Tell Nick Microsoft 365 still needs to be connected from the dashboard before you can check it.",
+            "Tell the user Microsoft 365 still needs to be connected from the dashboard before you can check it.",
         };
       }
 
@@ -966,14 +1129,14 @@ export default function Home() {
           })),
           file_search_available: fileSearchAvailable,
           instruction:
-            "Summarize only what is relevant to Nick's request. If the mailbox or calendar has zero items, say the connected demo tenant is currently empty rather than saying Microsoft 365 is unavailable. If file_search_available is false, explain only that SharePoint search was unavailable; the other returned data is still live. Keep the spoken response concise and do not claim to have sent, changed, or deleted anything.",
+            "Summarize only what is relevant to the user's request. If the mailbox or calendar has zero items, say the connected demo tenant is currently empty rather than saying Microsoft 365 is unavailable. If file_search_available is false, explain only that SharePoint search was unavailable; the other returned data is still live. Keep the spoken response concise and do not claim to have sent, changed, or deleted anything.",
         };
       } catch {
         return {
           connected: true,
           temporarily_unavailable: true,
           instruction:
-            "Tell Nick briefly that Microsoft 365 is connected but could not be refreshed just now.",
+            "Tell the user briefly that Microsoft 365 is connected but could not be refreshed just now.",
         };
       }
     }
@@ -983,7 +1146,7 @@ export default function Home() {
         return {
           status: "not_connected",
           instruction:
-            "Tell Nick Microsoft 365 needs to be connected before you can check his calendar or prepare the meeting.",
+            "Tell the user Microsoft 365 needs to be connected before you can check their calendar or prepare the meeting.",
         };
       }
 
@@ -1079,8 +1242,8 @@ export default function Home() {
             directory_people_checked: preparation.directoryPeopleChecked,
             instruction:
               preparation.directoryStatus === "unavailable"
-                ? "Tell Nick the Microsoft company directory needs to reconnect before you can safely resolve the attendee names. Do not ask him to spell every email unless reconnecting fails."
-                : "Ask Nick which person he means only when a name is genuinely ambiguous. If no candidate exists, ask naturally for that person's work email. Do not guess and do not claim the meeting is scheduled.",
+                ? "Tell the user the Microsoft company directory needs to reconnect before you can safely resolve the attendee names. Do not ask them to spell every email unless reconnecting fails."
+                : "Ask the user which person they mean only when a name is genuinely ambiguous. If no candidate exists, ask naturally for that person's work email. Do not guess and do not claim the meeting is scheduled.",
           };
         }
 
@@ -1100,7 +1263,7 @@ export default function Home() {
             location: preparation.proposal.location,
             has_conflict: preparation.conflicts.length > 0,
             instruction:
-              'Ask exactly, "Want me to make this private?" Do not discuss the time or conflict until Nick answers.',
+              'Ask exactly, "Want me to make this private?" Do not discuss the time or conflict until the user answers.',
           };
         }
         if (preparation.conflicts.length > 0) {
@@ -1134,10 +1297,10 @@ export default function Home() {
             approval_required: true,
             instruction:
               preparation.conflicts.length > 1
-                ? "Tell Nick the requested time has multiple conflicts. Offer the returned alternative only when its time is not null; otherwise ask which other window to search. Ask one short question."
+                ? "Tell the user the requested time has multiple conflicts. Offer the returned alternative only when its time is not null; otherwise ask which other window to search. Ask one short question."
                 : conflict.isOrganizer
-                  ? "Tell Nick the requested time conflicts with the named meeting. Offer only returned options whose time is not null: move that meeting and book the new item, or use the alternative for the new item. Ask one short question."
-                  : "Tell Nick the requested time conflicts with an invitation he does not own. Offer to decline that invitation and book the new item, plus the alternative for the new item only when its time is not null. Ask one short question.",
+                  ? "Tell the user the requested time conflicts with the named meeting. Offer only returned options whose time is not null: move that meeting and book the new item, or use the alternative for the new item. Ask one short question."
+                  : "Tell the user the requested time conflicts with an invitation they do not own. Offer to decline that invitation and book the new item, plus the alternative for the new item only when its time is not null. Ask one short question.",
           };
         }
         moveToStage("meetingReady");
@@ -1160,7 +1323,7 @@ export default function Home() {
           confirmation_needed: true,
           approval_required: true,
           instruction:
-            "Say the proposed time once in one natural sentence and end with 'How does that sound?' Mention attendees only when useful. Never use the words approval, proposal, or event, and do not repeat Nick's request.",
+            "Say the proposed time once in one natural sentence and end with 'How does that sound?' Mention attendees only when useful. Never use the words approval, proposal, or event, and do not repeat the user's request.",
         };
       } catch (error) {
         const detail =
@@ -1169,7 +1332,7 @@ export default function Home() {
           status: "could_not_prepare",
           detail,
           instruction:
-            "Tell Nick briefly that you could not prepare a safe calendar option yet. If the detail says the deadline passed or no slot was found, explain that plainly; otherwise suggest reconnecting Microsoft 365 and trying again.",
+            "Tell the user briefly that you could not prepare a safe calendar option yet. If the detail says the deadline passed or no slot was found, explain that plainly; otherwise suggest reconnecting Microsoft 365 and trying again.",
         };
       }
     }
@@ -1246,7 +1409,7 @@ export default function Home() {
       if (pendingMeetingRef.current.privacyChoicePending) {
         return {
           meeting_created: false,
-          reason: "Nick still needs to choose whether this personal item is private.",
+          reason: "the user still needs to choose whether this personal item is private.",
           instruction: 'Ask exactly, "Want me to make this private?"',
         };
       }
@@ -1255,7 +1418,7 @@ export default function Home() {
         return {
           meeting_created: false,
           reason:
-            "Nick's intent was not clear enough to create and send the invitation. Briefly ask whether he wants you to book the proposed Teams meeting; do not give him a required phrase.",
+            "The user's intent was not clear enough to create and send the invitation. Briefly ask whether they want you to book the proposed Teams meeting; do not give them a required phrase.",
         };
       }
 
@@ -1287,7 +1450,7 @@ export default function Home() {
           instruction:
             pendingMeetingRef.current.enableTranscription &&
             result.transcriptionStatus !== "enabled"
-              ? "Tell Nick the meeting and agenda are live, but Meeting intelligence needs to be enabled on Today before Ara can configure transcription."
+              ? "Tell the user the meeting and agenda are live, but Meeting intelligence needs to be enabled on Today before Ara can configure transcription."
               : naturalCompletionInstruction,
         };
       } catch (error) {
@@ -1299,7 +1462,7 @@ export default function Home() {
           meeting_created: false,
           detail,
           instruction:
-            "Tell Nick briefly that the meeting was not created. Suggest reconnecting Microsoft 365 if access needs attention, and never claim invitations were sent.",
+            "Tell the user briefly that the meeting was not created. Suggest reconnecting Microsoft 365 if access needs attention, and never claim invitations were sent.",
         };
       } finally {
         setMeetingActionPending(false);
@@ -1344,7 +1507,7 @@ export default function Home() {
         return {
           conflict_resolved: false,
           reason:
-            "Nick did not clearly choose which calendar item to move or decline. Ask one short clarifying question.",
+            "the user did not clearly choose which calendar item to move or decline. Ask one short clarifying question.",
         };
       }
       if (conflicts.length > 1 && resolution !== "reschedule_requested") {
@@ -1420,7 +1583,7 @@ export default function Home() {
               ? error.message
               : "The calendar conflict could not be resolved.",
           instruction:
-            "Tell Nick exactly what the detail says in one sentence, including any partial change. Do not guess beyond it.",
+            "Tell the user exactly what the detail says in one sentence, including any partial change. Do not guess beyond it.",
         };
       } finally {
         setMeetingActionPending(false);
@@ -1432,7 +1595,7 @@ export default function Home() {
         return {
           status: "not_connected",
           instruction:
-            "Tell Nick Microsoft 365 needs to be connected before Ara can update an invitation.",
+            "Tell the user Microsoft 365 needs to be connected before Ara can update an invitation.",
         };
       }
       const meetingReference =
@@ -1469,10 +1632,10 @@ export default function Home() {
             candidates: preparation.candidates,
             instruction:
               preparation.reason === "ambiguous"
-                ? "Ask Nick one short question to identify which listed meeting he means."
+                ? "Ask the user one short question to identify which listed meeting they mean."
                 : preparation.reason === "not_organizer"
-                  ? "Tell Nick only the organizer can edit that invitation."
-                  : "Tell Nick you could not find an organizer-owned meeting that safely matches that description. Ask for the meeting title or date.",
+                  ? "Tell the user only the organizer can edit that invitation."
+                  : "Tell the user you could not find an organizer-owned meeting that safely matches that description. Ask for the meeting title or date.",
           };
         }
         pendingMeetingUpdateRef.current = preparation.proposal;
@@ -1497,7 +1660,7 @@ export default function Home() {
           detail:
             error instanceof Error ? error.message : "The update could not be prepared.",
           instruction:
-            "Tell Nick briefly that the invitation update could not be prepared safely yet.",
+            "Tell the user briefly that the invitation update could not be prepared safely yet.",
         };
       }
     }
@@ -1525,7 +1688,7 @@ export default function Home() {
         return {
           meeting_updated: false,
           reason:
-            "Nick's intent was not clear enough to send an updated invitation. Ask one short confirmation question.",
+            "the user's intent was not clear enough to send an updated invitation. Ask one short confirmation question.",
         };
       }
       setMeetingActionPending(true);
@@ -1546,7 +1709,7 @@ export default function Home() {
           fully_completed: fullyCompleted,
           instruction: fullyCompleted
             ? naturalCompletionInstruction
-            : "Tell Nick the agenda is live, but Meeting intelligence needs to be enabled on Today before transcription can be configured.",
+            : "Tell the user the agenda is live, but Meeting intelligence needs to be enabled on Today before transcription can be configured.",
         };
       } catch (error) {
         return {
@@ -1556,7 +1719,7 @@ export default function Home() {
               ? error.message
               : "Microsoft could not update the invitation.",
           instruction:
-            "Tell Nick the invitation was not changed and give the brief next step from the error.",
+            "Tell the user the invitation was not changed and give the brief next step from the error.",
         };
       } finally {
         setMeetingActionPending(false);
@@ -1577,15 +1740,15 @@ export default function Home() {
       if (result.status !== "ready" || !result.transcript) {
         const instructions = {
           permission_required:
-            "Tell Nick to choose Enable meeting intelligence on Today. It requires Microsoft administrator approval.",
+            "Tell the user to choose Enable meeting intelligence on Today. It requires Microsoft administrator approval.",
           admin_disabled:
-            "Tell Nick transcript access is approved for the app, but the Microsoft Teams admin setting for Graph transcript access is still off.",
+            "Tell the user transcript access is approved for the app, but the Microsoft Teams admin setting for Graph transcript access is still off.",
           not_available:
-            "Tell Nick Teams has not delivered a transcript for that meeting yet. Do not imply the meeting failed.",
+            "Tell the user Teams has not delivered a transcript for that meeting yet. Do not imply the meeting failed.",
           not_found:
-            "Ask Nick for the meeting title or date because no matching meeting was found.",
+            "Ask the user for the meeting title or date because no matching meeting was found.",
           ambiguous:
-            "Ask Nick one short question to choose between the matching meetings.",
+            "Ask the user one short question to choose between the matching meetings.",
           ready: "",
         } as const;
         return {
@@ -1678,7 +1841,7 @@ export default function Home() {
         action_count: notes.actionItems.length,
         risk_count: notes.risks.length,
         instruction:
-          "Tell Nick the notes are ready in Parallel. Give only the most important decision and next action, then stop. Do not claim the notes were saved to SharePoint yet.",
+          "Tell the user the notes are ready in Parallel. Give only the most important decision and next action, then stop. Do not claim the notes were saved to SharePoint yet.",
       };
     }
 
@@ -1769,7 +1932,12 @@ export default function Home() {
         title: textValue(args.title, "Untitled document"),
         subtitle: textValue(args.subtitle),
         purpose: textValue(args.purpose, "Working draft prepared with Ara."),
-        owner: textValue(args.owner, "Nick Rudolph"),
+        owner: textValue(
+          args.owner,
+          platformWorkspaceRef.current?.onboarding.full_name ||
+            platformWorkspaceRef.current?.onboarding.preferred_name ||
+            "Workspace owner",
+        ),
         approver: textValue(args.approver, "Pending approval"),
         version: textValue(args.version, "0.1"),
         effectiveDate: textValue(args.effective_date, "Draft"),
@@ -1791,7 +1959,7 @@ export default function Home() {
         file_name: draft.suggestedFileName,
         approval_required: true,
         instruction:
-          "Tell Nick the branded draft is ready for review, mention what it is in one short sentence, and end with 'How does that look?' Do not claim it was published.",
+          "Tell the user the branded draft is ready for review, mention what it is in one short sentence, and end with 'How does that look?' Do not claim it was published.",
       };
     }
 
@@ -1817,7 +1985,7 @@ export default function Home() {
         return {
           document_published: false,
           reason:
-            "Nick's intent was not clear enough to publish the visible document. Ask one short clarifying question.",
+            "the user's intent was not clear enough to publish the visible document. Ask one short clarifying question.",
         };
       }
       if (
@@ -1828,7 +1996,7 @@ export default function Home() {
           status: "permission_required",
           document_published: false,
           reason:
-            "SharePoint publishing permission has not been enabled. Tell Nick to choose Enable document publishing on Today.",
+            "SharePoint publishing permission has not been enabled. Tell the user to choose Enable document publishing on Today.",
         };
       }
 
@@ -1881,7 +2049,7 @@ export default function Home() {
       const proposedSubject =
         typeof args.subject === "string" && args.subject.trim()
           ? args.subject.trim()
-          : "Follow-up from Nick";
+          : "A quick follow-up";
       messageRecipientRef.current = proposedRecipient;
       messageChannelRef.current = proposedChannel;
       messageSubjectRef.current = proposedSubject;
@@ -1899,7 +2067,7 @@ export default function Home() {
         message: proposedMessage,
         approval_required: true,
         instruction:
-          "Give Nick a brief natural summary in your own words, end with 'How does that sound?', and let him respond naturally. Do not tell him to say a specific phrase.",
+          "Give the user a brief natural summary in your own words, end with 'How does that sound?', and let them respond naturally. Do not tell them to say a specific phrase.",
       };
     }
 
@@ -1926,7 +2094,7 @@ export default function Home() {
         return {
           approval_recorded: false,
           reason:
-            "Nick's intent was not clear enough to proceed. Briefly ask whether he wants you to send the message you just summarized; do not give him a required phrase.",
+            "The user's intent was not clear enough to proceed. Briefly ask whether they want you to send the message you just summarized; do not give them a required phrase.",
         };
       }
 
@@ -1945,7 +2113,7 @@ export default function Home() {
             status: "permission_required",
             reason: "Outlook sending access has not been enabled.",
             instruction:
-              "Tell Nick to choose Enable Outlook sending on Today. The draft remains untouched.",
+              "Tell the user to choose Enable Outlook sending on Today. The draft remains untouched.",
           };
         }
         try {
@@ -1980,7 +2148,7 @@ export default function Home() {
                 ? error.message
                 : "Outlook could not send the message.",
             instruction:
-              "Tell Nick the message was not sent and give the returned reason in one sentence.",
+              "Tell the user the message was not sent and give the returned reason in one sentence.",
           };
         }
       }
@@ -2045,7 +2213,8 @@ export default function Home() {
       try {
         await updatePlatform("commitment.create", {
           title,
-          ownerLabel: "Nick",
+          ownerLabel:
+            platformWorkspaceRef.current?.onboarding.preferred_name || "You",
           dueAt: Number.isFinite(dueValue) ? dueValue : null,
           source: "ara_voice",
         });
@@ -2059,7 +2228,7 @@ export default function Home() {
       } catch {
         return {
           commitment_created: false,
-          reason: "The commitment could not be saved. Ask Nick to add it from Today.",
+          reason: "The commitment could not be saved. Ask the user to add it from Today.",
         };
       }
     }
@@ -2502,9 +2671,10 @@ export default function Home() {
           .join("; ");
         const opening =
           initialResponseRef.current ??
-          (firstVisit
-            ? demoIntroductionInstruction
-            : returningIntroductionInstruction);
+          buildFirstMeetingInstruction(
+            platformWorkspaceRef.current?.onboarding,
+            Boolean(microsoftSnapshotRef.current),
+          );
         channel.send(
           JSON.stringify({
             type: "response.create",
@@ -2587,7 +2757,12 @@ export default function Home() {
 
   const meetAra = () => {
     setActiveNav("ara");
-    void startVoiceSession(demoIntroductionInstruction);
+    void startVoiceSession(
+      buildFirstMeetingInstruction(
+        platformWorkspaceRef.current?.onboarding,
+        Boolean(microsoftSnapshotRef.current),
+      ),
+    );
   };
 
   useEffect(() => {
@@ -2656,12 +2831,15 @@ export default function Home() {
     });
 
     void Promise.race([restoreMicrosoft365(), restoreTimeout])
-      .then((snapshot) => {
+      .then(async (snapshot) => {
         if (!active) return;
         if (snapshot) {
           rememberMicrosoftSnapshot(snapshot);
           setMicrosoftStatus("connected");
           setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
+          await updatePlatform("onboarding.connection_ready")
+            .then(() => refreshPlatformWorkspace())
+            .catch(() => undefined);
         } else {
           setMicrosoftStatus("disconnected");
           setMicrosoftNote("Ready when you are");
@@ -2840,7 +3018,7 @@ export default function Home() {
               input: [],
             instructions: fullyCompleted
               ? naturalCompletionInstruction
-              : "Tell Nick the meeting and agenda are live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
+              : "Tell the user the meeting and agenda are live, but they need to enable Meeting intelligence on Today before Ara can configure transcription.",
             },
           }),
         );
@@ -2985,7 +3163,7 @@ export default function Home() {
               input: [],
               instructions: fullyCompleted
                 ? naturalCompletionInstruction
-                : "Tell Nick the agenda is live, but he needs to enable Meeting intelligence on Today before Ara can configure transcription.",
+                : "Tell the user the agenda is live, but they need to enable Meeting intelligence on Today before Ara can configure transcription.",
             },
           }),
         );
@@ -3106,6 +3284,9 @@ export default function Home() {
       rememberMicrosoftSnapshot(snapshot);
       setMicrosoftStatus("connected");
       setMicrosoftNote(noteForMicrosoftSnapshot(snapshot));
+      await updatePlatform("onboarding.connection_ready")
+        .then(() => refreshPlatformWorkspace())
+        .catch(() => undefined);
     } catch {
       setMicrosoftStatus("error");
       setMicrosoftNote("Microsoft 365 needs your attention to reconnect");
@@ -3221,6 +3402,19 @@ export default function Home() {
     desktopRequests: 0,
     outboundSent: 0,
   };
+  const onboarding = platformWorkspace?.onboarding ?? null;
+  const onboardingIndex = onboarding
+    ? onboardingStateOrder.indexOf(onboarding.lifecycle_state)
+    : 0;
+  const firstMeetingSteps = [
+    { label: "Meet you", complete: onboardingIndex >= 1 },
+    { label: "Understand your work", complete: onboardingIndex >= 2 },
+    {
+      label: "Connect your workspace",
+      complete: Boolean(onboarding?.microsoft_connected || microsoftConnected),
+    },
+    { label: "Deliver your first readout", complete: Boolean(onboarding?.first_day_scan) },
+  ];
 
   return (
     <>
@@ -3686,11 +3880,10 @@ export default function Home() {
             {firstVisit ? (
               <>
                 <p className="eyebrow">ARA · NICE TO MEET YOU</p>
-                <h2>Hey Nick—I’m really glad you’re here.</h2>
+                <h2>Meet the person who’ll learn how you work.</h2>
                 <p className="conversation-copy">
-                  Think of me as the calm, connected friend who helps you find
-                  the signal, make the call, and keep work moving without
-                  carrying all of it alone.
+                  Ara starts with a real conversation, learns what matters to
+                  you, then turns your connected work into useful momentum.
                 </p>
                 <div className="welcome-actions">
                   <button className="primary meet-ara" onClick={meetAra}>
@@ -3704,8 +3897,7 @@ export default function Home() {
                   </button>
                 </div>
                 <p className="welcome-note">
-                  A conversation—not a setup wizard. Ara will get to know you
-                  naturally over time.
+                  No forms. No canned tour. Just a first meeting.
                 </p>
               </>
             ) : (
@@ -3714,6 +3906,69 @@ export default function Home() {
                 <h2>{copy.title}</h2>
                 <p className="conversation-copy">{copy.body}</p>
               </>
+            )}
+
+            {onboarding && onboarding.lifecycle_state !== "COMPLETE" && (
+              <section className="first-meeting-card" aria-label="First meeting progress">
+                <div className="first-meeting-heading">
+                  <div>
+                    <p>FIRST MEETING</p>
+                    <h3>
+                      {onboarding.preferred_name
+                        ? `Getting to know ${onboarding.preferred_name}`
+                        : "A thoughtful beginning"}
+                    </h3>
+                  </div>
+                  <span>{firstMeetingSteps.filter((step) => step.complete).length}/4</span>
+                </div>
+                <ol className="first-meeting-steps">
+                  {firstMeetingSteps.map((step) => (
+                    <li className={step.complete ? "complete" : ""} key={step.label}>
+                      <i>{step.complete ? "✓" : "·"}</i>
+                      <span>{step.label}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                {(onboardingConnectionPrompt || onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED") &&
+                  !microsoftConnected && (
+                    <div className="first-meeting-connect">
+                      <div>
+                        <b>Bring your real work into the conversation</b>
+                        <small>
+                          Microsoft handles sign-in securely. Ara never hears your password or code.
+                        </small>
+                      </div>
+                      <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
+                        {microsoftActionPending ? "Opening…" : "Connect Microsoft 365"}
+                      </button>
+                    </div>
+                  )}
+
+                {onboarding.first_day_scan && (
+                  <div className="first-day-readout">
+                    <div>
+                      <span>Unread Inbox</span>
+                      <strong>{onboarding.first_day_scan.inbox.unreadMessages.toLocaleString()}</strong>
+                    </div>
+                    <div>
+                      <span>Next 14 days</span>
+                      <strong>{onboarding.first_day_scan.calendar.eventCount}</strong>
+                    </div>
+                    <div>
+                      <span>Calendar load</span>
+                      <strong>{onboarding.first_day_scan.calendar.meetingLoadPercent}%</strong>
+                    </div>
+                    {onboarding.first_day_scan.attentionCandidates[0] && (
+                      <p>
+                        <b>Start here</b>
+                        {onboarding.first_day_scan.attentionCandidates[0].subject}
+                      </p>
+                    )}
+                    <small>{onboarding.first_day_scan.scopeNote}</small>
+                  </div>
+                )}
+              </section>
             )}
 
             {stage === "briefing" && !firstVisit && (
@@ -4282,7 +4537,7 @@ export default function Home() {
                   </>
                 ) : (
                   <div className="audit-line">
-                    <span>✓</span> Nick said it sounded good {approvalMethod === "voice" ? "by voice" : "with a tap"} · {/outlook|email/i.test(messageChannel) ? "Sent through Outlook" : "Draft retained safely"}
+                    <span>✓</span> You said it sounded good {approvalMethod === "voice" ? "by voice" : "with a tap"} · {/outlook|email/i.test(messageChannel) ? "Sent through Outlook" : "Draft retained safely"}
                   </div>
                 )}
               </article>

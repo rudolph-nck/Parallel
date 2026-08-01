@@ -38,6 +38,12 @@ The controller states are:
 
 Interruption can move `WRAP_UP` back to `LISTENING`. Errors return the session to a recoverable listening state or close it with an explicit failure reason.
 
+## First-meeting boundary
+
+The first meeting is a durable workflow above the disposable voice session. Identity, work context, connection state, and the first evidence-based result belong to tenant-scoped application state. Realtime voice may request narrow tools, but it does not own progression or serve as the system of record.
+
+OAuth, mobile push, email links, and future phone calls are device handoffs. Each handoff must use a short-lived, user-bound continuation and resume the durable lifecycle. No spoken flow may collect credentials or claim access before the provider confirms it.
+
 ## Persistence migration path
 
 Sprint 1 records a bounded session audit on the current device so behavior can be measured immediately. The record shape is deliberately compatible with a later tenant-scoped session table. Before multi-user use, migrate these records to server storage and derive all identity fields from authenticated tenancy.

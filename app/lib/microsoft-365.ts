@@ -24,6 +24,10 @@ import {
   scoreMeetingReference,
 } from "./meeting-artifacts";
 import { buildMicrosoftCalendarPayload } from "./calendar-payload";
+import {
+  buildFirstDayScan,
+  type FirstDayScan,
+} from "./first-day-briefing";
 
 const MICROSOFT_CLIENT_ID = "ba9ccb38-2b16-4279-ac4f-bb42b6eb45bb";
 const MICROSOFT_TENANT_ID = "31e192cb-bf66-49fb-9f79-15df4a40efda";
@@ -62,6 +66,11 @@ type GraphProfile = {
   userPrincipalName?: string;
 };
 
+type GraphInboxFolder = {
+  totalItemCount?: number;
+  unreadItemCount?: number;
+};
+
 type GraphMessage = {
   id: string;
   subject?: string;
@@ -95,6 +104,8 @@ export type GraphEvent = {
   } | null;
   webLink?: string;
   isOrganizer?: boolean;
+  isAllDay?: boolean;
+  isCancelled?: boolean;
   body?: {
     contentType?: string;
     content?: string;
@@ -187,6 +198,10 @@ export type MicrosoftSnapshot = {
     email: string;
   };
   recentMessages: GraphMessage[];
+  inboxStatistics: {
+    totalMessages: number;
+    unreadMessages: number;
+  } | null;
   upcomingEvents: GraphEvent[];
   sharePointSite: GraphSite | null;
   directoryPeople: number;
@@ -642,6 +657,7 @@ async function readMicrosoftSnapshot(
 
   const [
     mailResult,
+    inboxStatisticsResult,
     calendarResult,
     sharePointResult,
     directoryResult,
@@ -653,6 +669,10 @@ async function readMicrosoftSnapshot(
       graphRequest<GraphCollection<GraphMessage>>(
         token.accessToken,
         "/me/messages?$top=12&$select=id,subject,from,receivedDateTime,importance,isRead,webLink&$orderby=receivedDateTime%20desc",
+      ),
+      graphRequest<GraphInboxFolder>(
+        token.accessToken,
+        "/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount",
       ),
       graphRequest<GraphCollection<GraphEvent>>(
         token.accessToken,
@@ -700,6 +720,13 @@ async function readMicrosoftSnapshot(
     },
     recentMessages:
       mailResult.status === "fulfilled" ? mailResult.value.value ?? [] : [],
+    inboxStatistics:
+      inboxStatisticsResult.status === "fulfilled"
+        ? {
+            totalMessages: inboxStatisticsResult.value.totalItemCount ?? 0,
+            unreadMessages: inboxStatisticsResult.value.unreadItemCount ?? 0,
+          }
+        : null,
     upcomingEvents:
       calendarResult.status === "fulfilled"
         ? (calendarResult.value.value ?? []).map((event) => ({
@@ -811,6 +838,59 @@ export async function refreshMicrosoft365() {
   const account = chooseAccount(client);
   if (!account) throw new Error("Microsoft 365 is not connected.");
   return readMicrosoftSnapshot(client, account);
+}
+
+export async function readMicrosoftFirstDayScan(): Promise<FirstDayScan> {
+  const client = await getMicrosoftClient();
+  const account = chooseAccount(client);
+  if (!account) throw new Error("Microsoft 365 is not connected.");
+
+  const token = await acquireGraphToken(client, account);
+  const windowStart = new Date();
+  const windowEnd = new Date(windowStart);
+  windowEnd.setDate(windowEnd.getDate() + 14);
+
+  const [inbox, messages, calendar] = await Promise.all([
+    graphRequest<GraphInboxFolder>(
+      token.accessToken,
+      "/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount",
+    ),
+    graphRequest<GraphCollection<GraphMessage>>(
+      token.accessToken,
+      "/me/mailFolders/inbox/messages?$top=50&$select=id,subject,from,receivedDateTime,importance,isRead&$orderby=receivedDateTime%20desc",
+    ),
+    graphRequest<GraphCollection<GraphEvent>>(
+      token.accessToken,
+      `/me/calendarView?startDateTime=${encodeURIComponent(windowStart.toISOString())}&endDateTime=${encodeURIComponent(windowEnd.toISOString())}&$top=100&$select=id,subject,start,end,isAllDay,isCancelled&$orderby=start/dateTime`,
+      { headers: { Prefer: 'outlook.timezone="UTC"' } },
+    ),
+  ]);
+
+  return buildFirstDayScan({
+    inboxTotal: inbox.totalItemCount ?? 0,
+    inboxUnread: inbox.unreadItemCount ?? 0,
+    messages: (messages.value ?? []).map((message) => ({
+      id: message.id,
+      subject: message.subject?.trim() || "Message without a subject",
+      sender:
+        message.from?.emailAddress?.name?.trim() ||
+        message.from?.emailAddress?.address?.trim() ||
+        "Unknown sender",
+      receivedAt: message.receivedDateTime ?? null,
+      importance: message.importance ?? "normal",
+      isRead: message.isRead !== false,
+    })),
+    events: (calendar.value ?? []).map((event) => ({
+      id: event.id,
+      subject: event.subject?.trim() || "Untitled calendar item",
+      start: event.start?.dateTime ?? "",
+      end: event.end?.dateTime ?? "",
+      isAllDay: event.isAllDay,
+      isCancelled: event.isCancelled,
+    })),
+    windowStart,
+    windowEnd,
+  });
 }
 
 export async function sendMicrosoftEmail({

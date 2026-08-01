@@ -40,6 +40,19 @@ Updated: 2026-08-01
 4. Background noise is not accepted as a consequential confirmation.
 5. Successful work closes with a short varied phrase and no new question.
 
+## First meeting
+
+1. A new user hears exactly one introduction and Ara asks only for their name.
+2. Ara saves the stated name before asking what the person does and where they work.
+3. Ara reacts to specific responsibilities rather than offering generic praise or repeating the answer.
+4. Microsoft connection is presented as a secure user action; Ara never asks for a password, verification code, or credential.
+5. Returning from Microsoft resumes the saved lifecycle stage and never repeats the introduction.
+6. Every Inbox count, calendar count, and load percentage spoken by Ara matches the tool result.
+7. Ara distinguishes complete Inbox totals from the newest-50-message attention sample.
+8. Ara does not claim Teams message coverage when the scan reports it as unavailable.
+9. Empty Inbox and Calendar data produce a calm zero-state readout rather than invented activity.
+10. One tenant can never read or advance another tenant's onboarding profile or scan.
+
 ## Controlled personal calendar
 
 1. A lunch, appointment, or focus block asks whether it should be private unless the user already chose.

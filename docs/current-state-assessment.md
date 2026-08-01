@@ -21,6 +21,8 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - private personal lunches and appointments with factual location notes and no work agenda;
 - durable meeting-knowledge, work-ownership, delegation, desktop-request, and outbound-message records;
 - reviewed Outlook email sending through separately granted Microsoft permission.
+- a durable first-meeting lifecycle that learns the user's name and work context, survives Microsoft sign-in, and resumes without repeating Ara's introduction;
+- a live first-day Inbox and Calendar scan with complete Inbox counts, bounded attention candidates, calendar-load statistics, and explicit coverage limits.
 
 ## Runtime and boundaries
 
@@ -38,6 +40,9 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - A meeting is prepared before it is created, and the final creation requires a natural-language approval.
 - Ara varies short natural completion phrases only after the external tool confirms success.
 - The main views render independently; sidebar actions no longer merely scroll the page.
+- First-meeting progress is tenant- and user-scoped in D1 rather than inferred from a browser flag.
+- Ara never requests Microsoft credentials in conversation; Microsoft owns the secure sign-in screen.
+- First-day workload claims are calculated from Graph results and disclose the 50-message attention sample and missing Teams coverage.
 
 ## Gaps against the blueprint
 
@@ -49,6 +54,8 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 6. Desktop requests are durable and explicitly non-executing; device enrollment, signatures, application registry, and the local companion remain.
 7. Pricing reconciliation still needs a versioned server-side rate table.
 8. Recall remains connected search plus declared and meeting memory, not yet the blueprint's complete work graph.
+9. The first-day scan does not yet classify Teams messages, crawl every email body, or run continuously in the background.
+10. Mobile push, email handoff, and Ara-initiated phone or Teams calls need a verified-device handoff service and background execution plane.
 
 ## Naming decision
 
@@ -56,4 +63,4 @@ The blueprint uses both Aura and Ara. The product name remains **Ara**, matching
 
 ## Recommended order
 
-Next, deepen knowledge-aware meeting creation and transcript evidence, then build production tenant membership and the signed desktop companion. Background monitoring should follow only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.
+Next, use the first-day readout to complete one real item during onboarding, then deepen knowledge-aware meeting creation and transcript evidence. Production tenant membership, verified-device handoff, and the signed desktop companion follow. Background monitoring should begin only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.

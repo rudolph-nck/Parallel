@@ -24,8 +24,8 @@ async function identity(): Promise<Identity> {
     personId: `person_${suffix}`,
     userAccountId: `user_${suffix}`,
     aiEmployeeId: `ara_${suffix}`,
-    displayName: user?.displayName ?? "Nick Rudolph",
-    email: user?.email ?? "rudolph.nck@gmail.com",
+    displayName: user?.displayName ?? "Parallel user",
+    email: user?.email ?? "",
     providerSubject: subject,
   };
 }
@@ -45,6 +45,7 @@ async function seed(owner: Identity) {
     database.prepare("INSERT OR IGNORE INTO user_accounts (id, tenant_id, person_id, provider, provider_subject, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(owner.userAccountId, owner.tenantId, owner.personId, "chatgpt", owner.providerSubject, now),
     database.prepare("INSERT OR IGNORE INTO ai_employees (id, tenant_id, name, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(owner.aiEmployeeId, owner.tenantId, "Ara", "AI Chief of Staff", "active", now),
     database.prepare("INSERT OR IGNORE INTO decision_profiles (id, tenant_id, person_id, user_account_id, ai_employee_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)").bind(`profile_${owner.userAccountId}`, owner.tenantId, owner.personId, owner.userAccountId, owner.aiEmployeeId, now),
+    database.prepare("INSERT OR IGNORE INTO onboarding_profiles (id, tenant_id, person_id, user_account_id, ai_employee_id, lifecycle_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'NEW', ?, ?)").bind(`onboarding_${owner.userAccountId}`, owner.tenantId, owner.personId, owner.userAccountId, owner.aiEmployeeId, now, now),
     database.prepare("INSERT OR IGNORE INTO ownership_assignments (id, tenant_id, person_id, user_account_id, ai_employee_id, resource_type, resource_id, authority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`ownership_${owner.aiEmployeeId}`, owner.tenantId, owner.personId, owner.userAccountId, owner.aiEmployeeId, "workspace", owner.tenantId, "read_analyze_propose", now),
     database.prepare("INSERT OR IGNORE INTO policy_rules (id, tenant_id, scope, key, value, precedence, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(`policy_${owner.tenantId}_external_actions`, owner.tenantId, "organization", "external_actions", "confirm_consequential_actions", 100, "parallel_constitution", now),
     database.prepare("INSERT OR IGNORE INTO policy_rules (id, tenant_id, scope, key, value, precedence, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(`policy_${owner.tenantId}_declared_goals`, owner.tenantId, "person", "declared_goals", "override_observed_avoidance", 200, "decision_profile", now),
@@ -62,8 +63,9 @@ export async function GET() {
     const owner = await identity();
     await seed(owner);
     const database = db();
-    const [profile, policies, attention, commitments, usage, capabilities, recentMeetingKnowledge] = await Promise.all([
+    const [profile, onboarding, policies, attention, commitments, usage, capabilities, recentMeetingKnowledge] = await Promise.all([
       database.prepare("SELECT morning_briefing_time, role_and_responsibilities, current_priorities, communication_style, proactivity, interruption_threshold, accountability_style, delegation_boundaries FROM decision_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first(),
+      database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, responsibilities_json, biggest_pressure, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
       database.prepare("SELECT key, value, scope, precedence FROM policy_rules WHERE tenant_id = ? ORDER BY precedence DESC, key ASC").bind(owner.tenantId).all(),
       database.prepare("SELECT id, source, external_id AS externalId, kind, title, summary, urgency, state, reason, occurred_at AS occurredAt FROM attention_items WHERE tenant_id = ? AND user_account_id = ? AND state = 'open' ORDER BY CASE urgency WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, occurred_at DESC LIMIT 12").bind(owner.tenantId, owner.userAccountId).all(),
       database.prepare("SELECT id, title, owner_label AS ownerLabel, due_at AS dueAt, status, source, feedback FROM commitments WHERE tenant_id = ? AND user_account_id = ? ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'snoozed' THEN 1 ELSE 2 END, due_at ASC, created_at DESC LIMIT 30").bind(owner.tenantId, owner.userAccountId).all(),
@@ -71,7 +73,37 @@ export async function GET() {
       database.prepare("SELECT (SELECT COUNT(*) FROM meeting_knowledge_records WHERE tenant_id = ? AND user_account_id = ?) AS meetingKnowledge, (SELECT COUNT(*) FROM work_items WHERE tenant_id = ? AND user_account_id = ? AND ownership_role = 'owner' AND status = 'open') AS ownedWork, (SELECT COUNT(*) FROM work_items WHERE tenant_id = ? AND user_account_id = ? AND ownership_role = 'dependency' AND status = 'open') AS dependencies, (SELECT COUNT(*) FROM delegations WHERE tenant_id = ? AND user_account_id = ? AND status = 'proposed') AS pendingDelegations, (SELECT COUNT(*) FROM desktop_action_requests WHERE tenant_id = ? AND user_account_id = ? AND status = 'awaiting_companion') AS desktopRequests, (SELECT COUNT(*) FROM outbound_messages WHERE tenant_id = ? AND user_account_id = ? AND status = 'sent') AS outboundSent").bind(owner.tenantId, owner.userAccountId, owner.tenantId, owner.userAccountId, owner.tenantId, owner.userAccountId, owner.tenantId, owner.userAccountId, owner.tenantId, owner.userAccountId, owner.tenantId, owner.userAccountId).first(),
       database.prepare("SELECT id, subject, summary, lifecycle_state AS lifecycleState, updated_at AS updatedAt FROM meeting_knowledge_records WHERE tenant_id = ? AND user_account_id = ? ORDER BY updated_at DESC LIMIT 3").bind(owner.tenantId, owner.userAccountId).all(),
     ]);
-    return Response.json({ profile, policies: policies.results, attention: attention.results, commitments: commitments.results, usage, capabilities, recentMeetingKnowledge: recentMeetingKnowledge.results });
+    const parseJson = <T,>(value: unknown, fallback: T): T => {
+      if (typeof value !== "string" || !value) return fallback;
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return fallback;
+      }
+    };
+    return Response.json({
+      profile,
+      onboarding: {
+        lifecycle_state: onboarding?.lifecycle_state ?? "NEW",
+        preferred_name: onboarding?.preferred_name ?? "",
+        full_name: onboarding?.full_name ?? "",
+        company: onboarding?.company ?? "",
+        job_title: onboarding?.job_title ?? "",
+        role_summary: onboarding?.role_summary ?? "",
+        team_size: onboarding?.team_size ?? null,
+        responsibilities: parseJson<string[]>(onboarding?.responsibilities_json, []),
+        biggest_pressure: onboarding?.biggest_pressure ?? "",
+        microsoft_connected: Boolean(onboarding?.microsoft_connected),
+        first_day_scan: parseJson<Record<string, unknown> | null>(onboarding?.first_scan_json, null),
+        completed_at: onboarding?.completed_at ?? null,
+      },
+      policies: policies.results,
+      attention: attention.results,
+      commitments: commitments.results,
+      usage,
+      capabilities,
+      recentMeetingKnowledge: recentMeetingKnowledge.results,
+    });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Parallel workspace unavailable." }, { status: 503 });
   }
@@ -86,6 +118,69 @@ export async function POST(request: Request) {
     const database = db();
     const now = Date.now();
     const ids = identityBindings(owner);
+
+    if (action === "onboarding.save_identity") {
+      const preferredName = String(body.preferredName ?? "").trim().slice(0, 80);
+      const fullName = String(body.fullName ?? preferredName).trim().slice(0, 160);
+      if (!preferredName) {
+        return Response.json({ error: "A preferred name is required." }, { status: 400 });
+      }
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET preferred_name = ?, full_name = ?, lifecycle_state = CASE WHEN lifecycle_state = 'NEW' THEN 'NAME_LEARNED' ELSE lifecycle_state END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(preferredName, fullName, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE people SET display_name = ? WHERE tenant_id = ? AND id = ?").bind(fullName || preferredName, owner.tenantId, owner.personId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.identity_learned", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Preferred name learned during first meeting", now),
+      ]);
+      return Response.json({ saved: true, lifecycleState: "NAME_LEARNED" });
+    }
+
+    if (action === "onboarding.save_work_context") {
+      const company = String(body.company ?? "").trim().slice(0, 180);
+      const jobTitle = String(body.jobTitle ?? "").trim().slice(0, 180);
+      const roleSummary = String(body.roleSummary ?? "").trim().slice(0, 1_600);
+      const biggestPressure = String(body.biggestPressure ?? "").trim().slice(0, 600);
+      const responsibilities = Array.isArray(body.responsibilities)
+        ? body.responsibilities.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 20)
+        : [];
+      const teamSize = typeof body.teamSize === "number" && Number.isFinite(body.teamSize)
+        ? Math.max(0, Math.min(10_000, Math.trunc(body.teamSize)))
+        : null;
+      if (!company && !jobTitle && !roleSummary) {
+        return Response.json({ error: "Work context is required." }, { status: 400 });
+      }
+      const roleAndResponsibilities = [jobTitle && `Role: ${jobTitle}`, company && `Organization: ${company}`, roleSummary, responsibilities.length ? `Responsibilities: ${responsibilities.join("; ")}` : ""].filter(Boolean).join("\n");
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET company = ?, job_title = ?, role_summary = ?, team_size = ?, responsibilities_json = ?, biggest_pressure = ?, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' WHEN microsoft_connected = 1 THEN 'CONNECTION_READY' ELSE 'WORK_CONTEXT_LEARNED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(company, jobTitle, roleSummary, teamSize, JSON.stringify(responsibilities), biggestPressure, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE decision_profiles SET role_and_responsibilities = ?, current_priorities = CASE WHEN ? = '' THEN current_priorities ELSE ? END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, biggestPressure, biggestPressure, now, owner.tenantId, owner.userAccountId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.work_context_learned", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Work context learned during first meeting", now),
+      ]);
+      return Response.json({ saved: true });
+    }
+
+    if (action === "onboarding.connection_ready") {
+      await database.prepare("UPDATE onboarding_profiles SET microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state = 'WORK_CONTEXT_LEARNED' THEN 'CONNECTION_READY' ELSE lifecycle_state END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId).run();
+      return Response.json({ saved: true, microsoftConnected: true });
+    }
+
+    if (action === "onboarding.scan_saved") {
+      const scanJson = JSON.stringify(body.scan ?? null);
+      if (scanJson === "null" || scanJson.length > 40_000) {
+        return Response.json({ error: "The workspace scan is not valid." }, { status: 400 });
+      }
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET first_scan_json = ?, microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' ELSE 'FIRST_VALUE_DELIVERED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(scanJson, now, owner.tenantId, owner.userAccountId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.first_value_delivered", "workspace_scan", `onboarding_${owner.userAccountId}`, "Evidence-based first-day scan generated", now),
+      ]);
+      return Response.json({ saved: true, lifecycleState: "FIRST_VALUE_DELIVERED" });
+    }
+
+    if (action === "onboarding.complete") {
+      const outcome = String(body.outcome ?? "First meeting completed").trim().slice(0, 500);
+      await database.batch([
+        database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'COMPLETE', completed_at = ?, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, now, owner.tenantId, owner.userAccountId),
+        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.completed", "onboarding_profile", `onboarding_${owner.userAccountId}`, outcome, now),
+      ]);
+      return Response.json({ saved: true, lifecycleState: "COMPLETE" });
+    }
 
     if (action === "profile.save") {
       const profile = (body.profile ?? {}) as Record<string, unknown>;

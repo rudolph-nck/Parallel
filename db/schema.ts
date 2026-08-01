@@ -62,6 +62,28 @@ export const decisionProfiles = sqliteTable("decision_profiles", {
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [uniqueIndex("decision_profile_tenant_user_idx").on(table.tenantId, table.userAccountId)]);
 
+export const onboardingProfiles = sqliteTable("onboarding_profiles", {
+  id: text("id").primaryKey(),
+  ...identityColumns,
+  lifecycleState: text("lifecycle_state").notNull().default("NEW"),
+  preferredName: text("preferred_name").notNull().default(""),
+  fullName: text("full_name").notNull().default(""),
+  company: text("company").notNull().default(""),
+  jobTitle: text("job_title").notNull().default(""),
+  roleSummary: text("role_summary").notNull().default(""),
+  teamSize: integer("team_size"),
+  responsibilitiesJson: text("responsibilities_json").notNull().default("[]"),
+  biggestPressure: text("biggest_pressure").notNull().default(""),
+  microsoftConnected: integer("microsoft_connected", { mode: "boolean" }).notNull().default(false),
+  firstScanJson: text("first_scan_json"),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("onboarding_tenant_user_idx").on(table.tenantId, table.userAccountId),
+  index("onboarding_tenant_state_idx").on(table.tenantId, table.lifecycleState),
+]);
+
 export const policyRules = sqliteTable("policy_rules", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),

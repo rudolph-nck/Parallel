@@ -1,3 +1,5 @@
+import type { FirstDayScan } from "./first-day-briefing";
+
 export type DecisionProfile = {
   morning_briefing_time: string;
   role_and_responsibilities: string;
@@ -7,6 +9,29 @@ export type DecisionProfile = {
   interruption_threshold: string;
   accountability_style: string;
   delegation_boundaries: string;
+};
+
+export type OnboardingLifecycleState =
+  | "NEW"
+  | "NAME_LEARNED"
+  | "WORK_CONTEXT_LEARNED"
+  | "CONNECTION_READY"
+  | "FIRST_VALUE_DELIVERED"
+  | "COMPLETE";
+
+export type OnboardingProfile = {
+  lifecycle_state: OnboardingLifecycleState;
+  preferred_name: string;
+  full_name: string;
+  company: string;
+  job_title: string;
+  role_summary: string;
+  team_size: number | null;
+  responsibilities: string[];
+  biggest_pressure: string;
+  microsoft_connected: boolean;
+  first_day_scan: FirstDayScan | null;
+  completed_at: number | null;
 };
 
 export type AttentionItem = {
@@ -34,6 +59,7 @@ export type Commitment = {
 
 export type PlatformWorkspace = {
   profile: DecisionProfile;
+  onboarding: OnboardingProfile;
   policies: Array<{ key: string; value: string; scope: string; precedence: number }>;
   attention: AttentionItem[];
   commitments: Commitment[];
