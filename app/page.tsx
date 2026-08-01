@@ -3930,6 +3930,10 @@ export default function Home() {
 
         <section className={`friday-panel stage-${stage} view-panel ara-view`}>
           <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
+            <div className="ara-presence-title">
+              <p>ARA</p>
+              <span>Your right hand in Parallel</span>
+            </div>
             <div className="voice-stage" aria-hidden="true">
               <div className="signal-ring ring-one" />
               <div className="signal-ring ring-two" />
@@ -4117,6 +4121,12 @@ export default function Home() {
                     <span>↗</span>
                   </button>
                 </div>
+              </div>
+            )}
+
+            {stage !== "briefing" && (
+              <div className="ara-context-divider">
+                <span>Ara brought this into view</span>
               </div>
             )}
 

@@ -58,8 +58,9 @@ test("server-renders the Parallel Ara dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, route, platformRoute, microsoft365, gitignore, viteConfig] = await Promise.all([
+  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/platform/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/microsoft-365.ts", import.meta.url), "utf8"),
@@ -93,6 +94,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /buildFirstMeetingInstruction/);
   assert.match(page, /replayFirstMeeting/);
   assert.match(page, /Meet Ara again from the beginning/);
+  assert.match(page, /ara-presence-title/);
+  assert.match(page, /Your right hand in Parallel/);
+  assert.match(page, /Ara brought this into view/);
+  assert.match(page, /operating-grid view-panel today-view/);
   assert.match(page, /onboarding\.reset_for_release/);
   assert.match(page, /__PARALLEL_RELEASE_ID__/);
   assert.match(page, /prepareCurrentRelease/);
@@ -203,6 +208,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(viteConfig, /createHash\("sha256"\)/);
   assert.match(viteConfig, /function buildReleaseId/);
   assert.match(viteConfig, /__PARALLEL_RELEASE_ID__/);
+
+  assert.match(styles, /\.friday-panel\s*\{[^}]*display:\s*block/s);
+  assert.match(styles, /\.friday-visual\s*\{[^}]*margin:\s*0 auto/s);
+  assert.match(styles, /\.prompt-actions\s*\{[^}]*repeat\(3/s);
+  assert.match(styles, /\.ara-view \.voice-key/);
+  assert.match(styles, /\.ara-context-divider/);
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);

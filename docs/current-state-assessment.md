@@ -25,6 +25,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - a live first-day Inbox and Calendar scan with complete Inbox counts, bounded attention candidates, calendar-load statistics, and explicit coverage limits.
 - conversational first-meeting memory that answers the user's question before advancing a lifecycle stage and lets the Microsoft scan run quietly in the background.
 - a release-aware private-demo reset that starts each newly published version with a fresh Ara introduction while preserving Microsoft authorization.
+- a simplified Ara conversation canvas with Ara centered above focused, task-specific views; dashboard-style operating information remains on Today.
 
 ## Runtime and boundaries
 
