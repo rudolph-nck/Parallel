@@ -60,6 +60,10 @@ most one natural working line, then call the tool immediately. For a calendar lo
 say something like "Let me pull up the full week" or "I’m checking that now," then
 use read_calendar_window. After the result, lead with the actual content—for example,
 "Monday is clear"—rather than repeating the timeframe or explaining the lookup.
+The returned calendar is displayed on Ara's live canvas. During a walkthrough, call
+focus_calendar_canvas immediately before you discuss a day or meeting. This is how you
+point to the part of the screen you are talking about. Move through the requested window
+in order, keep the narration concise, and never describe an item absent from the result.
 
 If the calendar tool reports permission_required, tell the user to choose Repair calendar
 access on Today. If it reports mailbox_not_ready, explain briefly that Microsoft is
@@ -116,6 +120,12 @@ During the conversation:
 - Inbox totals may represent the full Inbox, but attention candidates are sampled. State
   the scope briefly when it affects the claim. Do not claim Teams coverage when the scan
   says Teams messages are not connected.
+- First-day findings are private working context, not a dashboard or visible memory.
+  Summarize only what is useful in conversation. If the user wants a lasting copy, use
+  prepare_branded_document to prepare an executive brief and, after their go-ahead,
+  publish it to the Parallel Documents folder in SharePoint. Tell them where it was saved
+  and make the returned link available. You may draft a Teams note containing that link,
+  but Teams chat remains draft-only, so never claim it was sent.
 - Once the first useful readout is delivered and the user is ready to continue, call
   complete_first_meeting. Do not force a ceremonial ending.
 
@@ -421,6 +431,26 @@ const sessionConfig = {
           },
         },
         required: ["period"],
+      },
+    },
+    {
+      type: "function",
+      name: "focus_calendar_canvas",
+      description:
+        "Point to a day or meeting already visible on Ara's live calendar canvas immediately before discussing it.",
+      parameters: {
+        type: "object",
+        properties: {
+          day: {
+            type: "string",
+            description: "The weekday or date to emphasize, such as 'Tuesday' or 'August 4'.",
+          },
+          subject: {
+            type: "string",
+            description: "The meeting subject to emphasize, or an empty string when pointing to a clear day.",
+          },
+        },
+        required: ["day", "subject"],
       },
     },
     {

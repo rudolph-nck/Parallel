@@ -31,10 +31,10 @@ test("server-renders the Parallel Ara dashboard", async () => {
   const html = await response.text();
   assert.match(html, /<title>Parallel — Move through work with clarity<\/title>/i);
   assert.match(html, /Move through work with clarity\./);
-  assert.match(html, /Meet the person who’ll learn how you work\./);
-  assert.match(html, /No forms\. No canned tour\. Just a first meeting\./);
+  assert.match(html, /Meet Ara\./);
+  assert.match(html, /Start the conversation/);
+  assert.match(html, /Ara(?:'|&#x27;)s live canvas/);
   assert.match(html, /Talk to Ara/);
-  assert.match(html, /What can I ask you/);
   assert.match(html, /Find the signal in the noise/);
   assert.match(html, /Turn decisions into momentum/);
   assert.match(html, /Recall · Working Memory/i);
@@ -82,25 +82,26 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /calendarConflicts/);
   assert.match(page, /How does that sound/);
   assert.match(page, /Looks good/);
-  assert.match(page, /kept safely as a draft/);
+  assert.match(page, /Draft retained safely/);
   assert.match(page, /prepare_calendar_meeting/);
   assert.match(page, /approve_calendar_meeting/);
   assert.match(page, /Book \$\{pendingMeeting\.calendarItemType\}/);
   assert.match(page, /createMicrosoftMeeting/);
   assert.match(page, /readMicrosoftCalendar/);
   assert.match(page, /read_calendar_window/);
+  assert.match(page, /focus_calendar_canvas/);
+  assert.match(page, /calendar-canvas/);
+  assert.match(page, /calendarCanvasFocus/);
+  assert.match(page, /Ara's live canvas/);
   assert.match(page, /calendar_period/);
   assert.match(page, /demoIntroductionInstruction/);
   assert.match(page, /buildFirstMeetingInstruction/);
-  assert.match(page, /replayFirstMeeting/);
-  assert.match(page, /Meet Ara again from the beginning/);
   assert.match(page, /ara-presence-title/);
   assert.match(page, /Your right hand in Parallel/);
   assert.match(page, /Ara brought this into view/);
   assert.match(page, /operating-grid view-panel today-view/);
-  assert.match(page, /onboarding\.reset_for_release/);
   assert.match(page, /__PARALLEL_RELEASE_ID__/);
-  assert.match(page, /prepareCurrentRelease/);
+  assert.match(page, /readPlatformWorkspace\(__PARALLEL_RELEASE_ID__\)/);
   assert.match(page, /!isFreshFirstMeeting/);
   assert.match(page, /save_onboarding_identity/);
   assert.match(page, /save_onboarding_work_context/);
@@ -109,8 +110,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /check_first_day_workspace/);
   assert.match(page, /readMicrosoftFirstDayScan/);
   assert.match(page, /createBackgroundResearchController/);
-  assert.match(page, /CONVERSATION MEMORY/);
-  assert.match(page, /Ara is getting the lay of the land while you talk/);
+  assert.doesNotMatch(page, /CONVERSATION MEMORY/);
+  assert.doesNotMatch(page, /Unread Inbox/);
+  assert.doesNotMatch(page, /Try asking Ara/);
   assert.match(page, /Connect Microsoft 365/);
   assert.match(page, /track\.enabled = false/);
   assert.match(page, /repairMicrosoftCalendarAccess/);
@@ -148,6 +150,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /interrupt_response:\s*true/);
   assert.match(route, /calendar_period/);
   assert.match(route, /name:\s*"read_calendar_window"/);
+  assert.match(route, /name:\s*"focus_calendar_canvas"/);
+  assert.match(route, /private working context, not a dashboard or visible memory/i);
   assert.match(route, /following Monday through Friday/);
   assert.match(route, /name:\s*"prepare_message_for_approval"/);
   assert.match(route, /name:\s*"approve_pending_action"/);
@@ -200,6 +204,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Teams chat remains draft-only/);
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
+  assert.match(platformRoute, /export async function GET\(request: Request\)/);
+  assert.match(platformRoute, /x-parallel-release-id/);
+  assert.match(platformRoute, /resetOnboardingForRelease/);
   assert.match(platformRoute, /event_type = 'onboarding\.release_reset'/);
   assert.match(platformRoute, /lifecycle_state = 'NEW'/);
   assert.match(platformRoute, /first_scan_json = NULL/);
@@ -214,6 +221,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /\.prompt-actions\s*\{[^}]*repeat\(3/s);
   assert.match(styles, /\.ara-view \.voice-key/);
   assert.match(styles, /\.ara-context-divider/);
+  assert.match(styles, /\.calendar-canvas/);
+  assert.match(styles, /\.calendar-day\.focused/);
 
   assert.match(microsoft365, /User\.ReadBasic\.All/);
   assert.match(microsoft365, /resolveDirectoryAttendee/);

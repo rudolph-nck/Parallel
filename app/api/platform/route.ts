@@ -58,11 +58,32 @@ async function seed(owner: Identity) {
 
 const identityBindings = (owner: Identity) => [owner.tenantId, owner.personId, owner.userAccountId, owner.aiEmployeeId] as const;
 
-export async function GET() {
+async function resetOnboardingForRelease(
+  database: D1Database,
+  owner: Identity,
+  releaseId: string,
+) {
+  if (!/^[a-f0-9]{16}$/.test(releaseId)) return false;
+  const existingReset = await database
+    .prepare("SELECT id FROM audit_events WHERE tenant_id = ? AND user_account_id = ? AND event_type = 'onboarding.release_reset' AND detail = ? LIMIT 1")
+    .bind(owner.tenantId, owner.userAccountId, releaseId)
+    .first();
+  if (existingReset) return false;
+  const now = Date.now();
+  await database.batch([
+    database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = NULL, full_name = NULL, company = NULL, job_title = NULL, role_summary = NULL, team_size = NULL, responsibilities_json = NULL, biggest_pressure = NULL, first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
+    database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...identityBindings(owner), "onboarding.release_reset", "onboarding_profile", `onboarding_${owner.userAccountId}`, releaseId, now),
+  ]);
+  return true;
+}
+
+export async function GET(request: Request) {
   try {
     const owner = await identity();
     await seed(owner);
     const database = db();
+    const releaseId = request.headers.get("x-parallel-release-id")?.trim() ?? "";
+    const releaseReset = await resetOnboardingForRelease(database, owner, releaseId);
     const [profile, onboarding, policies, attention, commitments, usage, capabilities, recentMeetingKnowledge] = await Promise.all([
       database.prepare("SELECT morning_briefing_time, role_and_responsibilities, current_priorities, communication_style, proactivity, interruption_threshold, accountability_style, delegation_boundaries FROM decision_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first(),
       database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, responsibilities_json, biggest_pressure, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
@@ -103,6 +124,7 @@ export async function GET() {
       usage,
       capabilities,
       recentMeetingKnowledge: recentMeetingKnowledge.results,
+      releaseReset,
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Parallel workspace unavailable." }, { status: 503 });
@@ -124,18 +146,8 @@ export async function POST(request: Request) {
       if (!/^[a-f0-9]{16}$/.test(releaseId)) {
         return Response.json({ error: "A valid release identifier is required." }, { status: 400 });
       }
-      const existingReset = await database
-        .prepare("SELECT id FROM audit_events WHERE tenant_id = ? AND user_account_id = ? AND event_type = 'onboarding.release_reset' AND detail = ? LIMIT 1")
-        .bind(owner.tenantId, owner.userAccountId, releaseId)
-        .first();
-      if (existingReset) {
-        return Response.json({ reset: false, releaseId });
-      }
-      await database.batch([
-        database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = NULL, full_name = NULL, company = NULL, job_title = NULL, role_summary = NULL, team_size = NULL, responsibilities_json = NULL, biggest_pressure = NULL, first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
-        database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.release_reset", "onboarding_profile", `onboarding_${owner.userAccountId}`, releaseId, now),
-      ]);
-      return Response.json({ reset: true, releaseId, microsoftConnectionPreserved: true });
+      const reset = await resetOnboardingForRelease(database, owner, releaseId);
+      return Response.json({ reset, releaseId, microsoftConnectionPreserved: true });
     }
 
     if (action === "onboarding.save_identity") {

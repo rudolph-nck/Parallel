@@ -23,6 +23,7 @@ import {
   sendMicrosoftEmail,
   updateMicrosoftMeeting,
   type MicrosoftMeetingProposal,
+  type GraphEvent,
   type MicrosoftCalendarConflict,
   type MicrosoftCalendarItemType,
   type MicrosoftMeetingResult,
@@ -73,6 +74,7 @@ declare const __PARALLEL_RELEASE_ID__: string;
 
 type Stage =
   | "briefing"
+  | "calendarView"
   | "searching"
   | "found"
   | "ready"
@@ -129,6 +131,52 @@ type RecallDocument = {
   webUrl?: string | null;
 };
 
+type CalendarCanvas = {
+  label: string;
+  start: string;
+  end: string;
+  events: GraphEvent[];
+};
+
+type CalendarCanvasFocus = {
+  dayKey: string | null;
+  eventId: string | null;
+};
+
+const calendarDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const calendarEventDate = (event: GraphEvent) => {
+  const value = event.start?.dateTime;
+  if (!value) return null;
+  const includesZone = /(?:Z|[+-]\d\d:\d\d)$/i.test(value);
+  const date = new Date(event.start?.timeZone === "UTC" && !includesZone ? `${value}Z` : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const calendarCanvasDays = (canvas: CalendarCanvas) => {
+  const start = new Date(canvas.start);
+  const end = new Date(canvas.end);
+  const days: Array<{ key: string; date: Date; events: GraphEvent[] }> = [];
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  while (cursor < end && days.length < 10) {
+    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
+      const key = calendarDateKey(cursor);
+      days.push({
+        key,
+        date: new Date(cursor),
+        events: canvas.events.filter((event) => {
+          const eventDate = calendarEventDate(event);
+          return eventDate ? calendarDateKey(eventDate) === key : false;
+        }),
+      });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+};
+
 type RealtimeFunctionCall = {
   type: "function_call";
   name: string;
@@ -148,74 +196,6 @@ type RealtimeEvent = {
     usage?: unknown;
     output?: Array<RealtimeFunctionCall | { type: string }>;
   };
-};
-
-const conversations = {
-  briefing: {
-    eyebrow: "Ara · Morning briefing",
-    title: "Your day, in focus.",
-    body: "I reviewed your workspace. You have three decisions that deserve your attention, but we can start wherever you need.",
-  },
-  searching: {
-    eyebrow: "Ara is consulting Recall",
-    title: "I’m looking for your strategic plan.",
-    body: "Recall is connecting the people, timing, conversations, and files around your request—not just matching a filename.",
-  },
-  found: {
-    eyebrow: "Recall · Likely match",
-    title: "I found the plan you’re probably referring to.",
-    body: "It’s the newest version, you edited it Monday, and it appeared in your recent conversation with Matt.",
-  },
-  ready: {
-    eyebrow: "Ara · Ready when you are",
-    title: "I have it ready for Matt.",
-    body: "I found the right plan and drafted a short Teams note. Take a look—how does that sound?",
-  },
-  approved: {
-    eyebrow: "Ara · In sync",
-    title: "Perfect—I’ve got it.",
-    body: "The result below shows exactly what Ara completed—or kept safely as a draft.",
-  },
-  meetingReady: {
-    eyebrow: "Ara · Calendar",
-    title: "I found a clear opening.",
-    body: "I checked your calendar and kept the details simple. How does that sound?",
-  },
-  meetingConflict: {
-    eyebrow: "Ara · Calendar conflict",
-    title: "There’s something in the way.",
-    body: "Ara found the conflict and the safest choices without changing anything yet.",
-  },
-  meetingBooked: {
-    eyebrow: "Ara · Calendar updated",
-    title: "All set—it’s on the calendar.",
-    body: "The time below is the exact time saved in Outlook.",
-  },
-  meetingUpdateReady: {
-    eyebrow: "Ara · Invite update",
-    title: "I built the agenda.",
-    body: "Review what Ara will add to the existing invitation before everyone receives the update.",
-  },
-  meetingUpdated: {
-    eyebrow: "Ara · Invite updated",
-    title: "Taken care of—the agenda is live.",
-    body: "The existing Outlook and Teams invitation now includes the approved agenda.",
-  },
-  notesReady: {
-    eyebrow: "Ara · Meeting intelligence",
-    title: "I turned the transcript into working notes.",
-    body: "Decisions, actions, risks, and open questions are separated so the follow-through is clear.",
-  },
-  documentReady: {
-    eyebrow: "Ara · Document studio",
-    title: "Your working draft is ready.",
-    body: "Review the branded document below. Ara will only publish a new SharePoint copy after you approve it.",
-  },
-  documentPublished: {
-    eyebrow: "Ara · SharePoint",
-    title: "You’re good—it’s published.",
-    body: "The approved document is in the Parallel Documents folder as a new, non-overwriting copy.",
-  },
 };
 
 const dailyQuotes = [
@@ -244,8 +224,6 @@ const defaultIntroduction =
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If the user is silent, do not speak again until they say something.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
-const capabilityIntroduction =
-  "The user asked what they can ask you. Give three compact, surprisingly useful examples grounded in your actual capabilities. Use no more than 45 words total, then ask which one would make their day easier right now.";
 const startupPhrases = [
   "Move through work with clarity.",
   "Find the signal in the noise.",
@@ -335,7 +313,7 @@ export default function Home() {
     useState<PlatformWorkspace | null>(null);
   const [onboardingConnectionPrompt, setOnboardingConnectionPrompt] =
     useState(false);
-  const [firstDayResearchState, setFirstDayResearchState] =
+  const [, setFirstDayResearchState] =
     useState<"idle" | "running" | "ready" | "error">("idle");
   const [platformNote, setPlatformNote] = useState("Preparing your operating picture");
   const [commitmentDraft, setCommitmentDraft] = useState("");
@@ -372,6 +350,10 @@ export default function Home() {
     useState<MicrosoftCalendarConflict[]>([]);
   const [bookedMeeting, setBookedMeeting] =
     useState<MicrosoftMeetingResult | null>(null);
+  const [calendarCanvas, setCalendarCanvas] =
+    useState<CalendarCanvas | null>(null);
+  const [calendarCanvasFocus, setCalendarCanvasFocus] =
+    useState<CalendarCanvasFocus>({ dayKey: null, eventId: null });
   const [pendingMeetingUpdate, setPendingMeetingUpdate] =
     useState<MicrosoftMeetingUpdateProposal | null>(null);
   const [meetingUpdateResult, setMeetingUpdateResult] =
@@ -407,6 +389,7 @@ export default function Home() {
   const pendingMeetingRef = useRef<MicrosoftMeetingProposal | null>(null);
   const calendarConflictsRef = useRef<MicrosoftCalendarConflict[]>([]);
   const bookedMeetingRef = useRef<MicrosoftMeetingResult | null>(null);
+  const calendarCanvasRef = useRef<CalendarCanvas | null>(null);
   const pendingMeetingUpdateRef =
     useRef<MicrosoftMeetingUpdateProposal | null>(null);
   const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
@@ -434,8 +417,6 @@ export default function Home() {
   const messageRecipientRef = useRef(messageRecipient);
   const messageChannelRef = useRef(messageChannel);
   const messageSubjectRef = useRef(messageSubject);
-  const copy = conversations[stage];
-
   const rememberMicrosoftSnapshot = (snapshot: MicrosoftSnapshot | null) => {
     microsoftSnapshotRef.current = snapshot;
     setMicrosoftSnapshot(snapshot);
@@ -480,11 +461,21 @@ export default function Home() {
 
   const refreshPlatformWorkspace = async () => {
     try {
-      const workspace = await readPlatformWorkspace();
+      const workspace = await readPlatformWorkspace(__PARALLEL_RELEASE_ID__);
       platformWorkspaceRef.current = workspace;
       setPlatformWorkspace(workspace);
       setUserProfile({ ...emptyProfile, ...workspace.profile });
-      setFirstVisit(workspace.onboarding.lifecycle_state === "NEW");
+      const startsFresh = workspace.onboarding.lifecycle_state === "NEW";
+      setFirstVisit(startsFresh);
+      if (startsFresh) {
+        firstDayResearchRef.current.reset();
+        setFirstDayResearchState("idle");
+        setOnboardingConnectionPrompt(false);
+        setCalendarCanvas(null);
+        calendarCanvasRef.current = null;
+        setCalendarCanvasFocus({ dayKey: null, eventId: null });
+        moveToStage("briefing");
+      }
       if (
         workspace.onboarding.first_day_scan &&
         firstDayResearchRef.current.read().status === "idle"
@@ -534,24 +525,6 @@ export default function Home() {
     return started;
   };
 
-  const prepareCurrentRelease = async () => {
-    try {
-      const result = await updatePlatform("onboarding.reset_for_release", {
-        releaseId: __PARALLEL_RELEASE_ID__,
-      });
-      if (result.reset === true) {
-        firstDayResearchRef.current.reset();
-        setFirstDayResearchState("idle");
-        setOnboardingConnectionPrompt(false);
-        setFirstVisit(true);
-        setPlatformNote("Ara is ready to meet you from the beginning");
-      }
-    } catch {
-      setPlatformNote("Ara is preparing a fresh introduction");
-    }
-    await refreshPlatformWorkspace();
-  };
-
   const addCommitment = async () => {
     const title = commitmentDraft.trim();
     if (!title || commitmentPending) return;
@@ -585,11 +558,6 @@ export default function Home() {
     setActiveNav(section);
     setProfileOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const askFriday = () => {
-    moveToStage("searching");
-    window.setTimeout(() => moveToStage("found"), 1250);
   };
 
   const searchRecallWorkspace = async () => {
@@ -868,6 +836,20 @@ export default function Home() {
     setVoiceNote(`Ara is reading your calendar for ${calendarPeriod}`);
     try {
       const calendar = await readMicrosoftCalendar(calendarPeriod);
+      const canvas = {
+        label: calendar.label,
+        start: calendar.start,
+        end: calendar.end,
+        events: calendar.events,
+      };
+      const firstDay = calendarCanvasDays(canvas)[0];
+      setCalendarCanvas(canvas);
+      calendarCanvasRef.current = canvas;
+      setCalendarCanvasFocus({
+        dayKey: firstDay?.key ?? null,
+        eventId: firstDay?.events[0]?.id ?? null,
+      });
+      moveToStage("calendarView");
       return {
         connected: true,
         calendar_window: {
@@ -886,7 +868,7 @@ export default function Home() {
           online_meeting: event.isOnlineMeeting === true,
         })),
         instruction:
-          "Summarize the complete requested calendar window, not merely the first day. Mention the date range and call out open days or important clusters. If the user asks for a Monday-through-Friday walkthrough, cover every weekday in order and explicitly mention clear days. If there are no calendar items, say that the connected calendar is clear for that window. Keep it concise unless the user asks for a day-by-day readout.",
+          "The complete calendar window is now visible on Ara's live canvas. Summarize the requested window, not merely the first day. For a walkthrough, call focus_calendar_canvas immediately before discussing each day or meeting so the user can follow where you are pointing. Mention clear days. Never invent items that are not on the canvas.",
       };
     } catch (error) {
       const issue = describeMicrosoftCalendarError(error);
@@ -1086,6 +1068,51 @@ export default function Home() {
           ? args.period.trim()
           : "the next two weeks";
       return readCalendarWindowForAra(period);
+    }
+
+    if (call.name === "focus_calendar_canvas") {
+      const canvas = calendarCanvasRef.current;
+      if (!canvas) {
+        return {
+          focused: false,
+          instruction: "The calendar is not visible yet. Call read_calendar_window first.",
+        };
+      }
+      const requestedDay = typeof args.day === "string" ? args.day.trim().toLowerCase() : "";
+      const requestedSubject = typeof args.subject === "string" ? args.subject.trim().toLowerCase() : "";
+      const days = calendarCanvasDays(canvas);
+      const day = days.find((candidate) => {
+        const label = candidate.date.toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        }).toLowerCase();
+        return requestedDay && (label.includes(requestedDay) || requestedDay.includes(label.split(",")[0]));
+      }) ?? days.find((candidate) =>
+        candidate.events.some((event) =>
+          (event.subject ?? "").toLowerCase().includes(requestedSubject),
+        ),
+      );
+      const event = day?.events.find((candidate) =>
+        requestedSubject
+          ? (candidate.subject ?? "").toLowerCase().includes(requestedSubject)
+          : false,
+      ) ?? null;
+      setCalendarCanvasFocus({
+        dayKey: day?.key ?? null,
+        eventId: event?.id ?? null,
+      });
+      return {
+        focused: Boolean(day),
+        day: day?.date.toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+        }),
+        subject: event?.subject ?? null,
+        instruction:
+          "Continue speaking about exactly the day or meeting now emphasized on the live canvas. Do not repeat the full calendar or explain the highlighting.",
+      };
     }
 
     if (call.name === "search_recall") {
@@ -2843,27 +2870,6 @@ export default function Home() {
     }
   };
 
-  const askAraWhatSheCanDo = () => {
-    setActiveNav("ara");
-    if (channelRef.current?.readyState === "open") {
-      setMicrophoneEnabled(false);
-      setVoiceState("speaking");
-      setVoiceNote("Ara is showing you what’s possible");
-      channelRef.current.send(
-        JSON.stringify({
-          type: "response.create",
-          response: {
-            input: [],
-            instructions: capabilityIntroduction,
-          },
-        }),
-      );
-      return;
-    }
-
-    void startVoiceSession(capabilityIntroduction);
-  };
-
   const meetAra = () => {
     setActiveNav("ara");
     void startVoiceSession(
@@ -2872,11 +2878,6 @@ export default function Home() {
         Boolean(microsoftSnapshotRef.current),
       ),
     );
-  };
-
-  const replayFirstMeeting = () => {
-    setActiveNav("ara");
-    void startVoiceSession(demoIntroductionInstruction, false);
   };
 
   useEffect(() => {
@@ -2918,14 +2919,14 @@ export default function Home() {
       } catch {
         setLastSession(null);
       }
-      void prepareCurrentRelease();
+      void refreshPlatformWorkspace();
     }, 0);
 
     return () => {
       window.clearTimeout(startupTimer);
       window.clearTimeout(hydrateTimer);
     };
-    // Hydration and the release reset intentionally run once per document load.
+    // Hydration and the release-aware workspace load run once per document load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3369,6 +3370,9 @@ export default function Home() {
     setMeetingNotes(null);
     setPendingDocument(null);
     setPublishedDocument(null);
+    calendarCanvasRef.current = null;
+    setCalendarCanvas(null);
+    setCalendarCanvasFocus({ dayKey: null, eventId: null });
     moveToStage("briefing");
   };
 
@@ -3518,16 +3522,6 @@ export default function Home() {
     desktopRequests: 0,
     outboundSent: 0,
   };
-  const onboarding = platformWorkspace?.onboarding ?? null;
-  const conversationMemory = onboarding
-    ? [
-        onboarding.job_title,
-        onboarding.company,
-        onboarding.team_size ? `Team of ${onboarding.team_size}` : null,
-        onboarding.responsibilities[0],
-      ].filter((item): item is string => Boolean(item))
-    : [];
-
   return (
     <>
       {showStartup && (
@@ -3992,136 +3986,71 @@ export default function Home() {
             )}
           </div>
 
-          <div className="conversation">
-            {firstVisit ? (
-              <>
-                <p className="eyebrow">ARA · NICE TO MEET YOU</p>
-                <h2>Meet the person who’ll learn how you work.</h2>
-                <p className="conversation-copy">
-                  Ara starts with a real conversation, learns what matters to
-                  you, then turns your connected work into useful momentum.
-                </p>
-                <div className="welcome-actions">
-                  <button className="primary meet-ara" onClick={meetAra}>
-                    Meet Ara <span>→</span>
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={askAraWhatSheCanDo}
-                  >
-                    What can I ask you?
-                  </button>
-                </div>
-                <p className="welcome-note">
-                  No forms. No canned tour. Just a first meeting.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="eyebrow">{copy.eyebrow}</p>
-                <h2>{copy.title}</h2>
-                <p className="conversation-copy">{copy.body}</p>
-              </>
+          <div className="conversation" aria-label="Ara's live canvas" aria-live="polite">
+            {firstVisit && !voiceConnected && (
+              <div className="ara-first-hello">
+                <p>ARA · FIRST MEETING</p>
+                <h2>Meet Ara.</h2>
+                <button className="primary meet-ara" onClick={meetAra}>
+                  Start the conversation <span>→</span>
+                </button>
+              </div>
             )}
 
-            {onboarding && onboarding.lifecycle_state !== "COMPLETE" && (
-              <section className="first-meeting-card" aria-label="Conversation memory">
-                <div className="first-meeting-heading">
-                  <div>
-                    <p>CONVERSATION MEMORY</p>
-                    <h3>
-                      {onboarding.preferred_name
-                        ? `Getting to know ${onboarding.preferred_name}`
-                        : "Learning what matters to you"}
-                    </h3>
-                  </div>
-                  <span className={`research-presence ${firstDayResearchState}`}>
-                    {firstDayResearchState === "running"
-                      ? "Quietly researching"
-                      : onboarding.first_day_scan
-                        ? "A first read is ready"
-                        : "Listening"}
-                  </span>
+            {onboardingConnectionPrompt && !microsoftConnected && (
+              <section className="ara-live-card ara-connection-view">
+                <div>
+                  <p>ARA BROUGHT THIS INTO VIEW</p>
+                  <h3>Connect your Microsoft workspace</h3>
+                  <small>
+                    Microsoft handles sign-in securely. Ara never hears your password or code.
+                  </small>
                 </div>
-
-                {conversationMemory.length > 0 && (
-                  <div className="conversation-memory">
-                    {conversationMemory.map((memory) => (
-                      <span key={memory}>{memory}</span>
-                    ))}
-                  </div>
-                )}
-
-                {firstDayResearchState === "running" && (
-                  <div className="background-research" aria-live="polite">
-                    <i aria-hidden="true" />
-                    <span>Ara is getting the lay of the land while you talk.</span>
-                  </div>
-                )}
-
-                {(onboardingConnectionPrompt || onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED") &&
-                  !microsoftConnected && (
-                    <div className="first-meeting-connect">
-                      <div>
-                        <b>Bring your real work into the conversation</b>
-                        <small>
-                          Microsoft handles sign-in securely. Ara never hears your password or code.
-                        </small>
-                      </div>
-                      <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
-                        {microsoftActionPending ? "Opening…" : "Connect Microsoft 365"}
-                      </button>
-                    </div>
-                  )}
-
-                {onboarding.first_day_scan && (
-                  <div className="first-day-readout">
-                    <div>
-                      <span>Unread Inbox</span>
-                      <strong>{onboarding.first_day_scan.inbox.unreadMessages.toLocaleString()}</strong>
-                    </div>
-                    <div>
-                      <span>Next 14 days</span>
-                      <strong>{onboarding.first_day_scan.calendar.eventCount}</strong>
-                    </div>
-                    <div>
-                      <span>Calendar load</span>
-                      <strong>{onboarding.first_day_scan.calendar.meetingLoadPercent}%</strong>
-                    </div>
-                    {onboarding.first_day_scan.attentionCandidates[0] && (
-                      <p>
-                        <b>Start here</b>
-                        {onboarding.first_day_scan.attentionCandidates[0].subject}
-                      </p>
-                    )}
-                    <small>{onboarding.first_day_scan.scopeNote}</small>
-                  </div>
-                )}
+                <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
+                  {microsoftActionPending ? "Opening…" : "Connect Microsoft 365"}
+                </button>
               </section>
             )}
 
-            {stage === "briefing" && !firstVisit && (
-              <div className="prompt-card">
-                <p>Try asking Ara</p>
-                <div className="prompt-actions">
-                  <button onClick={askAraWhatSheCanDo}>
-                    “What can I ask you that I might not think of?”
-                    <span>↗</span>
-                  </button>
-                  <button onClick={askFriday}>
-                    “Find my strategic plan and reconnect the surrounding
-                    context.”
-                    <span>↗</span>
-                  </button>
-                  <button
-                    onClick={replayFirstMeeting}
-                    disabled={voiceConnected || voiceState === "connecting"}
-                  >
-                    “Meet Ara again from the beginning.”
-                    <span>↗</span>
-                  </button>
+            {stage === "calendarView" && calendarCanvas && (
+              <section className="calendar-canvas" aria-label={`${calendarCanvas.label} calendar`}>
+                <header>
+                  <div>
+                    <p>ARA’S CANVAS · LIVE CALENDAR</p>
+                    <h3>{calendarCanvas.label}</h3>
+                  </div>
+                  <span>{calendarCanvas.events.length} {calendarCanvas.events.length === 1 ? "item" : "items"}</span>
+                </header>
+                <div className="calendar-week">
+                  {calendarCanvasDays(calendarCanvas).map((day) => {
+                    const dayFocused = calendarCanvasFocus.dayKey === day.key;
+                    return (
+                      <article className={`calendar-day ${dayFocused ? "focused" : ""}`} key={day.key}>
+                        <div className="calendar-day-heading">
+                          <b>{day.date.toLocaleDateString(undefined, { weekday: "short" })}</b>
+                          <span>{day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                        </div>
+                        {day.events.length ? (
+                          <div className="calendar-events">
+                            {day.events.map((event) => (
+                              <div
+                                className={`calendar-event ${calendarCanvasFocus.eventId === event.id ? "focused" : ""}`}
+                                key={event.id}
+                              >
+                                <small>{event.displayTime || "Time unavailable"}</small>
+                                <strong>{event.subject || "Untitled meeting"}</strong>
+                                {event.isOnlineMeeting && <i>Teams</i>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="calendar-clear">Clear</p>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
-              </div>
+              </section>
             )}
 
             {stage !== "briefing" && (

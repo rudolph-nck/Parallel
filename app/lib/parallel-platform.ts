@@ -138,8 +138,11 @@ export const buildReadOnlyAttentionItems = (
     .slice(0, 12);
 };
 
-export async function readPlatformWorkspace(): Promise<PlatformWorkspace> {
-  const response = await fetch("/api/platform/", { cache: "no-store" });
+export async function readPlatformWorkspace(releaseId?: string): Promise<PlatformWorkspace> {
+  const response = await fetch("/api/platform/", {
+    cache: "no-store",
+    headers: releaseId ? { "x-parallel-release-id": releaseId } : undefined,
+  });
   if (!response.ok) throw new Error("Parallel's workspace could not be loaded.");
   return response.json() as Promise<PlatformWorkspace>;
 }
