@@ -230,7 +230,7 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
-const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause for about 1.5 seconds. "I’m Ara." Pause for about 1.25 seconds. "Welcome to Parallel." Pause for about 1.5 seconds. "I don’t know you yet…" Pause briefly. "…and I don’t want to pretend that I do." Pause for about 1.5 seconds. "Would you tell me about your work?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What should I call you?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
 
 Hi.
@@ -241,9 +241,9 @@ Welcome to Parallel.
 
 I don’t know you yet… and I don’t want to pretend that I do.
 
-Would you tell me about your work?
+What should I call you?
 
-Begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question carry genuine, unhurried curiosity. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
+Begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question feel personal and genuinely curious—like opening a door, never collecting a field in a form. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const emptyProfile: UserProfile = {
@@ -1084,7 +1084,7 @@ export default function Home() {
         saved: true,
         preferred_name: preferredName,
         instruction:
-          "Use their preferred name naturally and respond to their whole last turn, not merely the saved preference. Answer any question first. Briefly explain who you are if that has not come up, then draw on one verified work or workspace detail already supplied in the session and ask at most one natural follow-up. Do not restart onboarding.",
+          `Their preferred name is ${preferredName}. Respond to their whole last turn, not merely the saved preference. Answer any question first. Then welcome them with one sincere, natural sentence that uses their name once—vary naturally between sentiments such as “It’s really nice to meet you, ${preferredName},” “I’m glad to meet you, ${preferredName},” or, only when it genuinely fits, “That’s a lovely name.” Do not stack compliments or sound scripted. If they have not already shared their work, ask one relaxed question: “Tell me a little about your work—where are you, and what do you do there?” Do not mention onboarding, saved preferences, setup, or Microsoft.`,
       };
     }
 
@@ -2795,7 +2795,7 @@ export default function Home() {
         setArrivalRecoveryKind(null);
         startPreparedOpening();
       } catch {
-        setVoiceNote("Use Continue when your browser is ready to play Ara’s voice.");
+        setVoiceNote("Tap anywhere to meet Ara.");
       }
       return;
     }
@@ -3107,7 +3107,7 @@ export default function Home() {
             setArrivalRecoveryKind("autoplay");
             setArrivalNeedsRecovery(true);
             setVoiceState("idle");
-            setVoiceNote("Your browser needs a quick tap before Ara can speak.");
+            setVoiceNote("Tap anywhere to meet Ara.");
           });
         startLevelVisualizer(
           remoteStream,
@@ -3188,25 +3188,25 @@ export default function Home() {
     ).matches;
     const wordmarkTimer = window.setTimeout(
       () => setArrivalPhase("wordmark"),
-      prefersReducedMotion ? 650 : 1250,
+      prefersReducedMotion ? 650 : 1600,
     );
     const convergeTimer = window.setTimeout(
       () => setArrivalPhase("converging"),
-      prefersReducedMotion ? 1450 : 3150,
+      prefersReducedMotion ? 1450 : 4800,
     );
     const colorTimer = window.setTimeout(
       () => setArrivalPhase("coloring"),
-      prefersReducedMotion ? 1900 : 5250,
+      prefersReducedMotion ? 1900 : 9000,
     );
     const breathTimer = prefersReducedMotion
       ? null
-      : window.setTimeout(() => setArrivalPhase("breathing"), 6100);
+      : window.setTimeout(() => setArrivalPhase("breathing"), 10400);
     const settleTimer = window.setTimeout(
       () => {
         setArrivalPhase("settled");
         setShowStartup(false);
       },
-      prefersReducedMotion ? 2350 : 8200,
+      prefersReducedMotion ? 2350 : 13200,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -3943,11 +3943,11 @@ export default function Home() {
   return (
     <>
       <section
-        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState}`}
+        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"}`}
         aria-label="Ara voice conversation"
       >
         <div ref={visualRef} className="first-moment-presence" aria-hidden="true">
-          <span className="first-moment-wordmark">Parallel</span>
+          <span className="first-moment-wordmark">parallel</span>
           <div className="first-moment-bars">
             <i />
             <i />
@@ -3976,7 +3976,18 @@ export default function Home() {
             {visibleCaption}
           </p>
         )}
-        {arrivalNeedsRecovery && (
+        {arrivalNeedsRecovery && arrivalRecoveryKind === "autoplay" && (
+          <button
+            ref={recoveryButtonRef}
+            className="first-moment-autoplay-gate"
+            type="button"
+            aria-label="Begin the conversation with Ara"
+            onClick={() => void continueArrival()}
+          >
+            <span className="sr-only">Begin the conversation with Ara</span>
+          </button>
+        )}
+        {arrivalNeedsRecovery && arrivalRecoveryKind !== "autoplay" && (
           <div className="first-moment-recovery" role="alert">
             <p>{voiceNote}</p>
             <button

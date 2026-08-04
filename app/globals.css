@@ -71,8 +71,8 @@ button { color: inherit; }
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 420ms cubic-bezier(.22,.61,.36,1),
-    transform 760ms cubic-bezier(.22,.61,.36,1);
+    opacity 680ms cubic-bezier(.22,.61,.36,1),
+    transform 1.25s cubic-bezier(.22,.61,.36,1);
 }
 .first-moment-presence::before {
   background: rgba(89,205,193,.54);
@@ -87,19 +87,20 @@ button { color: inherit; }
   left: 50%;
   top: 50%;
   z-index: 2;
-  color: rgba(242,242,239,.9);
-  font-size: 19px;
-  font-weight: 500;
-  letter-spacing: .24em;
+  color: rgba(244,244,241,.88);
+  font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  font-size: 21px;
+  font-weight: 300;
+  letter-spacing: .18em;
   line-height: 1;
   opacity: 0;
   filter: blur(3px);
   transform: translate(-50%, -50%) scale(.985);
   transition:
-    opacity 1.35s cubic-bezier(.22,.61,.36,1),
-    filter 1.35s cubic-bezier(.22,.61,.36,1),
-    transform 1.8s cubic-bezier(.22,.61,.36,1),
-    letter-spacing 1.8s cubic-bezier(.22,.61,.36,1);
+    opacity 1.8s cubic-bezier(.22,.61,.36,1),
+    filter 1.8s cubic-bezier(.22,.61,.36,1),
+    transform 2.4s cubic-bezier(.22,.61,.36,1),
+    letter-spacing 2.4s cubic-bezier(.22,.61,.36,1);
 }
 .arrival-wordmark .first-moment-wordmark {
   opacity: 1;
@@ -112,7 +113,7 @@ button { color: inherit; }
 .arrival-settled .first-moment-wordmark {
   opacity: 0;
   filter: blur(1.5px);
-  letter-spacing: .3em;
+  letter-spacing: .24em;
   transform: translate(-50%, -50%) scale(1.012);
 }
 .first-moment-bars {
@@ -141,7 +142,7 @@ button { color: inherit; }
   opacity: .84;
   transform-origin: 50% 50%;
   transition:
-    transform 2.25s cubic-bezier(.18,.76,.22,1),
+    transform 4s cubic-bezier(.18,.72,.22,1),
     opacity 320ms ease-out,
     filter 420ms ease-out,
     box-shadow 1.05s ease;
@@ -152,7 +153,25 @@ button { color: inherit; }
   inset: 0;
   border-radius: inherit;
   opacity: 0;
-  transition: opacity 1.05s cubic-bezier(.22,.61,.36,1);
+  z-index: 1;
+  transition: opacity 1.4s cubic-bezier(.22,.61,.36,1);
+}
+.first-moment-bars i::before {
+  content: "";
+  position: absolute;
+  left: -35%;
+  right: -35%;
+  top: 40%;
+  z-index: 2;
+  height: 34%;
+  border-radius: 50%;
+  background: rgba(255,255,255,.72);
+  filter: blur(3px);
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 1s cubic-bezier(.22,.61,.36,1),
+    transform 2.25s cubic-bezier(.22,.61,.36,1);
 }
 .first-moment-bars i:first-child {
   transform: translateX(calc(-50vw - 18px));
@@ -228,6 +247,14 @@ button { color: inherit; }
   opacity: var(--human-bar-opacity, .9);
   filter: brightness(var(--human-bar-light, 1.055));
 }
+.moment-listening .first-moment-bars i:first-child::before {
+  opacity: .13;
+  transform: translateY(-6px);
+}
+.moment-listening .first-moment-bars i:last-child::before {
+  opacity: .58;
+  transform: translateY(-22px);
+}
 .moment-listening .first-moment-presence::after {
   opacity: var(--human-glow-opacity, .13);
   transform: translate(-42%, -50%) scale(var(--human-glow-scale, .94));
@@ -237,6 +264,10 @@ button { color: inherit; }
   transform: translate(-58%, -50%) scale(var(--human-companion-glow-scale, .9));
 }
 .moment-thinking .first-moment-bars { gap: 17px; filter: brightness(.94); }
+.moment-thinking .first-moment-bars i::before {
+  opacity: .1;
+  transform: translateY(0);
+}
 .moment-thinking .first-moment-presence::before,
 .moment-thinking .first-moment-presence::after { opacity: .075; }
 .moment-understanding .first-moment-bars { gap: 16px; }
@@ -247,6 +278,14 @@ button { color: inherit; }
 .moment-speaking .first-moment-bars i:last-child {
   opacity: var(--ara-companion-opacity, .78);
   filter: brightness(var(--ara-companion-light, 1.02));
+}
+.moment-speaking .first-moment-bars i:first-child::before {
+  opacity: .62;
+  transform: translateY(-22px);
+}
+.moment-speaking .first-moment-bars i:last-child::before {
+  opacity: .14;
+  transform: translateY(-6px);
 }
 .moment-speaking .first-moment-presence::before {
   opacity: var(--ara-glow-opacity, .13);
@@ -325,6 +364,26 @@ button { color: inherit; }
   font-size: 12px;
   cursor: pointer;
 }
+.first-moment-autoplay-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+}
+.first-moment-autoplay-gate:focus-visible {
+  outline: 1px solid rgba(184,219,217,.22);
+  outline-offset: -8px;
+}
+.recovery-autoplay .first-moment-presence::before,
+.recovery-autoplay .first-moment-presence::after {
+  animation: araRecoveryInvite 3.8s cubic-bezier(.37,0,.63,1) 1 both;
+}
 @keyframes araArrivalLight {
   0%, 100% { filter: brightness(1); }
   48% { filter: brightness(1.085); }
@@ -336,6 +395,10 @@ button { color: inherit; }
 @keyframes araArrivalGlowBlue {
   0%, 100% { opacity: .055; transform: translate(-42%, -50%) scale(.9); }
   52% { opacity: .14; transform: translate(-42%, -50%) scale(1); }
+}
+@keyframes araRecoveryInvite {
+  0%, 100% { opacity: .07; }
+  48% { opacity: .2; }
 }
 
 .microsoft-welcome {
