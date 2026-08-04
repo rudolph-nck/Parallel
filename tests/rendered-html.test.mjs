@@ -35,8 +35,8 @@ test("server-renders the Parallel Ara dashboard", async () => {
   assert.doesNotMatch(html, /Start the conversation/);
   assert.match(html, /Ara(?:'|&#x27;)s live canvas/);
   assert.match(html, /Talk to Ara/);
-  assert.match(html, /Find the signal in the noise/);
-  assert.match(html, /Turn decisions into momentum/);
+  assert.match(html, /You don’t have to carry work alone/);
+  assert.match(html, /Protect what deserves your attention/);
   assert.match(html, /Recall · Working Memory/i);
   assert.match(html, /Approvals · You Stay in Control/i);
   assert.match(html, /Find the context behind the work/i);
@@ -93,10 +93,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /calendar-canvas/);
   assert.match(page, /calendarCanvasFocus/);
   assert.match(page, /Ara's live canvas/);
-  assert.match(page, /Continue with Microsoft 365/);
-  assert.match(page, /Let Ara do her homework before you meet/);
+  assert.match(page, /Let Ara observe your work quietly/);
+  assert.match(page, /Connect securely/);
   assert.match(page, /onboarding\.microsoft_profile/);
-  assert.match(page, /microsoftWelcomeRequired/);
+  assert.doesNotMatch(page, /microsoftWelcomeRequired/);
   assert.doesNotMatch(page, /Start the conversation/);
   assert.match(page, /calendar_period/);
   assert.match(page, /demoIntroductionInstruction/);
@@ -190,7 +190,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who earns the right to know the user well/);
   assert.match(route, /walked into your office/);
-  assert.match(route, /Microsoft connection normally happens before this meeting/);
+  assert.match(route, /Microsoft connection is not the opening topic/);
   assert.match(route, /Simple acknowledgements: one to four words/);
   assert.match(route, /Direct task answers: one short sentence/);
   assert.match(route, /Everyday conversation: one to three natural sentences/);

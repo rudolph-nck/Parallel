@@ -225,10 +225,10 @@ const demoIntroductionInstruction = `This is the first meeting and the only intr
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const startupPhrases = [
-  "Move through work with clarity.",
-  "Find the signal in the noise.",
-  "Turn decisions into momentum.",
-  "Take control of your workday.",
+  "You don’t have to carry work alone.",
+  "Protect what deserves your attention.",
+  "Keep the promises that matter.",
+  "Leave work with a little more peace.",
 ];
 
 const emptyProfile: UserProfile = {
@@ -291,6 +291,37 @@ const buildFirstMeetingInstruction = (
   }
 
   return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
+};
+
+const buildUnderstandingItems = (
+  onboarding: OnboardingProfile | null | undefined,
+) => {
+  if (!onboarding) return [];
+  return [
+    onboarding.preferred_name
+      ? { label: "Call you", value: onboarding.preferred_name }
+      : null,
+    onboarding.job_title || onboarding.company
+      ? {
+          label: "Your work",
+          value: [onboarding.job_title, onboarding.company]
+            .filter(Boolean)
+            .join(" at "),
+        }
+      : null,
+    onboarding.role_summary
+      ? { label: "What you carry", value: onboarding.role_summary }
+      : null,
+    onboarding.biggest_pressure
+      ? { label: "Where work gets heavy", value: onboarding.biggest_pressure }
+      : null,
+    onboarding.team_size !== null
+      ? {
+          label: "People you support",
+          value: `${onboarding.team_size} direct ${onboarding.team_size === 1 ? "report" : "reports"}`,
+        }
+      : null,
+  ].filter((item): item is { label: string; value: string } => item !== null);
 };
 
 const subscribeToLocalDate = () => () => {};
@@ -503,6 +534,7 @@ export default function Home() {
         setCalendarCanvas(null);
         calendarCanvasRef.current = null;
         setCalendarCanvasFocus({ dayKey: null, eventId: null });
+        setVoiceNote("I’m Ara. You don’t have to carry work alone anymore.");
         moveToStage("briefing");
       }
       if (
@@ -3521,11 +3553,10 @@ export default function Home() {
     microsoftStatus === "checking" ||
     microsoftStatus === "connecting" ||
     microsoftStatus === "refreshing";
-  const microsoftWelcomeRequired =
-    !showStartup &&
-    firstVisit &&
-    microsoftStatus !== "checking" &&
-    !microsoftConnected;
+  const onboarding = platformWorkspace?.onboarding;
+  const firstMeetingInProgress =
+    !onboarding || onboarding.lifecycle_state !== "COMPLETE";
+  const understandingItems = buildUnderstandingItems(onboarding);
   const userInitials = (microsoftSnapshot?.account.name || "Parallel user")
     .split(/\s+/)
     .filter(Boolean)
@@ -3593,27 +3624,6 @@ export default function Home() {
             ))}
           </div>
         </div>
-      )}
-      {microsoftWelcomeRequired && (
-        <section className="microsoft-welcome" aria-label="Connect Microsoft 365 to enter Parallel">
-          <div className="microsoft-welcome-glow" aria-hidden="true" />
-          <div className="microsoft-welcome-brand">
-            <ParallelMark />
-            <ParallelWordmark />
-          </div>
-          <div className="microsoft-welcome-card">
-            <span className="ms-icon">M</span>
-            <p>YOUR WORKSPACE · SECURE CONNECTION</p>
-            <h1>Let Ara do her homework before you meet.</h1>
-            <small>
-              Connect Microsoft 365 so Parallel can securely recognize you and prepare a useful first conversation from the work you already have.
-            </small>
-            <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
-              {microsoftStatus === "connecting" ? "Opening Microsoft…" : "Continue with Microsoft 365"}
-            </button>
-            <em>Microsoft handles your sign-in. Parallel never sees your password.</em>
-          </div>
-        </section>
       )}
       <main className={`app-shell ${showStartup ? "app-loading" : "app-ready"}`}>
       <header className="topbar">
@@ -4057,18 +4067,64 @@ export default function Home() {
           </div>
 
           <div className="conversation" aria-label="Ara's live canvas" aria-live="polite">
+            {firstMeetingInProgress && (
+              <section className="ara-live-card ara-understanding-view">
+                <header>
+                  <div>
+                    <p>OUR FIRST CONVERSATION</p>
+                    <h3>What I’m learning</h3>
+                  </div>
+                  <span>{understandingItems.length ? "Taking shape" : "Listening"}</span>
+                </header>
+                {understandingItems.length ? (
+                  <div className="understanding-list">
+                    {understandingItems.map((item) => (
+                      <div key={`${item.label}:${item.value}`}>
+                        <small>{item.label}</small>
+                        <strong>{item.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="understanding-empty">
+                    No checklist. No profile to complete. Just tell Ara about the work as it comes naturally.
+                  </p>
+                )}
+                <footer>
+                  <small>
+                    Your words are the source of truth. Correct anything by voice or in your preferences.
+                  </small>
+                  {understandingItems.length > 0 && (
+                    <button onClick={() => setProfileOpen(true)}>Correct this</button>
+                  )}
+                </footer>
+              </section>
+            )}
             {onboardingConnectionPrompt && !microsoftConnected && (
               <section className="ara-live-card ara-connection-view">
-                <div>
-                  <p>ARA BROUGHT THIS INTO VIEW</p>
-                  <h3>Connect your Microsoft workspace</h3>
-                  <small>
-                    Microsoft handles sign-in securely. Ara never hears your password or code.
-                  </small>
+                <header>
+                  <div>
+                    <p>ONE CONNECTION · EXPLAINED CLEARLY</p>
+                    <h3>Let Ara observe your work quietly</h3>
+                  </div>
+                  <span className="ms-icon">M</span>
+                </header>
+                <p className="connection-intent">
+                  This gives Ara context from the work you can already access. It does not give her permission to act whenever she wants.
+                </p>
+                <div className="permission-preview">
+                  <div><strong>Calendar</strong><span>Understand when you’re available</span></div>
+                  <div><strong>Outlook</strong><span>Notice messages that may need you</span></div>
+                  <div><strong>SharePoint</strong><span>Find authorized source material</span></div>
                 </div>
-                <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
-                  {microsoftActionPending ? "Opening…" : "Connect Microsoft 365"}
-                </button>
+                <footer>
+                  <small>
+                    Microsoft handles sign-in. Ara never hears your password or verification code. You can change access at any time.
+                  </small>
+                  <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
+                    {microsoftActionPending ? "Opening Microsoft…" : "Connect securely"}
+                  </button>
+                </footer>
               </section>
             )}
 
