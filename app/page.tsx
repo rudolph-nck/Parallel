@@ -91,6 +91,7 @@ type VoiceState =
   | "idle"
   | "connecting"
   | "listening"
+  | "thinking"
   | "speaking"
   | "synced"
   | "wrapping";
@@ -219,9 +220,7 @@ const prototypeDocument: RecallDocument = {
 
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
-const defaultIntroduction =
-  "Hi. I’m Ara. Welcome to Parallel. You don’t have to carry work alone anymore. I don’t know you yet, and I don’t want to pretend that I do. Would you tell me about your work?";
-const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If the user is silent, do not speak again until they say something.`;
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Speak slowly and say exactly these four lines with a calm pause between each one: "Hi. I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet—and I don’t want to pretend that I do." Pause. "Would you tell me about your work?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const emptyProfile: UserProfile = {
@@ -237,23 +236,8 @@ const emptyProfile: UserProfile = {
 
 const buildFirstMeetingInstruction = (
   onboarding: OnboardingProfile | null | undefined,
-  microsoftConnected: boolean,
 ) => {
   if (!onboarding || onboarding.lifecycle_state === "NEW") {
-    if (onboarding?.full_name && microsoftConnected) {
-      const verifiedFirstName = onboarding.full_name.trim().split(/\s+/)[0];
-      const verifiedWork = [
-        onboarding.job_title,
-        onboarding.company,
-        onboarding.team_size !== null && onboarding.team_size !== undefined
-          ? `${onboarding.team_size} direct reports`
-          : null,
-      ].filter(Boolean).join(" · ");
-      const verifiedScan = onboarding.first_day_scan
-        ? JSON.stringify(onboarding.first_day_scan)
-        : "The first workspace read is still finishing; never invent counts.";
-      return `This is your first meeting and your only introduction this session. Microsoft is already securely connected, so never ask the user to connect it. Open warmly using the verified first name ${verifiedFirstName}: "Hey ${verifiedFirstName}—I’m Ara. It’s really nice to meet you. Before we get too far, do you go by ${verifiedFirstName}, or something else?" Then wait. Quiet verified work context: ${verifiedWork || "No title or company was returned."}. Quiet verified workspace context: ${verifiedScan}. Once they tell you what to call them, save that preference without replacing their verified full name. Respond naturally, briefly explain who you are, then use one specific verified observation to show you did your homework. At the next natural opening, ask them to tell you more about what they do${onboarding.job_title ? ` as ${onboarding.job_title}` : ""}${onboarding.company ? ` at ${onboarding.company}` : ""}. Never dump statistics, recite a profile, or sound like an onboarding checklist.`;
-    }
     return demoIntroductionInstruction;
   }
 
@@ -344,6 +328,7 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [showStartup, setShowStartup] = useState(true);
   const [arrivalAttempted, setArrivalAttempted] = useState(false);
+  const [arrivalNeedsRecovery, setArrivalNeedsRecovery] = useState(false);
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -775,8 +760,10 @@ export default function Home() {
     inputContextRef.current = null;
     outputContextRef.current = null;
 
-    visualRef.current?.style.setProperty("--human-height", "46px");
-    visualRef.current?.style.setProperty("--friday-height", "50px");
+    visualRef.current?.style.setProperty("--human-gap", "18px");
+    visualRef.current?.style.setProperty("--human-shift", "0px");
+    visualRef.current?.style.setProperty("--ara-scale", ".88");
+    visualRef.current?.style.setProperty("--ara-opacity", ".48");
     transcriptRef.current = "";
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -855,7 +842,7 @@ export default function Home() {
 
   const startLevelVisualizer = (
     stream: MediaStream,
-    property: "--human-height" | "--friday-height",
+    presence: "human" | "ara",
     contextRef: React.MutableRefObject<AudioContext | null>,
     frameRef: React.MutableRefObject<number | null>,
   ) => {
@@ -873,10 +860,13 @@ export default function Home() {
       const average =
         levels.reduce((total, level) => total + level, 0) / levels.length;
       const energy = Math.min(1, average / 58);
-      visualRef.current?.style.setProperty(
-        property,
-        `${46 + energy * 50}px`,
-      );
+      if (presence === "human") {
+        visualRef.current?.style.setProperty("--human-gap", `${17 + energy * 3}px`);
+        visualRef.current?.style.setProperty("--human-shift", `${energy * 1.5}px`);
+      } else {
+        visualRef.current?.style.setProperty("--ara-scale", `${0.88 + energy * 0.09}`);
+        visualRef.current?.style.setProperty("--ara-opacity", `${0.48 + energy * 0.2}`);
+      }
       frameRef.current = window.requestAnimationFrame(readLevel);
     };
 
@@ -2633,6 +2623,7 @@ export default function Home() {
       case "input_audio_buffer.speech_stopped":
         moveConversationState("USER_SPEECH_STOPPED");
         setMicrophoneEnabled(true);
+        setVoiceState("thinking");
         setVoiceNote("Ara is thinking");
         break;
       case "response.created":
@@ -2641,6 +2632,7 @@ export default function Home() {
         responseCompletedRef.current = false;
         outputAudioDrainedRef.current = false;
         setMicrophoneEnabled(true);
+        setVoiceState("thinking");
         setVoiceNote("Ara is thinking");
         break;
       case "output_audio_buffer.started":
@@ -2791,6 +2783,7 @@ export default function Home() {
   ) => {
     if (peerRef.current || voiceState === "connecting") return;
 
+    setArrivalNeedsRecovery(false);
     clearVoiceTimers();
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -2824,7 +2817,7 @@ export default function Home() {
         });
         startLevelVisualizer(
           remoteStream,
-          "--friday-height",
+          "ara",
           outputContextRef,
           outputAnimationRef,
         );
@@ -2854,7 +2847,7 @@ export default function Home() {
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
       startLevelVisualizer(
         stream,
-        "--human-height",
+        "human",
         inputContextRef,
         inputAnimationRef,
       );
@@ -2866,7 +2859,7 @@ export default function Home() {
         moveConversationState("CONNECTION_OPEN");
         setMicrophoneEnabled(true);
         setVoiceConnected(true);
-        setVoiceState("speaking");
+        setVoiceState("thinking");
         setVoiceNote("Ara is joining you");
         const knownPreferences = Object.entries(userProfile)
           .filter(([, value]) => value.trim())
@@ -2876,7 +2869,6 @@ export default function Home() {
           initialResponseRef.current ??
           buildFirstMeetingInstruction(
             platformWorkspaceRef.current?.onboarding,
-            Boolean(microsoftSnapshotRef.current),
           );
         const isFreshFirstMeeting =
           platformWorkspaceRef.current?.onboarding.lifecycle_state === "NEW";
@@ -2928,6 +2920,7 @@ export default function Home() {
           : error instanceof Error
             ? error.message
             : "Ara couldn't start a voice conversation. Please try again.";
+      setArrivalNeedsRecovery(true);
       stopVoiceSession(note, "start_failed");
     }
   };
@@ -3047,9 +3040,12 @@ export default function Home() {
     ) {
       return;
     }
-    autoArrivalAttemptedRef.current = true;
-    setArrivalAttempted(true);
-    void startVoiceSession();
+    const arrivalTimer = window.setTimeout(() => {
+      autoArrivalAttemptedRef.current = true;
+      setArrivalAttempted(true);
+      void startVoiceSession();
+    }, 650);
+    return () => window.clearTimeout(arrivalTimer);
     // Arrival owns the first conversation attempt. Later sessions remain user-controlled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showStartup, platformReady]);
@@ -3093,6 +3089,7 @@ export default function Home() {
     idle: "Ara is ready",
     connecting: "Connecting privately",
     listening: "I’m listening",
+    thinking: "Ara is thinking",
     speaking: "Ara is responding",
     synced: "In sync",
     wrapping: "Wrapping up",
@@ -3119,6 +3116,20 @@ export default function Home() {
         start_failed: "couldn’t start",
       }[lastSession.closeReason]
     : "";
+  const firstMomentState =
+    voiceState === "connecting"
+      ? "arriving"
+      : voiceState === "listening"
+        ? "listening"
+        : voiceState === "thinking"
+          ? "thinking"
+          : voiceState === "speaking"
+            ? "speaking"
+            : voiceState === "synced"
+              ? "understanding"
+              : voiceState === "wrapping"
+                ? "complete"
+                : "present";
 
   const approveWithButton = async () => {
     const isEmail = /outlook|email/i.test(messageChannel);
@@ -3616,7 +3627,6 @@ export default function Home() {
     <>
       {showStartup && (
         <div className="startup-screen" role="status" aria-label="Opening Parallel">
-          <div className="startup-aura" aria-hidden="true" />
           <div className="startup-signal" aria-hidden="true">
             <i />
             <i />
@@ -3626,7 +3636,25 @@ export default function Home() {
           </div>
         </div>
       )}
-      <main className={`app-shell ${showStartup ? "app-loading" : "app-ready"}`}>
+      <section
+        className={`ara-first-moment moment-${firstMomentState} ${showStartup ? "waiting-behind-intro" : "moment-visible"}`}
+        aria-label="Ara is present"
+      >
+        <div ref={visualRef} className="first-moment-presence" aria-hidden="true">
+          <div className="first-moment-warmth" />
+          <div className="first-moment-bars">
+            <i />
+            <i />
+          </div>
+        </div>
+        {arrivalNeedsRecovery && (
+          <div className="first-moment-recovery" role="alert">
+            <p>{voiceNote}</p>
+            <button onClick={() => void startVoiceSession()}>Try again</button>
+          </div>
+        )}
+      </section>
+      <main className={`app-shell legacy-experience ${showStartup ? "app-loading" : "app-ready"}`} aria-hidden="true">
       <header className="topbar">
         <button
           className="brand"
@@ -3951,7 +3979,7 @@ export default function Home() {
         </section>
 
         <section className={`friday-panel stage-${stage} view-panel ara-view`}>
-          <div ref={visualRef} className={`friday-visual voice-${voiceState}`}>
+          <div className={`friday-visual voice-${voiceState}`}>
             <div className="ara-presence-title">
               <p>ARA</p>
               <span>Your right hand in Parallel</span>

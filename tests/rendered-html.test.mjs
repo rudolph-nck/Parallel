@@ -66,6 +66,17 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   ]);
 
   assert.match(page, /new RTCPeerConnection\(\)/);
+  assert.match(page, /ara-first-moment/);
+  assert.match(page, /first-moment-bars/);
+  assert.match(page, /legacy-experience/);
+  assert.match(page, /Hi\. I’m Ara\./);
+  assert.match(page, /Welcome to Parallel\./);
+  assert.match(page, /I don’t know you yet—and I don’t want to pretend that I do\./);
+  assert.match(page, /Would you tell me about your work\?/);
+  assert.doesNotMatch(page, /className="startup-aura"/);
+  assert.match(styles, /\.legacy-experience\s*\{\s*display:\s*none !important;/);
+  assert.match(styles, /\.moment-speaking \.first-moment-warmth/);
+  assert.match(styles, /--ara-opacity/);
   assert.match(page, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(page, /fetch\("\/api\/realtime\/"/);
   assert.match(page, /response\.output_audio\.delta/);
