@@ -31,12 +31,9 @@ test("server-renders the Parallel Ara dashboard", async () => {
   const html = await response.text();
   assert.match(html, /<title>Parallel — Move through work with clarity<\/title>/i);
   assert.match(html, /Move through work with clarity\./);
-  assert.match(html, /Meet Ara/);
   assert.doesNotMatch(html, /Start the conversation/);
   assert.match(html, /Ara(?:'|&#x27;)s live canvas/);
   assert.match(html, /Talk to Ara/);
-  assert.match(html, /You don’t have to carry work alone/);
-  assert.match(html, /Protect what deserves your attention/);
   assert.match(html, /Recall · Working Memory/i);
   assert.match(html, /Approvals · You Stay in Control/i);
   assert.match(html, /Find the context behind the work/i);
@@ -97,6 +94,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /Connect securely/);
   assert.match(page, /onboarding\.microsoft_profile/);
   assert.doesNotMatch(page, /microsoftWelcomeRequired/);
+  assert.doesNotMatch(page, /className="sidebar"/);
+  assert.doesNotMatch(page, /className="mobile-nav"/);
+  assert.match(page, /autoArrivalAttemptedRef/);
+  assert.match(page, /Ara is arriving/);
   assert.doesNotMatch(page, /Start the conversation/);
   assert.match(page, /calendar_period/);
   assert.match(page, /demoIntroductionInstruction/);

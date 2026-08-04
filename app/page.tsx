@@ -220,17 +220,10 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const defaultIntroduction =
-  "Hey—I’m Ara. It’s really nice to meet you. I’m here to learn how you work and take some weight off your plate. What’s your name?";
+  "Hi. I’m Ara. Welcome to Parallel. You don’t have to carry work alone anymore. I don’t know you yet, and I don’t want to pretend that I do. Would you tell me about your work?";
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Say exactly: "${defaultIntroduction}" Then wait comfortably. If the user is silent, do not speak again until they say something.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
-const startupPhrases = [
-  "You don’t have to carry work alone.",
-  "Protect what deserves your attention.",
-  "Keep the promises that matter.",
-  "Leave work with a little more peace.",
-];
-
 const emptyProfile: UserProfile = {
   morning_briefing_time: "",
   role_and_responsibilities: "",
@@ -350,6 +343,7 @@ function ParallelWordmark() {
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [showStartup, setShowStartup] = useState(true);
+  const [arrivalAttempted, setArrivalAttempted] = useState(false);
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -440,6 +434,7 @@ export default function Home() {
     useRef<MicrosoftMeetingUpdateProposal | null>(null);
   const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
   const initialResponseRef = useRef<string | null>(null);
+  const autoArrivalAttemptedRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
@@ -2951,7 +2946,7 @@ export default function Home() {
     ).matches;
     const startupTimer = window.setTimeout(
       () => setShowStartup(false),
-      prefersReducedMotion ? 450 : 6800,
+      prefersReducedMotion ? 350 : 4700,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -3041,6 +3036,23 @@ export default function Home() {
     // Restore Microsoft once, after the release-aware workspace reset has settled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformReady]);
+
+  useEffect(() => {
+    if (
+      showStartup ||
+      !platformReady ||
+      autoArrivalAttemptedRef.current ||
+      voiceConnected ||
+      peerRef.current
+    ) {
+      return;
+    }
+    autoArrivalAttemptedRef.current = true;
+    setArrivalAttempted(true);
+    void startVoiceSession();
+    // Arrival owns the first conversation attempt. Later sessions remain user-controlled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showStartup, platformReady]);
 
   useEffect(() => {
     return () => {
@@ -3605,23 +3617,12 @@ export default function Home() {
       {showStartup && (
         <div className="startup-screen" role="status" aria-label="Opening Parallel">
           <div className="startup-aura" aria-hidden="true" />
-          <div className="startup-identity">
-            <ParallelMark />
-            <ParallelWordmark />
-          </div>
           <div className="startup-signal" aria-hidden="true">
             <i />
             <i />
           </div>
-          <div className="startup-copy" aria-live="polite">
-            {startupPhrases.map((phrase, index) => (
-              <span
-                key={phrase}
-                style={{ animationDelay: `${0.55 + index * 1.3}s` }}
-              >
-                {phrase}
-              </span>
-            ))}
+          <div className="startup-identity">
+            <ParallelWordmark />
           </div>
         </div>
       )}
@@ -3630,72 +3631,21 @@ export default function Home() {
         <button
           className="brand"
           type="button"
-          aria-label="Parallel home"
-          onClick={() => moveToSection("today")}
+          aria-label="Parallel"
+          onClick={() => moveToSection("ara")}
         >
           <ParallelMark />
           <ParallelWordmark />
         </button>
-        <div className="status-pill">
-          <span className={`status-dot ${microsoftConnected ? "" : "waiting"}`} />
-          {microsoftConnected ? "Microsoft 365 connected" : "Workspace ready"}
-        </div>
         <button
           className={`avatar ${profileOpen ? "active" : ""}`}
-          aria-label="Open profile"
+          aria-label="Open preferences"
           aria-expanded={profileOpen}
           onClick={() => setProfileOpen((open) => !open)}
         >
           {userInitials}
         </button>
       </header>
-
-      <aside className="sidebar">
-        <nav aria-label="Primary navigation">
-          <button
-            className={`nav-item ${activeNav === "today" ? "active" : ""}`}
-            onClick={() => moveToSection("today")}
-          >
-            <span>◫</span>Today
-          </button>
-          <button
-            className={`nav-item ${activeNav === "ara" ? "active" : ""}`}
-            onClick={() => moveToSection("ara")}
-          >
-            <span>◉</span>Ara
-          </button>
-          <button
-            className={`nav-item ${activeNav === "recall" ? "active" : ""}`}
-            onClick={() => moveToSection("recall")}
-          >
-            <span>⌕</span>Recall
-          </button>
-          <button
-            className={`nav-item ${activeNav === "approvals" ? "active" : ""}`}
-            onClick={() => moveToSection("approvals")}
-          >
-            <span>✓</span>Approvals
-            {approvalWaiting && <b>1</b>}
-          </button>
-        </nav>
-        <div className="sidebar-foot">
-          <p>Connected systems</p>
-          <button
-            className="system-row system-button"
-            onClick={
-              microsoftConnected
-                ? refreshMicrosoft
-                : connectMicrosoft
-            }
-            disabled={microsoftActionPending}
-          >
-            <span className="ms-icon">M</span>
-            Microsoft 365
-            <i>{microsoftConnected ? "Live" : "Connect"}</i>
-          </button>
-          <div className="system-row"><span className="sn-icon">S</span>ServiceNow <i>Demo</i></div>
-        </div>
-      </aside>
 
       <section className={`workspace view-${activeNav}`}>
         {profileOpen && (
@@ -4020,25 +3970,25 @@ export default function Home() {
               <span className="voice-status-dot" />
               {stage === "searching" ? "Consulting Recall" : voiceLabel}
             </div>
-            <button
-              className="talk-button"
-              onClick={demonstrateVoiceFallback}
-              disabled={voiceState === "connecting"}
-              aria-label={
-                voiceConnected
-                  ? "End voice conversation with Ara"
-                  : "Start voice conversation with Ara"
-              }
-            >
-              <span className="mic-icon">●</span>
-              {voiceState === "connecting"
-                ? "Connecting…"
-                : voiceConnected
-                  ? "End conversation"
-                  : firstVisit
-                    ? "Meet Ara"
+            {(arrivalAttempted || voiceConnected) && (
+              <button
+                className="talk-button"
+                onClick={demonstrateVoiceFallback}
+                disabled={voiceState === "connecting"}
+                aria-label={
+                  voiceConnected
+                    ? "End voice conversation with Ara"
+                    : "Start voice conversation with Ara"
+                }
+              >
+                <span className="mic-icon">●</span>
+                {voiceState === "connecting"
+                  ? "Ara is arriving…"
+                  : voiceConnected
+                    ? "End conversation"
                     : "Talk to Ara"}
-            </button>
+              </button>
+            )}
             <p className="voice-key">
               <span><i className="key-human" />You</span>
               <span><i className="key-friday" />Ara</span>
@@ -5120,28 +5070,6 @@ export default function Home() {
           <div className="principle"><ParallelMark /><p>Ara proposes.<br/><b>You decide.</b></p></div>
         </section>
       </section>
-      <nav className="mobile-nav" aria-label="Mobile navigation">
-        {(["today", "ara", "recall", "approvals"] as NavSection[]).map(
-          (section) => (
-            <button
-              key={section}
-              className={activeNav === section ? "active" : ""}
-              onClick={() => moveToSection(section)}
-            >
-              <span>
-                {section === "today"
-                  ? "◫"
-                  : section === "ara"
-                    ? "◉"
-                    : section === "recall"
-                      ? "⌕"
-                      : "✓"}
-              </span>
-              {section}
-            </button>
-          ),
-        )}
-      </nav>
       </main>
     </>
   );
