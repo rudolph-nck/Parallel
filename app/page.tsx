@@ -231,14 +231,19 @@ const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause for about 1.5 seconds. "I’m Ara." Pause for about 1.25 seconds. "Welcome to Parallel." Pause for about 1.5 seconds. "I don’t know you yet…" Pause briefly. "…and I don’t want to pretend that I do." Pause for about 1.5 seconds. "Would you tell me about your work?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
-const arrivalVoiceScript = [
-  { words: "Hi.", pauseAfterMs: 1500 },
-  { words: "I’m Ara.", pauseAfterMs: 1250 },
-  { words: "Welcome to Parallel.", pauseAfterMs: 1500 },
-  { words: "I don’t know you yet…", pauseAfterMs: 520 },
-  { words: "…and I don’t want to pretend that I do.", pauseAfterMs: 1500 },
-  { words: "Would you tell me about your work?", pauseAfterMs: 0 },
-] as const;
+const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
+
+Hi.
+
+I’m Ara.
+
+Welcome to Parallel.
+
+I don’t know you yet… and I don’t want to pretend that I do.
+
+Would you tell me about your work?
+
+Begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question carry genuine, unhurried curiosity. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const emptyProfile: UserProfile = {
@@ -448,8 +453,6 @@ export default function Home() {
   const autoArrivalAttemptedRef = useRef(false);
   const arrivalScriptActiveRef = useRef(false);
   const arrivalScriptStartedRef = useRef(false);
-  const arrivalScriptIndexRef = useRef(0);
-  const arrivalScriptTimerRef = useRef<number | null>(null);
   const understandingTimerRef = useRef<number | null>(null);
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
@@ -713,10 +716,6 @@ export default function Home() {
   };
 
   const clearVoiceTimers = () => {
-    if (arrivalScriptTimerRef.current !== null) {
-      window.clearTimeout(arrivalScriptTimerRef.current);
-      arrivalScriptTimerRef.current = null;
-    }
     if (understandingTimerRef.current !== null) {
       window.clearTimeout(understandingTimerRef.current);
       understandingTimerRef.current = null;
@@ -778,7 +777,6 @@ export default function Home() {
     audioSenderRef.current = null;
     arrivalScriptActiveRef.current = false;
     arrivalScriptStartedRef.current = false;
-    arrivalScriptIndexRef.current = 0;
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
     const channel = channelRef.current;
@@ -807,19 +805,22 @@ export default function Home() {
     inputContextRef.current = null;
     outputContextRef.current = null;
 
-    visualRef.current?.style.setProperty("--human-gap", "18px");
-    visualRef.current?.style.setProperty("--human-primary-scale", "1.018");
-    visualRef.current?.style.setProperty("--human-companion-scale", "1.008");
-    visualRef.current?.style.setProperty("--human-primary-light", "1.045");
-    visualRef.current?.style.setProperty("--human-companion-light", "1.02");
-    visualRef.current?.style.setProperty("--human-primary-opacity", ".88");
-    visualRef.current?.style.setProperty("--human-companion-opacity", ".76");
-    visualRef.current?.style.setProperty("--ara-primary-scale", "1.018");
-    visualRef.current?.style.setProperty("--ara-companion-scale", "1.008");
-    visualRef.current?.style.setProperty("--ara-primary-light", "1.05");
-    visualRef.current?.style.setProperty("--ara-companion-light", "1.02");
-    visualRef.current?.style.setProperty("--ara-primary-opacity", ".89");
-    visualRef.current?.style.setProperty("--ara-companion-opacity", ".78");
+    visualRef.current?.style.setProperty("--human-glow-opacity", ".13");
+    visualRef.current?.style.setProperty("--human-glow-scale", ".94");
+    visualRef.current?.style.setProperty("--human-companion-glow-opacity", ".065");
+    visualRef.current?.style.setProperty("--human-companion-glow-scale", ".9");
+    visualRef.current?.style.setProperty("--human-bar-light", "1.055");
+    visualRef.current?.style.setProperty("--human-bar-opacity", ".9");
+    visualRef.current?.style.setProperty("--human-companion-light", "1.015");
+    visualRef.current?.style.setProperty("--human-companion-opacity", ".78");
+    visualRef.current?.style.setProperty("--ara-glow-opacity", ".13");
+    visualRef.current?.style.setProperty("--ara-glow-scale", ".94");
+    visualRef.current?.style.setProperty("--ara-companion-glow-opacity", ".065");
+    visualRef.current?.style.setProperty("--ara-companion-glow-scale", ".9");
+    visualRef.current?.style.setProperty("--ara-bar-light", "1.06");
+    visualRef.current?.style.setProperty("--ara-bar-opacity", ".91");
+    visualRef.current?.style.setProperty("--ara-companion-light", "1.015");
+    visualRef.current?.style.setProperty("--ara-companion-opacity", ".79");
     transcriptRef.current = "";
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -913,6 +914,7 @@ export default function Home() {
     const samples = new Uint8Array(analyser.fftSize);
     let smoothedEnergy = 0;
     let lastVisualUpdate = 0;
+    let peakHoldUntil = 0;
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       return;
@@ -930,25 +932,34 @@ export default function Home() {
         squareSum += centered * centered;
       }
       const rms = Math.sqrt(squareSum / samples.length);
-      const measuredEnergy = Math.min(1, Math.max(0, (rms - 0.018) / 0.1));
-      const response = measuredEnergy > smoothedEnergy ? 0.36 : 0.1;
+      let measuredEnergy = Math.min(1, Math.max(0, (rms - 0.018) / 0.11));
+      measuredEnergy = Math.sqrt(measuredEnergy);
+      if (measuredEnergy > smoothedEnergy) {
+        peakHoldUntil = timestamp + 140;
+      } else if (timestamp < peakHoldUntil) {
+        measuredEnergy = smoothedEnergy;
+      }
+      const response = measuredEnergy > smoothedEnergy ? 0.18 : 0.045;
       smoothedEnergy += (measuredEnergy - smoothedEnergy) * response;
 
       if (presence === "human") {
-        visualRef.current?.style.setProperty("--human-gap", `${18 + smoothedEnergy * 2}px`);
-        visualRef.current?.style.setProperty("--human-primary-scale", `${1.018 + smoothedEnergy * 0.032}`);
-        visualRef.current?.style.setProperty("--human-companion-scale", `${1.008 + smoothedEnergy * 0.012}`);
-        visualRef.current?.style.setProperty("--human-primary-light", `${1.045 + smoothedEnergy * 0.055}`);
-        visualRef.current?.style.setProperty("--human-companion-light", `${1.02 + smoothedEnergy * 0.025}`);
-        visualRef.current?.style.setProperty("--human-primary-opacity", `${0.88 + smoothedEnergy * 0.06}`);
-        visualRef.current?.style.setProperty("--human-companion-opacity", `${0.76 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--human-glow-opacity", `${0.13 + smoothedEnergy * 0.24}`);
+        visualRef.current?.style.setProperty("--human-glow-scale", `${0.94 + smoothedEnergy * 0.1}`);
+        visualRef.current?.style.setProperty("--human-companion-glow-opacity", `${0.065 + smoothedEnergy * 0.045}`);
+        visualRef.current?.style.setProperty("--human-companion-glow-scale", `${0.9 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--human-bar-light", `${1.055 + smoothedEnergy * 0.11}`);
+        visualRef.current?.style.setProperty("--human-bar-opacity", `${0.9 + smoothedEnergy * 0.075}`);
+        visualRef.current?.style.setProperty("--human-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--human-companion-opacity", `${0.78 + smoothedEnergy * 0.035}`);
       } else {
-        visualRef.current?.style.setProperty("--ara-primary-scale", `${1.018 + smoothedEnergy * 0.032}`);
-        visualRef.current?.style.setProperty("--ara-companion-scale", `${1.008 + smoothedEnergy * 0.012}`);
-        visualRef.current?.style.setProperty("--ara-primary-light", `${1.05 + smoothedEnergy * 0.05}`);
-        visualRef.current?.style.setProperty("--ara-companion-light", `${1.02 + smoothedEnergy * 0.025}`);
-        visualRef.current?.style.setProperty("--ara-primary-opacity", `${0.89 + smoothedEnergy * 0.055}`);
-        visualRef.current?.style.setProperty("--ara-companion-opacity", `${0.78 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.13 + smoothedEnergy * 0.24}`);
+        visualRef.current?.style.setProperty("--ara-glow-scale", `${0.94 + smoothedEnergy * 0.1}`);
+        visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.065 + smoothedEnergy * 0.045}`);
+        visualRef.current?.style.setProperty("--ara-companion-glow-scale", `${0.9 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--ara-bar-light", `${1.06 + smoothedEnergy * 0.105}`);
+        visualRef.current?.style.setProperty("--ara-bar-opacity", `${0.91 + smoothedEnergy * 0.065}`);
+        visualRef.current?.style.setProperty("--ara-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--ara-companion-opacity", `${0.79 + smoothedEnergy * 0.035}`);
       }
     };
 
@@ -2662,21 +2673,22 @@ export default function Home() {
     }
   };
 
-  const sendArrivalCue = (channel: RTCDataChannel, index: number) => {
-    const cue = arrivalVoiceScript[index];
-    if (!cue || channel.readyState !== "open") return;
+  const sendArrivalPerformance = (channel: RTCDataChannel) => {
+    if (channel.readyState !== "open") return;
 
     arrivalScriptActiveRef.current = true;
-    arrivalScriptIndexRef.current = index;
     responseCompletedRef.current = false;
     outputAudioDrainedRef.current = false;
+    transcriptRef.current = "";
+    setFridayTranscript("");
+    setArrivalCaption("");
     setVoiceState("thinking");
     channel.send(
       JSON.stringify({
         type: "response.create",
         response: {
           input: [],
-          instructions: `Speak only these exact words in a close, calm, warm, composed, unhurried voice: ${JSON.stringify(cue.words)} Do not add, remove, or rephrase any words. Do not sound theatrical or promotional.`,
+          instructions: arrivalVoicePerformance,
         },
       }),
     );
@@ -2752,7 +2764,7 @@ export default function Home() {
     initialResponseRef.current = null;
 
     if (opening === demoIntroductionInstruction) {
-      sendArrivalCue(channel, 0);
+      sendArrivalPerformance(channel);
     } else {
       const knownPreferences = Object.entries(userProfile)
         .filter(([, value]) => value.trim())
@@ -2800,7 +2812,7 @@ export default function Home() {
     ) {
       setArrivalNeedsRecovery(false);
       setArrivalRecoveryKind(null);
-      sendArrivalCue(channelRef.current, arrivalScriptIndexRef.current);
+      sendArrivalPerformance(channelRef.current);
       return;
     }
 
@@ -2869,9 +2881,7 @@ export default function Home() {
         setVoiceState("speaking");
         if (arrivalScriptActiveRef.current) {
           setMicrophoneEnabled(false);
-          setArrivalCaption(
-            arrivalVoiceScript[arrivalScriptIndexRef.current]?.words ?? "",
-          );
+          setArrivalCaption("");
         }
         setVoiceNote("Ara is responding — jump in anytime");
         break;
@@ -2988,24 +2998,13 @@ export default function Home() {
       case "output_audio_buffer.stopped":
         if (arrivalScriptActiveRef.current) {
           outputAudioDrainedRef.current = true;
-          const currentIndex = arrivalScriptIndexRef.current;
-          const cue = arrivalVoiceScript[currentIndex];
-          const nextIndex = currentIndex + 1;
-          if (nextIndex < arrivalVoiceScript.length) {
-            setVoiceState("idle");
-            arrivalScriptTimerRef.current = window.setTimeout(() => {
-              arrivalScriptTimerRef.current = null;
-              sendArrivalCue(channel, nextIndex);
-            }, cue.pauseAfterMs);
-          } else {
-            arrivalScriptActiveRef.current = false;
-            moveConversationState("AUDIO_DRAINED");
-            setVoiceState("synced");
-            understandingTimerRef.current = window.setTimeout(() => {
-              understandingTimerRef.current = null;
-              void beginArrivalListening();
-            }, 360);
-          }
+          arrivalScriptActiveRef.current = false;
+          moveConversationState("AUDIO_DRAINED");
+          setVoiceState("synced");
+          understandingTimerRef.current = window.setTimeout(() => {
+            understandingTimerRef.current = null;
+            void beginArrivalListening();
+          }, 520);
           break;
         }
         if (audioDrainGuardTimerRef.current !== null) {
@@ -3063,7 +3062,6 @@ export default function Home() {
     clearVoiceTimers();
     arrivalScriptActiveRef.current = false;
     arrivalScriptStartedRef.current = false;
-    arrivalScriptIndexRef.current = 0;
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
     toolPendingCountRef.current = 0;
@@ -3373,9 +3371,6 @@ export default function Home() {
       }
       if (idleTimerRef.current !== null) {
         window.clearTimeout(idleTimerRef.current);
-      }
-      if (arrivalScriptTimerRef.current !== null) {
-        window.clearTimeout(arrivalScriptTimerRef.current);
       }
       if (understandingTimerRef.current !== null) {
         window.clearTimeout(understandingTimerRef.current);
