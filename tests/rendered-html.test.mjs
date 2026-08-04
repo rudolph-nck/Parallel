@@ -55,7 +55,7 @@ test("server-renders the Parallel Ara dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig] = await Promise.all([
+  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig, onboardingMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
@@ -63,6 +63,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
     readFile(new URL("../app/lib/microsoft-365.ts", import.meta.url), "utf8"),
     readFile(new URL("../.gitignore", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0003_normal_the_enforcers.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /new RTCPeerConnection\(\)/);
@@ -97,10 +98,19 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /first-moment-atmosphere-human/);
   assert.match(styles, /--ara-ambient-opacity/);
   assert.match(styles, /--human-ambient-opacity/);
+  assert.match(styles, /--ara-channel-opacity/);
+  assert.match(styles, /--human-channel-opacity/);
+  assert.match(styles, /transform 5\.05s/);
+  assert.match(styles, /\.ara-color-awake \.first-moment-bars i:first-child::after/);
+  assert.match(styles, /\.human-color-awake \.first-moment-bars i:last-child::after/);
+  assert.doesNotMatch(styles, /arrival-illuminating \.first-moment-bars i::after/);
   assert.match(styles, /--ara-line-length/);
   assert.match(styles, /--human-line-length/);
   assert.match(styles, /--ara-halo/);
   assert.match(page, /arrival-caption-toggle/);
+  assert.match(page, /setAraBarAwake\(true\)/);
+  assert.match(page, /setHumanBarAwake\(true\)/);
+  assert.match(page, /first-moment-integration/);
   assert.match(page, /CAPTIONS_STORAGE_KEY/);
   assert.match(page, /arrivalRecoveryKind/);
   assert.match(page, /first-moment-autoplay-gate/);
@@ -203,9 +213,13 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /opening asks "What’s your name\?"/);
   assert.match(route, /one and only post-name welcome/);
   assert.match(route, /Every spoken turn must add something new/);
-  assert.match(route, /phrases are forbidden during the first meeting/);
-  assert.match(route, /grounded in the Book of Ara/);
-  assert.match(route, /Familiarity is not access/);
+  assert.match(route, /following\s+phrases\s+are forbidden during the first meeting/);
+  assert.match(route, /Ground the story in the Book of Ara/);
+  assert.match(route, /Familiarity is\s+not access/);
+  assert.match(route, /Never ask which single\s+channel is the problem/);
+  assert.match(route, /what that burden costs them/);
+  assert.match(route, /I think I have what I need for now/);
+  assert.match(route, /systems:[\s\S]*communication_channels:[\s\S]*systemic_pressure:[\s\S]*protected_work:/);
   assert.match(route, /small integration handoff/);
   assert.match(route, /meet, connect,[\s\S]*observe quietly,[\s\S]*return later with findings/);
   assert.match(route, /calendar_period/);
@@ -258,7 +272,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /quiet memory, never a conversational agenda/i);
   assert.match(route, /Answer the question the user actually asked/);
   assert.match(route, /Discovery is a relationship, not an intake interview/);
-  assert.match(route, /A role like that usually means/);
+  assert.match(route, /Build the story in four layers/);
   assert.match(route, /observe-first posture/);
   assert.match(route, /does not want to change anything yet/);
   assert.match(route, /what do you do there\?/i);
@@ -281,6 +295,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(platformRoute, /lifecycle_state = 'NEW'/);
   assert.match(platformRoute, /first_scan_json = NULL/);
   assert.match(platformRoute, /microsoftConnectionPreserved: true/);
+  assert.match(platformRoute, /systems_json/);
+  assert.match(platformRoute, /communication_channels_json/);
+  assert.match(platformRoute, /systemic_pressure/);
+  assert.match(platformRoute, /protected_work/);
+  assert.match(onboardingMigration, /ADD `systems_json`/);
+  assert.match(onboardingMigration, /ADD `communication_channels_json`/);
 
   assert.match(viteConfig, /createHash\("sha256"\)/);
   assert.match(viteConfig, /function buildReleaseId/);

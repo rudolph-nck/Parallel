@@ -71,7 +71,7 @@ async function resetOnboardingForRelease(
   if (existingReset) return false;
   const now = Date.now();
   await database.batch([
-    database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = NULL, full_name = NULL, company = NULL, job_title = NULL, role_summary = NULL, team_size = NULL, responsibilities_json = NULL, biggest_pressure = NULL, first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
+    database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = '', full_name = '', company = '', job_title = '', role_summary = '', team_size = NULL, responsibilities_json = '[]', systems_json = '[]', communication_channels_json = '[]', biggest_pressure = '', systemic_pressure = '', protected_work = '', first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
     database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...identityBindings(owner), "onboarding.release_reset", "onboarding_profile", `onboarding_${owner.userAccountId}`, releaseId, now),
   ]);
   return true;
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     const releaseReset = await resetOnboardingForRelease(database, owner, releaseId);
     const [profile, onboarding, policies, attention, commitments, usage, capabilities, recentMeetingKnowledge] = await Promise.all([
       database.prepare("SELECT morning_briefing_time, role_and_responsibilities, current_priorities, communication_style, proactivity, interruption_threshold, accountability_style, delegation_boundaries FROM decision_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first(),
-      database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, responsibilities_json, biggest_pressure, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
+      database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
       database.prepare("SELECT key, value, scope, precedence FROM policy_rules WHERE tenant_id = ? ORDER BY precedence DESC, key ASC").bind(owner.tenantId).all(),
       database.prepare("SELECT id, source, external_id AS externalId, kind, title, summary, urgency, state, reason, occurred_at AS occurredAt FROM attention_items WHERE tenant_id = ? AND user_account_id = ? AND state = 'open' ORDER BY CASE urgency WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, occurred_at DESC LIMIT 12").bind(owner.tenantId, owner.userAccountId).all(),
       database.prepare("SELECT id, title, owner_label AS ownerLabel, due_at AS dueAt, status, source, feedback FROM commitments WHERE tenant_id = ? AND user_account_id = ? ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'snoozed' THEN 1 ELSE 2 END, due_at ASC, created_at DESC LIMIT 30").bind(owner.tenantId, owner.userAccountId).all(),
@@ -113,7 +113,11 @@ export async function GET(request: Request) {
         role_summary: onboarding?.role_summary ?? "",
         team_size: onboarding?.team_size ?? null,
         responsibilities: parseJson<string[]>(onboarding?.responsibilities_json, []),
+        systems: parseJson<string[]>(onboarding?.systems_json, []),
+        communication_channels: parseJson<string[]>(onboarding?.communication_channels_json, []),
         biggest_pressure: onboarding?.biggest_pressure ?? "",
+        systemic_pressure: onboarding?.systemic_pressure ?? "",
+        protected_work: onboarding?.protected_work ?? "",
         microsoft_connected: Boolean(onboarding?.microsoft_connected),
         first_day_scan: parseJson<Record<string, unknown> | null>(onboarding?.first_scan_json, null),
         completed_at: onboarding?.completed_at ?? null,
@@ -197,19 +201,53 @@ export async function POST(request: Request) {
       const jobTitle = String(body.jobTitle ?? "").trim().slice(0, 180);
       const roleSummary = String(body.roleSummary ?? "").trim().slice(0, 1_600);
       const biggestPressure = String(body.biggestPressure ?? "").trim().slice(0, 600);
+      const systemicPressure = String(body.systemicPressure ?? "").trim().slice(0, 1_200);
+      const protectedWork = String(body.protectedWork ?? "").trim().slice(0, 600);
       const responsibilities = Array.isArray(body.responsibilities)
         ? body.responsibilities.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 20)
+        : [];
+      const systems = Array.isArray(body.systems)
+        ? body.systems.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 20)
+        : [];
+      const communicationChannels = Array.isArray(body.communicationChannels)
+        ? body.communicationChannels.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 20)
         : [];
       const teamSize = typeof body.teamSize === "number" && Number.isFinite(body.teamSize)
         ? Math.max(0, Math.min(10_000, Math.trunc(body.teamSize)))
         : null;
-      if (!company && !jobTitle && !roleSummary) {
+      const existing = await database
+        .prepare("SELECT company, job_title, role_summary, team_size, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1")
+        .bind(owner.tenantId, owner.userAccountId)
+        .first<Record<string, unknown>>();
+      const existingArray = (value: unknown) => {
+        if (typeof value !== "string") return [] as string[];
+        try {
+          const parsed = JSON.parse(value) as unknown;
+          return Array.isArray(parsed)
+            ? parsed.filter((item): item is string => typeof item === "string")
+            : [];
+        } catch {
+          return [] as string[];
+        }
+      };
+      const mergedCompany = company || String(existing?.company ?? "");
+      const mergedJobTitle = jobTitle || String(existing?.job_title ?? "");
+      const mergedRoleSummary = roleSummary || String(existing?.role_summary ?? "");
+      const mergedTeamSize = teamSize ?? (typeof existing?.team_size === "number" ? existing.team_size : null);
+      const mergedResponsibilities = responsibilities.length ? responsibilities : existingArray(existing?.responsibilities_json);
+      const mergedSystems = systems.length ? systems : existingArray(existing?.systems_json);
+      const mergedCommunicationChannels = communicationChannels.length ? communicationChannels : existingArray(existing?.communication_channels_json);
+      const mergedBiggestPressure = biggestPressure || String(existing?.biggest_pressure ?? "");
+      const mergedSystemicPressure = systemicPressure || String(existing?.systemic_pressure ?? "");
+      const mergedProtectedWork = protectedWork || String(existing?.protected_work ?? "");
+      if (!mergedCompany && !mergedJobTitle && !mergedRoleSummary) {
         return Response.json({ error: "Work context is required." }, { status: 400 });
       }
-      const roleAndResponsibilities = [jobTitle && `Role: ${jobTitle}`, company && `Organization: ${company}`, roleSummary, responsibilities.length ? `Responsibilities: ${responsibilities.join("; ")}` : ""].filter(Boolean).join("\n");
+      const roleAndResponsibilities = [mergedJobTitle && `Role: ${mergedJobTitle}`, mergedCompany && `Organization: ${mergedCompany}`, mergedRoleSummary, mergedResponsibilities.length ? `Responsibilities: ${mergedResponsibilities.join("; ")}` : "", mergedSystems.length ? `Systems: ${mergedSystems.join("; ")}` : "", mergedCommunicationChannels.length ? `Communication channels: ${mergedCommunicationChannels.join("; ")}` : ""].filter(Boolean).join("\n");
+      const durablePressure = mergedSystemicPressure || mergedBiggestPressure;
       await database.batch([
-        database.prepare("UPDATE onboarding_profiles SET company = ?, job_title = ?, role_summary = ?, team_size = ?, responsibilities_json = ?, biggest_pressure = ?, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' WHEN microsoft_connected = 1 THEN 'CONNECTION_READY' ELSE 'WORK_CONTEXT_LEARNED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(company, jobTitle, roleSummary, teamSize, JSON.stringify(responsibilities), biggestPressure, now, owner.tenantId, owner.userAccountId),
-        database.prepare("UPDATE decision_profiles SET role_and_responsibilities = ?, current_priorities = CASE WHEN ? = '' THEN current_priorities ELSE ? END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, biggestPressure, biggestPressure, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE onboarding_profiles SET company = ?, job_title = ?, role_summary = ?, team_size = ?, responsibilities_json = ?, systems_json = ?, communication_channels_json = ?, biggest_pressure = ?, systemic_pressure = ?, protected_work = ?, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' WHEN microsoft_connected = 1 THEN 'CONNECTION_READY' ELSE 'WORK_CONTEXT_LEARNED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(mergedCompany, mergedJobTitle, mergedRoleSummary, mergedTeamSize, JSON.stringify(mergedResponsibilities), JSON.stringify(mergedSystems), JSON.stringify(mergedCommunicationChannels), mergedBiggestPressure, mergedSystemicPressure, mergedProtectedWork, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE decision_profiles SET role_and_responsibilities = ?, current_priorities = CASE WHEN ? = '' THEN current_priorities ELSE ? END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, durablePressure, durablePressure, now, owner.tenantId, owner.userAccountId),
         database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.work_context_learned", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Work context learned during first meeting", now),
       ]);
       return Response.json({ saved: true });

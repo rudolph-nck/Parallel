@@ -26,6 +26,9 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - conversational first-meeting memory that answers the user's question before advancing a lifecycle stage and lets the Microsoft scan run quietly in the background.
 - a release-aware private-demo reset that starts each newly published version with a fresh Ara introduction while preserving Microsoft authorization.
 - a simplified Ara conversation canvas with Ara centered above focused, task-specific views; dashboard-style operating information remains on Today.
+- a whole-system first-relationship memory that preserves named systems, communication channels, cumulative pressure, and the meaningful work that noise displaces;
+- first-speech visual identity in which Ara's teal and the member's blue are carried from their respective voice atmospheres into persistent Parallel bars;
+- a minimal Microsoft 365 connection control that appears inside Ara's shared space only when the conversation earns it.
 
 ## Runtime and boundaries
 
@@ -57,7 +60,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 6. Desktop requests are durable and explicitly non-executing; device enrollment, signatures, application registry, and the local companion remain.
 7. Pricing reconciliation still needs a versioned server-side rate table.
 8. Recall remains connected search plus declared and meeting memory, not yet the blueprint's complete work graph.
-9. The first-day scan can run quietly during the first conversation, but it does not yet classify Teams messages, crawl every email body, or run continuously after the session.
+9. The first-day scan can run quietly after the connection handoff, but it does not yet classify Teams messages, crawl every email body, or run continuously after the session.
 10. Mobile push, email handoff, and Ara-initiated phone or Teams calls need a verified-device handoff service and background execution plane. A Teams voice participant additionally requires a separate calling bot and application-hosted media service.
 
 ## Naming decision
@@ -66,4 +69,4 @@ The blueprint uses both Aura and Ara. The product name remains **Ara**, matching
 
 ## Recommended order
 
-Next, use the first-day readout to complete one real item during onboarding, then deepen knowledge-aware meeting creation and transcript evidence. Production tenant membership, verified-device handoff, and the signed desktop companion follow. Background monitoring should begin only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.
+Next, build the bounded multi-day observation worker and verified follow-up scheduler so Ara can genuinely create the later review invitation she describes. Then deepen knowledge-aware meeting creation and transcript evidence. Production tenant membership, verified-device handoff, and the signed desktop companion follow. Background monitoring should begin only after queue, retry, subscription-renewal, and tenant-isolation evals are in place.

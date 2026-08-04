@@ -17,7 +17,7 @@ The lifecycle is stored per tenant and user in D1. The browser voice session is 
 
 The lifecycle is persistence, not a dialogue script. It records what Ara already knows, but it does not dictate the next sentence. Ara must answer the user's actual question before saving or advancing a stage, may follow a tangent, and may defer workspace setup until the transition is natural.
 
-Ara uses narrow Realtime function tools to save identity and work context, display secure Microsoft sign-in, run the first-day scan, and complete the first meeting. Business state remains in the application rather than in the model context.
+Ara uses narrow Realtime function tools to save identity and the evolving whole-system work context, display secure Microsoft sign-in, run the first-day scan, and complete the first meeting. Work context includes named systems, communication channels, cumulative pressure, and the meaningful work being displaced. Business state remains in the application rather than in the model context.
 
 When Microsoft is already connected, the first-day scan runs through a bounded client-side background controller. The tool returns immediately, Ara continues speaking with the user, and a separate check retrieves the result on a later suitable turn. The controller deduplicates concurrent starts and contains failures so a slow Microsoft read cannot stall the conversation.
 

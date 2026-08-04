@@ -28,7 +28,11 @@ export type OnboardingProfile = {
   role_summary: string;
   team_size: number | null;
   responsibilities: string[];
+  systems: string[];
+  communication_channels: string[];
   biggest_pressure: string;
+  systemic_pressure: string;
+  protected_work: string;
   microsoft_connected: boolean;
   first_day_scan: FirstDayScan | null;
   completed_at: number | null;
