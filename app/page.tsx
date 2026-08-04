@@ -95,6 +95,9 @@ type VoiceState =
   | "speaking"
   | "synced"
   | "wrapping";
+
+type ArrivalPhase = "black" | "revealing" | "breathing" | "settled";
+type ArrivalRecoveryKind = "autoplay" | "microphone" | "connection" | null;
 type ApprovalMethod = "voice" | "button" | null;
 type MicrosoftStatus =
   | "checking"
@@ -220,7 +223,16 @@ const prototypeDocument: RecallDocument = {
 
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
-const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Speak slowly and say exactly these four lines with a calm pause between each one: "Hi. I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet—and I don’t want to pretend that I do." Pause. "Would you tell me about your work?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
+const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause for about 1.5 seconds. "I’m Ara." Pause for about 1.25 seconds. "Welcome to Parallel." Pause for about 1.5 seconds. "I don’t know you yet…" Pause briefly. "…and I don’t want to pretend that I do." Pause for about 1.5 seconds. "Would you tell me about your work?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
+const arrivalVoiceScript = [
+  { words: "Hi.", pauseAfterMs: 1500 },
+  { words: "I’m Ara.", pauseAfterMs: 1250 },
+  { words: "Welcome to Parallel.", pauseAfterMs: 1500 },
+  { words: "I don’t know you yet…", pauseAfterMs: 520 },
+  { words: "…and I don’t want to pretend that I do.", pauseAfterMs: 1500 },
+  { words: "Would you tell me about your work?", pauseAfterMs: 0 },
+] as const;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const emptyProfile: UserProfile = {
@@ -236,6 +248,7 @@ const emptyProfile: UserProfile = {
 
 const buildFirstMeetingInstruction = (
   onboarding: OnboardingProfile | null | undefined,
+  microsoftConnected: boolean,
 ) => {
   if (!onboarding || onboarding.lifecycle_state === "NEW") {
     return demoIntroductionInstruction;
@@ -327,8 +340,13 @@ function ParallelWordmark() {
 export default function Home() {
   const [stage, setStage] = useState<Stage>("briefing");
   const [showStartup, setShowStartup] = useState(true);
+  const [arrivalPhase, setArrivalPhase] = useState<ArrivalPhase>("black");
   const [arrivalAttempted, setArrivalAttempted] = useState(false);
   const [arrivalNeedsRecovery, setArrivalNeedsRecovery] = useState(false);
+  const [arrivalRecoveryKind, setArrivalRecoveryKind] =
+    useState<ArrivalRecoveryKind>(null);
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const [arrivalCaption, setArrivalCaption] = useState("");
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -396,10 +414,12 @@ export default function Home() {
     getServerDay,
   );
   const visualRef = useRef<HTMLDivElement>(null);
+  const recoveryButtonRef = useRef<HTMLButtonElement>(null);
   const platformWorkspaceRef = useRef<PlatformWorkspace | null>(null);
   const stageRef = useRef<Stage>("briefing");
   const streamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
+  const audioSenderRef = useRef<RTCRtpSender | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const inputContextRef = useRef<AudioContext | null>(null);
@@ -420,6 +440,13 @@ export default function Home() {
   const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
   const initialResponseRef = useRef<string | null>(null);
   const autoArrivalAttemptedRef = useRef(false);
+  const arrivalScriptActiveRef = useRef(false);
+  const arrivalScriptStartedRef = useRef(false);
+  const arrivalScriptIndexRef = useRef(0);
+  const arrivalScriptTimerRef = useRef<number | null>(null);
+  const understandingTimerRef = useRef<number | null>(null);
+  const arrivalChannelReadyRef = useRef(false);
+  const arrivalAudioReadyRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
@@ -680,6 +707,14 @@ export default function Home() {
   };
 
   const clearVoiceTimers = () => {
+    if (arrivalScriptTimerRef.current !== null) {
+      window.clearTimeout(arrivalScriptTimerRef.current);
+      arrivalScriptTimerRef.current = null;
+    }
+    if (understandingTimerRef.current !== null) {
+      window.clearTimeout(understandingTimerRef.current);
+      understandingTimerRef.current = null;
+    }
     if (closingTimerRef.current !== null) {
       window.clearTimeout(closingTimerRef.current);
       closingTimerRef.current = null;
@@ -734,6 +769,12 @@ export default function Home() {
     if (sessionAuditRef.current) moveConversationState("BEGIN_DISCONNECT");
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    audioSenderRef.current = null;
+    arrivalScriptActiveRef.current = false;
+    arrivalScriptStartedRef.current = false;
+    arrivalScriptIndexRef.current = 0;
+    arrivalChannelReadyRef.current = false;
+    arrivalAudioReadyRef.current = false;
     const channel = channelRef.current;
     channelRef.current = null;
     channel?.close();
@@ -760,10 +801,10 @@ export default function Home() {
     inputContextRef.current = null;
     outputContextRef.current = null;
 
-    visualRef.current?.style.setProperty("--human-gap", "18px");
-    visualRef.current?.style.setProperty("--human-shift", "0px");
-    visualRef.current?.style.setProperty("--ara-scale", ".88");
-    visualRef.current?.style.setProperty("--ara-opacity", ".48");
+    visualRef.current?.style.setProperty("--human-gap", "14px");
+    visualRef.current?.style.setProperty("--human-luminance", "1");
+    visualRef.current?.style.setProperty("--ara-luminance", "1");
+    visualRef.current?.style.setProperty("--ara-opacity", ".82");
     transcriptRef.current = "";
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -848,6 +889,7 @@ export default function Home() {
   ) => {
     const audioContext = new AudioContext();
     contextRef.current = audioContext;
+    void audioContext.resume().catch(() => undefined);
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
@@ -861,11 +903,11 @@ export default function Home() {
         levels.reduce((total, level) => total + level, 0) / levels.length;
       const energy = Math.min(1, average / 58);
       if (presence === "human") {
-        visualRef.current?.style.setProperty("--human-gap", `${17 + energy * 3}px`);
-        visualRef.current?.style.setProperty("--human-shift", `${energy * 1.5}px`);
+        visualRef.current?.style.setProperty("--human-gap", `${14 + energy * 2}px`);
+        visualRef.current?.style.setProperty("--human-luminance", `${1 + energy * 0.045}`);
       } else {
-        visualRef.current?.style.setProperty("--ara-scale", `${0.88 + energy * 0.09}`);
-        visualRef.current?.style.setProperty("--ara-opacity", `${0.48 + energy * 0.2}`);
+        visualRef.current?.style.setProperty("--ara-luminance", `${1 + energy * 0.06}`);
+        visualRef.current?.style.setProperty("--ara-opacity", `${0.82 + energy * 0.08}`);
       }
       frameRef.current = window.requestAnimationFrame(readLevel);
     };
@@ -2580,6 +2622,151 @@ export default function Home() {
     }
   };
 
+  const sendArrivalCue = (channel: RTCDataChannel, index: number) => {
+    const cue = arrivalVoiceScript[index];
+    if (!cue || channel.readyState !== "open") return;
+
+    arrivalScriptActiveRef.current = true;
+    arrivalScriptIndexRef.current = index;
+    responseCompletedRef.current = false;
+    outputAudioDrainedRef.current = false;
+    setVoiceState("thinking");
+    channel.send(
+      JSON.stringify({
+        type: "response.create",
+        response: {
+          input: [],
+          instructions: `Speak only these exact words in a close, calm, warm, composed, unhurried voice: ${JSON.stringify(cue.words)} Do not add, remove, or rephrase any words. Do not sound theatrical or promotional.`,
+        },
+      }),
+    );
+  };
+
+  const beginArrivalListening = async () => {
+    if (streamRef.current?.getAudioTracks().some((track) => track.readyState === "live")) {
+      setMicrophoneEnabled(true);
+      setArrivalNeedsRecovery(false);
+      setArrivalRecoveryKind(null);
+      setVoiceState("listening");
+      return;
+    }
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("This browser needs microphone support to continue.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
+      const track = stream.getAudioTracks()[0];
+      if (!track || !audioSenderRef.current) {
+        stream.getTracks().forEach((item) => item.stop());
+        throw new Error("The microphone connection is not ready yet.");
+      }
+      await audioSenderRef.current.replaceTrack(track);
+      streamRef.current = stream;
+      startLevelVisualizer(stream, "human", inputContextRef, inputAnimationRef);
+      setMicrophoneEnabled(true);
+      setArrivalNeedsRecovery(false);
+      setArrivalRecoveryKind(null);
+      setVoiceState("listening");
+      setVoiceNote("Ara is listening");
+    } catch (error) {
+      const note =
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Microphone access is needed when you’re ready to answer."
+          : error instanceof Error
+            ? error.message
+            : "The microphone could not start.";
+      setArrivalRecoveryKind("microphone");
+      setArrivalNeedsRecovery(true);
+      setVoiceState("idle");
+      setVoiceNote(note);
+    }
+  };
+
+  const startPreparedOpening = () => {
+    const channel = channelRef.current;
+    if (
+      !channel ||
+      channel.readyState !== "open" ||
+      !arrivalChannelReadyRef.current ||
+      !arrivalAudioReadyRef.current ||
+      arrivalScriptStartedRef.current
+    ) {
+      return;
+    }
+
+    arrivalScriptStartedRef.current = true;
+    const opening =
+      initialResponseRef.current ??
+      buildFirstMeetingInstruction(
+        platformWorkspaceRef.current?.onboarding,
+        Boolean(microsoftSnapshotRef.current),
+      );
+    initialResponseRef.current = null;
+
+    if (opening === demoIntroductionInstruction) {
+      sendArrivalCue(channel, 0);
+    } else {
+      const knownPreferences = Object.entries(userProfile)
+        .filter(([, value]) => value.trim())
+        .map(([category, value]) => `${category}: ${value}`)
+        .join("; ");
+      channel.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            input: [],
+            instructions:
+              knownPreferences
+                ? `${opening} Known preferences to respect: ${knownPreferences}.`
+                : opening,
+          },
+        }),
+      );
+    }
+    if (firstVisit) setFirstVisit(false);
+  };
+
+  const continueArrival = async () => {
+    if (arrivalRecoveryKind === "autoplay" && remoteAudioRef.current) {
+      try {
+        await remoteAudioRef.current.play();
+        arrivalAudioReadyRef.current = true;
+        setArrivalNeedsRecovery(false);
+        setArrivalRecoveryKind(null);
+        startPreparedOpening();
+      } catch {
+        setVoiceNote("Use Continue when your browser is ready to play Ara’s voice.");
+      }
+      return;
+    }
+
+    if (arrivalRecoveryKind === "microphone" && peerRef.current) {
+      await beginArrivalListening();
+      return;
+    }
+
+    if (
+      arrivalRecoveryKind === "connection" &&
+      peerRef.current &&
+      channelRef.current?.readyState === "open"
+    ) {
+      setArrivalNeedsRecovery(false);
+      setArrivalRecoveryKind(null);
+      sendArrivalCue(channelRef.current, arrivalScriptIndexRef.current);
+      return;
+    }
+
+    void startVoiceSession(demoIntroductionInstruction);
+  };
+
   const handleRealtimeEvent = (
     realtimeEvent: MessageEvent<string>,
     channel: RTCDataChannel,
@@ -2614,6 +2801,7 @@ export default function Home() {
           moveConversationState("USER_SPEECH_STARTED");
         }
         transcriptRef.current = "";
+        setArrivalCaption("");
         unresolvedQuestionRef.current = false;
         setFridayTranscript("");
         setVoiceState("listening");
@@ -2639,6 +2827,12 @@ export default function Home() {
       case "response.output_audio.delta":
         setMicrophoneEnabled(true);
         setVoiceState("speaking");
+        if (arrivalScriptActiveRef.current) {
+          setMicrophoneEnabled(false);
+          setArrivalCaption(
+            arrivalVoiceScript[arrivalScriptIndexRef.current]?.words ?? "",
+          );
+        }
         setVoiceNote("Ara is responding — jump in anytime");
         break;
       case "response.output_audio_transcript.delta":
@@ -2666,6 +2860,14 @@ export default function Home() {
           event.response?.status &&
           event.response.status !== "completed"
         ) {
+          if (arrivalScriptActiveRef.current) {
+            arrivalScriptActiveRef.current = false;
+            setArrivalRecoveryKind("connection");
+            setArrivalNeedsRecovery(true);
+            setVoiceState("idle");
+            setVoiceNote("Ara’s voice was interrupted.");
+            return;
+          }
           if (
             userInterruptedResponseRef.current &&
             event.response.status === "cancelled"
@@ -2684,6 +2886,11 @@ export default function Home() {
           setMicrophoneEnabled(true);
           setVoiceState("listening");
           setVoiceNote("Ara's response was interrupted. Please try again.");
+          return;
+        }
+
+        if (arrivalScriptActiveRef.current) {
+          responseCompletedRef.current = true;
           return;
         }
 
@@ -2730,7 +2937,6 @@ export default function Home() {
             scheduleAutonomousDisconnect();
           }, conversationPolicy.maxAudioDrainWaitMs);
         } else {
-          setVoiceState("synced");
           setVoiceNote(
             approvalPendingRef.current
               ? "Your call — Ara is waiting for your decision"
@@ -2740,6 +2946,28 @@ export default function Home() {
         break;
       }
       case "output_audio_buffer.stopped":
+        if (arrivalScriptActiveRef.current) {
+          outputAudioDrainedRef.current = true;
+          const currentIndex = arrivalScriptIndexRef.current;
+          const cue = arrivalVoiceScript[currentIndex];
+          const nextIndex = currentIndex + 1;
+          if (nextIndex < arrivalVoiceScript.length) {
+            setVoiceState("idle");
+            arrivalScriptTimerRef.current = window.setTimeout(() => {
+              arrivalScriptTimerRef.current = null;
+              sendArrivalCue(channel, nextIndex);
+            }, cue.pauseAfterMs);
+          } else {
+            arrivalScriptActiveRef.current = false;
+            moveConversationState("AUDIO_DRAINED");
+            setVoiceState("synced");
+            understandingTimerRef.current = window.setTimeout(() => {
+              understandingTimerRef.current = null;
+              void beginArrivalListening();
+            }, 360);
+          }
+          break;
+        }
         if (audioDrainGuardTimerRef.current !== null) {
           window.clearTimeout(audioDrainGuardTimerRef.current);
           audioDrainGuardTimerRef.current = null;
@@ -2756,13 +2984,21 @@ export default function Home() {
           moveConversationState("AUDIO_DRAINED");
         }
         setMicrophoneEnabled(true);
-        setVoiceState("listening");
+        setVoiceState("synced");
         setVoiceNote(
           approvalPendingRef.current
             ? "How does that sound?"
             : "Speak naturally — Ara is listening",
         );
-        scheduleIdleDisconnect();
+        understandingTimerRef.current = window.setTimeout(() => {
+          understandingTimerRef.current = null;
+          if (streamRef.current) {
+            setVoiceState("listening");
+            scheduleIdleDisconnect();
+          } else {
+            void beginArrivalListening();
+          }
+        }, 360);
         break;
       case "error":
         console.error("Realtime voice event error.", event.error);
@@ -2779,12 +3015,17 @@ export default function Home() {
 
   const startVoiceSession = async (
     openingInstruction?: string,
-    includeKnownPreferences = true,
   ) => {
     if (peerRef.current || voiceState === "connecting") return;
 
     setArrivalNeedsRecovery(false);
+    setArrivalRecoveryKind(null);
     clearVoiceTimers();
+    arrivalScriptActiveRef.current = false;
+    arrivalScriptStartedRef.current = false;
+    arrivalScriptIndexRef.current = 0;
+    arrivalChannelReadyRef.current = false;
+    arrivalAudioReadyRef.current = false;
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
     autonomousCloseEligibleRef.current = false;
@@ -2803,6 +3044,10 @@ export default function Home() {
     try {
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
+      const audioTransceiver = peer.addTransceiver("audio", {
+        direction: "sendrecv",
+      });
+      audioSenderRef.current = audioTransceiver.sender;
 
       const audio = document.createElement("audio");
       audio.autoplay = true;
@@ -2812,9 +3057,20 @@ export default function Home() {
       peer.ontrack = (event) => {
         const remoteStream = event.streams[0];
         audio.srcObject = remoteStream;
-        void audio.play().catch(() => {
-          setVoiceNote("Audio playback was blocked by the browser");
-        });
+        void audio.play()
+          .then(() => {
+            arrivalAudioReadyRef.current = true;
+            setArrivalNeedsRecovery(false);
+            setArrivalRecoveryKind(null);
+            startPreparedOpening();
+          })
+          .catch(() => {
+            arrivalAudioReadyRef.current = false;
+            setArrivalRecoveryKind("autoplay");
+            setArrivalNeedsRecovery(true);
+            setVoiceState("idle");
+            setVoiceNote("Your browser needs a quick tap before Ara can speak.");
+          });
         startLevelVisualizer(
           remoteStream,
           "ara",
@@ -2825,69 +3081,25 @@ export default function Home() {
 
       peer.onconnectionstatechange = () => {
         if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
+          setArrivalRecoveryKind("connection");
+          setArrivalNeedsRecovery(true);
           stopVoiceSession(
-            "The voice connection ended. Tap to reconnect.",
+            "The voice connection ended.",
             "connection_ended",
           );
         }
       };
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
-      streamRef.current = stream;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = false;
-      });
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-      startLevelVisualizer(
-        stream,
-        "human",
-        inputContextRef,
-        inputAnimationRef,
-      );
 
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
       channel.onmessage = (event) => handleRealtimeEvent(event, channel);
       channel.onopen = () => {
         moveConversationState("CONNECTION_OPEN");
-        setMicrophoneEnabled(true);
         setVoiceConnected(true);
-        setVoiceState("thinking");
-        setVoiceNote("Ara is joining you");
-        const knownPreferences = Object.entries(userProfile)
-          .filter(([, value]) => value.trim())
-          .map(([category, value]) => `${category}: ${value}`)
-          .join("; ");
-        const opening =
-          initialResponseRef.current ??
-          buildFirstMeetingInstruction(
-            platformWorkspaceRef.current?.onboarding,
-          );
-        const isFreshFirstMeeting =
-          platformWorkspaceRef.current?.onboarding.lifecycle_state === "NEW";
-        channel.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              input: [],
-              instructions:
-                includeKnownPreferences && !isFreshFirstMeeting && knownPreferences
-                ? `${opening} Known preferences to respect: ${knownPreferences}.`
-                : opening,
-            },
-          }),
-        );
-        initialResponseRef.current = null;
-        if (firstVisit) {
-          setFirstVisit(false);
-        }
+        setVoiceState("idle");
+        setVoiceNote("Ara is present");
+        arrivalChannelReadyRef.current = true;
+        startPreparedOpening();
       };
 
       const offer = await peer.createOffer();
@@ -2915,11 +3127,10 @@ export default function Home() {
       });
     } catch (error) {
       const note =
-        error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Microphone access is needed to hear you"
-          : error instanceof Error
+        error instanceof Error
             ? error.message
             : "Ara couldn't start a voice conversation. Please try again.";
+      setArrivalRecoveryKind("connection");
       setArrivalNeedsRecovery(true);
       stopVoiceSession(note, "start_failed");
     }
@@ -2937,9 +3148,19 @@ export default function Home() {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    const startupTimer = window.setTimeout(
-      () => setShowStartup(false),
-      prefersReducedMotion ? 350 : 4700,
+    const revealTimer = window.setTimeout(
+      () => setArrivalPhase("revealing"),
+      prefersReducedMotion ? 900 : 1500,
+    );
+    const breathTimer = prefersReducedMotion
+      ? null
+      : window.setTimeout(() => setArrivalPhase("breathing"), 3450);
+    const settleTimer = window.setTimeout(
+      () => {
+        setArrivalPhase("settled");
+        setShowStartup(false);
+      },
+      prefersReducedMotion ? 2100 : 5700,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -2972,16 +3193,49 @@ export default function Home() {
       } catch {
         setLastSession(null);
       }
+      try {
+        const queryCaptions = new URLSearchParams(window.location.search).get("captions");
+        setCaptionsEnabled(
+          queryCaptions === "1" ||
+          window.localStorage.getItem(CAPTIONS_STORAGE_KEY) === "on",
+        );
+      } catch {
+        setCaptionsEnabled(false);
+      }
       void refreshPlatformWorkspace();
     }, 0);
 
     return () => {
-      window.clearTimeout(startupTimer);
+      window.clearTimeout(revealTimer);
+      if (breathTimer !== null) window.clearTimeout(breathTimer);
+      window.clearTimeout(settleTimer);
       window.clearTimeout(hydrateTimer);
     };
     // Hydration and the release-aware workspace load run once per document load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handleAccessibilityShortcut = (event: KeyboardEvent) => {
+      if (!event.altKey || event.key.toLowerCase() !== "c") return;
+      event.preventDefault();
+      setCaptionsEnabled((enabled) => {
+        const next = !enabled;
+        try {
+          window.localStorage.setItem(CAPTIONS_STORAGE_KEY, next ? "on" : "off");
+        } catch {
+          // Captions still work for this session when storage is unavailable.
+        }
+        return next;
+      });
+    };
+    window.addEventListener("keydown", handleAccessibilityShortcut);
+    return () => window.removeEventListener("keydown", handleAccessibilityShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (arrivalNeedsRecovery) recoveryButtonRef.current?.focus();
+  }, [arrivalNeedsRecovery]);
 
   useEffect(() => {
     if (!microsoftSnapshot) return;
@@ -3043,7 +3297,7 @@ export default function Home() {
     const arrivalTimer = window.setTimeout(() => {
       autoArrivalAttemptedRef.current = true;
       setArrivalAttempted(true);
-      void startVoiceSession();
+      void startVoiceSession(demoIntroductionInstruction);
     }, 650);
     return () => window.clearTimeout(arrivalTimer);
     // Arrival owns the first conversation attempt. Later sessions remain user-controlled.
@@ -3069,6 +3323,12 @@ export default function Home() {
       }
       if (idleTimerRef.current !== null) {
         window.clearTimeout(idleTimerRef.current);
+      }
+      if (arrivalScriptTimerRef.current !== null) {
+        window.clearTimeout(arrivalScriptTimerRef.current);
+      }
+      if (understandingTimerRef.current !== null) {
+        window.clearTimeout(understandingTimerRef.current);
       }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();
@@ -3117,7 +3377,7 @@ export default function Home() {
       }[lastSession.closeReason]
     : "";
   const firstMomentState =
-    voiceState === "connecting"
+    arrivalPhase !== "settled"
       ? "arriving"
       : voiceState === "listening"
         ? "listening"
@@ -3130,6 +3390,18 @@ export default function Home() {
               : voiceState === "wrapping"
                 ? "complete"
                 : "present";
+  const visibleCaption = arrivalCaption || fridayTranscript;
+  const toggleCaptions = () => {
+    setCaptionsEnabled((enabled) => {
+      const next = !enabled;
+      try {
+        window.localStorage.setItem(CAPTIONS_STORAGE_KEY, next ? "on" : "off");
+      } catch {
+        // Keep the preference for this session when storage is unavailable.
+      }
+      return next;
+    });
+  };
 
   const approveWithButton = async () => {
     const isEmail = /outlook|email/i.test(messageChannel);
@@ -3625,32 +3897,49 @@ export default function Home() {
   };
   return (
     <>
-      {showStartup && (
-        <div className="startup-screen" role="status" aria-label="Opening Parallel">
-          <div className="startup-signal" aria-hidden="true">
-            <i />
-            <i />
-          </div>
-          <div className="startup-identity">
-            <ParallelWordmark />
-          </div>
-        </div>
-      )}
       <section
-        className={`ara-first-moment moment-${firstMomentState} ${showStartup ? "waiting-behind-intro" : "moment-visible"}`}
-        aria-label="Ara is present"
+        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState}`}
+        aria-label="Ara voice conversation"
       >
         <div ref={visualRef} className="first-moment-presence" aria-hidden="true">
-          <div className="first-moment-warmth" />
           <div className="first-moment-bars">
             <i />
             <i />
           </div>
         </div>
+        <p className="sr-only" aria-live="polite">
+          {arrivalNeedsRecovery
+            ? voiceNote
+            : voiceState === "listening"
+              ? "Ara is listening."
+              : voiceState === "speaking"
+                ? visibleCaption
+                : ""}
+        </p>
+        <button
+          className="arrival-caption-toggle"
+          type="button"
+          aria-keyshortcuts="Alt+C"
+          aria-pressed={captionsEnabled}
+          onClick={toggleCaptions}
+        >
+          {captionsEnabled ? "Turn captions off" : "Turn captions on"}
+        </button>
+        {captionsEnabled && visibleCaption && (
+          <p className="arrival-captions" aria-hidden="true">
+            {visibleCaption}
+          </p>
+        )}
         {arrivalNeedsRecovery && (
           <div className="first-moment-recovery" role="alert">
             <p>{voiceNote}</p>
-            <button onClick={() => void startVoiceSession()}>Try again</button>
+            <button
+              ref={recoveryButtonRef}
+              type="button"
+              onClick={() => void continueArrival()}
+            >
+              Continue
+            </button>
           </div>
         )}
       </section>
