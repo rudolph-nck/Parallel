@@ -103,11 +103,16 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /transform 5\.05s/);
   assert.match(page, /first-moment-feed first-moment-feed-ara/);
   assert.match(page, /first-moment-feed first-moment-feed-human/);
+  assert.match(page, /first-moment-stream-bed/);
+  assert.match(page, /first-moment-stream-ribbon/);
+  assert.match(page, /first-moment-stream-current/);
   assert.match(styles, /\.first-moment-feed-ara\s*\{[\s\S]*?right:\s*calc\(50% \+ var\(--bar-rest\) \+ 4\.5px\)/);
   assert.match(styles, /\.first-moment-feed-human\s*\{[\s\S]*?left:\s*calc\(50% \+ var\(--bar-rest\) \+ 4\.5px\)/);
   assert.match(styles, /\.ara-color-awake \.first-moment-feed-ara::after/);
   assert.match(styles, /\.human-color-awake \.first-moment-feed-human::after/);
   assert.match(styles, /@keyframes araBarIgnition/);
+  assert.match(styles, /@keyframes araStreamDrift/);
+  assert.doesNotMatch(styles, /stroke-dasharray/);
   assert.match(styles, /\.ara-color-awake \.first-moment-bars i:first-child::after/);
   assert.match(styles, /\.human-color-awake \.first-moment-bars i:last-child::after/);
   assert.doesNotMatch(styles, /arrival-illuminating \.first-moment-bars i::after/);

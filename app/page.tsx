@@ -4053,8 +4053,38 @@ export default function Home() {
           <i className="first-moment-atmosphere-human" />
         </div>
         <div className="first-moment-presence" aria-hidden="true">
-          <span className="first-moment-feed first-moment-feed-ara" />
-          <span className="first-moment-feed first-moment-feed-human" />
+          <span className="first-moment-feed first-moment-feed-ara">
+            <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="ara-stream-light" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#3e817b" stopOpacity="0" />
+                  <stop offset="0.48" stopColor="#55aaa1" stopOpacity="0.22" />
+                  <stop offset="0.82" stopColor="#75d9cf" stopOpacity="0.58" />
+                  <stop offset="1" stopColor="#d8fff9" stopOpacity="0.96" />
+                </linearGradient>
+              </defs>
+              <path className="first-moment-stream-bed" fill="url(#ara-stream-light)" d="M-40 36 C150 60 255 202 470 176 C670 152 790 70 1000 120 L1000 120 C790 170 650 206 450 205 C230 204 115 168 -40 218 Z" />
+              <path className="first-moment-stream-ribbon" fill="url(#ara-stream-light)" d="M-20 84 C200 92 330 178 520 156 C710 132 800 94 1000 120 L1000 120 C800 146 700 168 500 182 C300 196 165 154 -20 170 Z" />
+              <path className="first-moment-stream-current" pathLength="1000" d="M-20 130 C220 112 370 176 570 148 C760 122 870 108 1000 120" />
+              <path className="first-moment-stream-current first-moment-stream-current-soft" pathLength="1000" d="M-20 166 C210 184 390 204 590 166 C770 132 885 118 1000 120" />
+            </svg>
+          </span>
+          <span className="first-moment-feed first-moment-feed-human">
+            <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="human-stream-light" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#416da8" stopOpacity="0" />
+                  <stop offset="0.48" stopColor="#5788c8" stopOpacity="0.22" />
+                  <stop offset="0.82" stopColor="#82b5f5" stopOpacity="0.58" />
+                  <stop offset="1" stopColor="#e1edff" stopOpacity="0.96" />
+                </linearGradient>
+              </defs>
+              <path className="first-moment-stream-bed" fill="url(#human-stream-light)" d="M-40 36 C150 60 255 202 470 176 C670 152 790 70 1000 120 L1000 120 C790 170 650 206 450 205 C230 204 115 168 -40 218 Z" />
+              <path className="first-moment-stream-ribbon" fill="url(#human-stream-light)" d="M-20 84 C200 92 330 178 520 156 C710 132 800 94 1000 120 L1000 120 C800 146 700 168 500 182 C300 196 165 154 -20 170 Z" />
+              <path className="first-moment-stream-current" pathLength="1000" d="M-20 130 C220 112 370 176 570 148 C760 122 870 108 1000 120" />
+              <path className="first-moment-stream-current first-moment-stream-current-soft" pathLength="1000" d="M-20 166 C210 184 390 204 590 166 C770 132 885 118 1000 120" />
+            </svg>
+          </span>
           <span className="first-moment-wordmark">parallel</span>
           <div className="first-moment-bars">
             <i />
