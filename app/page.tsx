@@ -941,7 +941,12 @@ export default function Home() {
         squareSum += centered * centered;
       }
       const rms = Math.sqrt(squareSum / samples.length);
-      let measuredEnergy = Math.min(1, Math.max(0, (rms - 0.018) / 0.11));
+      const noiseFloor = presence === "ara" ? 0.007 : 0.018;
+      const dynamicRange = presence === "ara" ? 0.075 : 0.11;
+      let measuredEnergy = Math.min(
+        1,
+        Math.max(0, (rms - noiseFloor) / dynamicRange),
+      );
       measuredEnergy = Math.sqrt(measuredEnergy);
       if (measuredEnergy > smoothedEnergy) {
         peakHoldUntil = timestamp + 140;
@@ -967,9 +972,9 @@ export default function Home() {
         visualRef.current?.style.setProperty("--human-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
         visualRef.current?.style.setProperty("--human-companion-opacity", `${0.44 + smoothedEnergy * 0.02}`);
       } else {
-        visualRef.current?.style.setProperty("--ara-ambient-opacity", `${0.24 + smoothedEnergy * 0.56}`);
-        visualRef.current?.style.setProperty("--ara-ambient-scale", `${0.99 + smoothedEnergy * 0.15}`);
-        visualRef.current?.style.setProperty("--ara-ambient-shift", `${smoothedEnergy * 4.5}vw`);
+        visualRef.current?.style.setProperty("--ara-ambient-opacity", `${0.32 + smoothedEnergy * 0.62}`);
+        visualRef.current?.style.setProperty("--ara-ambient-scale", `${1 + smoothedEnergy * 0.17}`);
+        visualRef.current?.style.setProperty("--ara-ambient-shift", `${smoothedEnergy * 5.2}vw`);
         visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
         visualRef.current?.style.setProperty("--ara-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
@@ -2928,6 +2933,7 @@ export default function Home() {
         break;
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
+        void outputContextRef.current?.resume().catch(() => undefined);
         setMicrophoneEnabled(true);
         setVoiceState("speaking");
         if (arrivalScriptActiveRef.current) {
@@ -3151,6 +3157,7 @@ export default function Home() {
         audio.srcObject = remoteStream;
         void audio.play()
           .then(() => {
+            void outputContextRef.current?.resume().catch(() => undefined);
             arrivalAudioReadyRef.current = true;
             setArrivalNeedsRecovery(false);
             setArrivalRecoveryKind(null);

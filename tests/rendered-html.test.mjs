@@ -250,6 +250,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Direct task answers: one short sentence/);
   assert.match(route, /Everyday conversation: one to three natural sentences/);
   assert.match(route, /Skip preambles for direct answers/);
+  assert.match(route, /Never narrate internal thought, reasoning, or impact/);
+  assert.match(route, /a single soft “Mm\.” or\s+“Ah\.” is enough/);
   assert.match(route, /never restate or paraphrase the user's request/i);
   assert.match(route, /Let me pull up the full week/);
   assert.match(route, /close naturally in one to four words/i);
