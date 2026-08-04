@@ -134,6 +134,7 @@ button { color: inherit; }
   width: calc(50vw - var(--bar-rest) - 4.5px);
   height: clamp(150px, 24vw, 240px);
   opacity: 0;
+  clip-path: inset(0 100% 0 0);
   pointer-events: none;
   will-change: opacity, transform;
   transition:
@@ -160,7 +161,7 @@ button { color: inherit; }
 }
 .first-moment-feed-ara {
   right: calc(50% + var(--bar-rest) + 4.5px);
-  transform: translateY(-50%) scaleX(var(--ara-channel-scale, .88));
+  transform: translateY(-50%) scaleX(.9);
   transform-origin: 100% 50%;
 }
 .first-moment-feed-ara::before {
@@ -172,7 +173,7 @@ button { color: inherit; }
 }
 .first-moment-feed-human {
   left: calc(50% + var(--bar-rest) + 4.5px);
-  transform: translateY(-50%) scaleX(var(--human-channel-scale, .88));
+  transform: translateY(-50%) scaleX(.9);
   transform-origin: 0 50%;
 }
 .first-moment-feed-human::before {
@@ -230,17 +231,83 @@ button { color: inherit; }
 .first-moment-feed-human .first-moment-stream-current-soft {
   stroke: rgba(152,192,243,.34);
 }
-.ara-first-moment.moment-speaking .first-moment-feed-ara {
-  opacity: var(--ara-channel-opacity, .22);
-  transform: translateY(-50%) scaleX(var(--ara-channel-scale, .88));
+.ara-first-moment.ara-igniting .first-moment-feed-ara {
+  animation: araFeedInjection 2.75s cubic-bezier(.22,.61,.36,1) 1 both;
 }
-.ara-first-moment.moment-listening .first-moment-feed-human {
-  opacity: var(--human-channel-opacity, .18);
-  transform: translateY(-50%) scaleX(var(--human-channel-scale, .88));
+.ara-first-moment.human-igniting .first-moment-feed-human {
+  animation: humanFeedInjection 2.75s cubic-bezier(.22,.61,.36,1) 1 both;
 }
 .ara-color-awake .first-moment-feed-ara::after,
 .human-color-awake .first-moment-feed-human::after {
   animation: araBarIgnition 1.15s cubic-bezier(.16,1,.3,1) 1 both;
+}
+.first-moment-wake {
+  position: absolute;
+  top: 50%;
+  z-index: 0;
+  display: block;
+  width: 10px;
+  height: clamp(56px, 6vw, 68px);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  color: rgba(105,207,197,.72);
+  filter: blur(4px);
+  transform: translate(-50%, -50%);
+}
+.first-moment-wake::before,
+.first-moment-wake::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 92px;
+  height: 92px;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, transparent 18%, currentColor 31%, transparent 58%);
+  filter: blur(7px);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.25);
+}
+.first-moment-wake-ara {
+  left: calc(50% - var(--bar-rest));
+  background: rgba(155,241,232,.72);
+  box-shadow: 0 0 24px rgba(105,207,197,.68);
+}
+.first-moment-wake-human {
+  left: calc(50% + var(--bar-rest));
+  color: rgba(121,174,240,.72);
+  background: rgba(173,209,255,.72);
+  box-shadow: 0 0 24px rgba(121,174,240,.66);
+}
+.ara-igniting .first-moment-wake-ara,
+.human-igniting .first-moment-wake-human {
+  animation: araWakeCore 1.55s cubic-bezier(.16,1,.3,1) 1.1s 1 both;
+}
+.ara-igniting .first-moment-wake-ara::before,
+.human-igniting .first-moment-wake-human::before {
+  animation: araWakeEcho 1.7s cubic-bezier(.16,1,.3,1) 1.1s 1 both;
+}
+.ara-igniting .first-moment-wake-ara::after,
+.human-igniting .first-moment-wake-human::after {
+  animation: araWakeEcho 1.9s cubic-bezier(.16,1,.3,1) 1.3s 1 both;
+}
+.ara-igniting.ara-color-awake .first-moment-bars i:first-child,
+.human-igniting.human-color-awake .first-moment-bars i:last-child {
+  animation: araBarWakeImpact 1.45s cubic-bezier(.16,1,.3,1) 1 both;
+}
+.ara-igniting.ara-color-awake .first-moment-bars i:first-child {
+  color: #69cfc5;
+}
+.human-igniting.human-color-awake .first-moment-bars i:last-child {
+  color: #79aef0;
+}
+.ara-color-awake.arrival-settled .first-moment-atmosphere-ara {
+  opacity: .11;
+}
+.human-color-awake.arrival-settled .first-moment-atmosphere-human {
+  opacity: .095;
 }
 .first-moment-presence::before,
 .first-moment-presence::after {
@@ -580,6 +647,37 @@ button { color: inherit; }
   46% { opacity: 1; transform: translateY(-50%) scale(1.34); }
   72% { opacity: .34; transform: translateY(-50%) scale(.86); }
   100% { opacity: 0; transform: translateY(-50%) scale(1.08); }
+}
+@keyframes araFeedInjection {
+  0% { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateY(-50%) scaleX(.9); }
+  16% { opacity: .2; }
+  42% { opacity: .88; clip-path: inset(0 0 0 0); transform: translateY(-50%) scaleX(1); }
+  70% { opacity: .62; }
+  100% { opacity: 0; clip-path: inset(0 0 0 0); transform: translateY(-50%) scaleX(1.02); }
+}
+@keyframes humanFeedInjection {
+  0% { opacity: 0; clip-path: inset(0 0 0 100%); transform: translateY(-50%) scaleX(.9); }
+  16% { opacity: .2; }
+  42% { opacity: .88; clip-path: inset(0 0 0 0); transform: translateY(-50%) scaleX(1); }
+  70% { opacity: .62; }
+  100% { opacity: 0; clip-path: inset(0 0 0 0); transform: translateY(-50%) scaleX(1.02); }
+}
+@keyframes araWakeCore {
+  0% { opacity: 0; filter: blur(6px) brightness(1); }
+  24% { opacity: 1; filter: blur(2px) brightness(1.9); }
+  58% { opacity: .54; filter: blur(9px) brightness(1.35); }
+  100% { opacity: 0; filter: blur(16px) brightness(1); }
+}
+@keyframes araWakeEcho {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.25); }
+  22% { opacity: .2; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(5.4); }
+}
+@keyframes araBarWakeImpact {
+  0% { filter: brightness(1); }
+  22% { filter: brightness(2.15); box-shadow: 0 0 24px currentColor, 0 0 62px currentColor; }
+  56% { filter: brightness(1.35); box-shadow: 0 0 18px currentColor, 0 0 46px currentColor; }
+  100% { filter: brightness(1.06); }
 }
 @keyframes araStreamDrift {
   0% { transform: translateY(-2px) scaleY(.97); }

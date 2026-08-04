@@ -98,8 +98,6 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /first-moment-atmosphere-human/);
   assert.match(styles, /--ara-ambient-opacity/);
   assert.match(styles, /--human-ambient-opacity/);
-  assert.match(styles, /--ara-channel-opacity/);
-  assert.match(styles, /--human-channel-opacity/);
   assert.match(styles, /transform 5\.05s/);
   assert.match(page, /first-moment-feed first-moment-feed-ara/);
   assert.match(page, /first-moment-feed first-moment-feed-human/);
@@ -112,6 +110,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /\.human-color-awake \.first-moment-feed-human::after/);
   assert.match(styles, /@keyframes araBarIgnition/);
   assert.match(styles, /@keyframes araStreamDrift/);
+  assert.match(styles, /@keyframes araFeedInjection/);
+  assert.match(styles, /@keyframes humanFeedInjection/);
+  assert.match(styles, /@keyframes araWakeEcho/);
+  assert.match(styles, /\.ara-first-moment\.ara-igniting \.first-moment-feed-ara/);
+  assert.match(styles, /\.ara-first-moment\.human-igniting \.first-moment-feed-human/);
+  assert.doesNotMatch(styles, /\.moment-speaking \.first-moment-feed-ara/);
   assert.doesNotMatch(styles, /stroke-dasharray/);
   assert.match(styles, /\.ara-color-awake \.first-moment-bars i:first-child::after/);
   assert.match(styles, /\.human-color-awake \.first-moment-bars i:last-child::after/);
@@ -122,6 +126,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /arrival-caption-toggle/);
   assert.match(page, /setAraBarAwake\(true\)/);
   assert.match(page, /setHumanBarAwake\(true\)/);
+  assert.match(page, /setAraAudioActive\(true\)/);
+  assert.match(page, /setAraAudioActive\(false\)/);
+  assert.match(page, /setHumanAudioActive\(true\)/);
+  assert.match(page, /setHumanAudioActive\(false\)/);
   assert.match(page, /first-moment-integration/);
   assert.match(page, /CAPTIONS_STORAGE_KEY/);
   assert.match(page, /arrivalRecoveryKind/);

@@ -376,6 +376,10 @@ export default function Home() {
   const [arrivalCaption, setArrivalCaption] = useState("");
   const [araBarAwake, setAraBarAwake] = useState(false);
   const [humanBarAwake, setHumanBarAwake] = useState(false);
+  const [araIgnitionActive, setAraIgnitionActive] = useState(false);
+  const [humanIgnitionActive, setHumanIgnitionActive] = useState(false);
+  const [araAudioActive, setAraAudioActive] = useState(false);
+  const [humanAudioActive, setHumanAudioActive] = useState(false);
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -475,6 +479,12 @@ export default function Home() {
   const understandingTimerRef = useRef<number | null>(null);
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
+  const araIgnitedRef = useRef(false);
+  const humanIgnitedRef = useRef(false);
+  const araIgnitionFillTimerRef = useRef<number | null>(null);
+  const araIgnitionEndTimerRef = useRef<number | null>(null);
+  const humanIgnitionFillTimerRef = useRef<number | null>(null);
+  const humanIgnitionEndTimerRef = useRef<number | null>(null);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
@@ -855,6 +865,8 @@ export default function Home() {
     unresolvedQuestionRef.current = false;
     recoverableErrorRef.current = false;
     userInterruptedResponseRef.current = false;
+    setAraAudioActive(false);
+    setHumanAudioActive(false);
     setVoiceConnected(false);
     setVoiceState("idle");
     setVoiceNote(note);
@@ -976,8 +988,6 @@ export default function Home() {
         visualRef.current?.style.setProperty("--human-ambient-opacity", `${0.24 + smoothedEnergy * 0.56}`);
         visualRef.current?.style.setProperty("--human-ambient-scale", `${0.99 + smoothedEnergy * 0.15}`);
         visualRef.current?.style.setProperty("--human-ambient-shift", `${smoothedEnergy * 4.5}vw`);
-        visualRef.current?.style.setProperty("--human-channel-opacity", `${0.18 + smoothedEnergy * 0.55}`);
-        visualRef.current?.style.setProperty("--human-channel-scale", `${0.88 + smoothedEnergy * 0.16}`);
         visualRef.current?.style.setProperty("--human-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
         visualRef.current?.style.setProperty("--human-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--human-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
@@ -993,8 +1003,6 @@ export default function Home() {
         visualRef.current?.style.setProperty("--ara-ambient-opacity", `${0.32 + smoothedEnergy * 0.62}`);
         visualRef.current?.style.setProperty("--ara-ambient-scale", `${1 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--ara-ambient-shift", `${smoothedEnergy * 5.2}vw`);
-        visualRef.current?.style.setProperty("--ara-channel-opacity", `${0.22 + smoothedEnergy * 0.62}`);
-        visualRef.current?.style.setProperty("--ara-channel-scale", `${0.88 + smoothedEnergy * 0.18}`);
         visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
         visualRef.current?.style.setProperty("--ara-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
@@ -2914,7 +2922,21 @@ export default function Home() {
 
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
-        setHumanBarAwake(true);
+        setHumanAudioActive(true);
+        if (!humanIgnitedRef.current) {
+          humanIgnitedRef.current = true;
+          setHumanIgnitionActive(true);
+          humanIgnitionFillTimerRef.current = window.setTimeout(() => {
+            humanIgnitionFillTimerRef.current = null;
+            setHumanBarAwake(true);
+          }, 1150);
+          humanIgnitionEndTimerRef.current = window.setTimeout(() => {
+            humanIgnitionEndTimerRef.current = null;
+            setHumanIgnitionActive(false);
+          }, 2750);
+        } else {
+          setHumanBarAwake(true);
+        }
         if (conversationStateRef.current === "RESPONDING") {
           userInterruptedResponseRef.current = true;
         }
@@ -2944,6 +2966,7 @@ export default function Home() {
         break;
       }
       case "input_audio_buffer.speech_stopped":
+        setHumanAudioActive(false);
         moveConversationState("USER_SPEECH_STOPPED");
         setMicrophoneEnabled(true);
         setVoiceState("thinking");
@@ -2960,7 +2983,21 @@ export default function Home() {
         break;
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
-        setAraBarAwake(true);
+        setAraAudioActive(true);
+        if (!araIgnitedRef.current) {
+          araIgnitedRef.current = true;
+          setAraIgnitionActive(true);
+          araIgnitionFillTimerRef.current = window.setTimeout(() => {
+            araIgnitionFillTimerRef.current = null;
+            setAraBarAwake(true);
+          }, 1150);
+          araIgnitionEndTimerRef.current = window.setTimeout(() => {
+            araIgnitionEndTimerRef.current = null;
+            setAraIgnitionActive(false);
+          }, 2750);
+        } else {
+          setAraBarAwake(true);
+        }
         void outputContextRef.current?.resume().catch(() => undefined);
         setMicrophoneEnabled(true);
         setVoiceState("speaking");
@@ -3081,6 +3118,7 @@ export default function Home() {
         break;
       }
       case "output_audio_buffer.stopped":
+        setAraAudioActive(false);
         if (arrivalScriptActiveRef.current) {
           outputAudioDrainedRef.current = true;
           arrivalScriptActiveRef.current = false;
@@ -3128,6 +3166,8 @@ export default function Home() {
         }, 360);
         break;
       case "error":
+        setAraAudioActive(false);
+        setHumanAudioActive(false);
         console.error("Realtime voice event error.", event.error);
         recoverableErrorRef.current = true;
         autonomousCloseEligibleRef.current = false;
@@ -3476,6 +3516,18 @@ export default function Home() {
       if (understandingTimerRef.current !== null) {
         window.clearTimeout(understandingTimerRef.current);
       }
+      if (araIgnitionFillTimerRef.current !== null) {
+        window.clearTimeout(araIgnitionFillTimerRef.current);
+      }
+      if (araIgnitionEndTimerRef.current !== null) {
+        window.clearTimeout(araIgnitionEndTimerRef.current);
+      }
+      if (humanIgnitionFillTimerRef.current !== null) {
+        window.clearTimeout(humanIgnitionFillTimerRef.current);
+      }
+      if (humanIgnitionEndTimerRef.current !== null) {
+        window.clearTimeout(humanIgnitionEndTimerRef.current);
+      }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();
     };
@@ -3525,7 +3577,11 @@ export default function Home() {
   const firstMomentState =
     arrivalPhase !== "settled"
       ? "arriving"
-      : voiceState === "listening"
+      : araAudioActive
+        ? "speaking"
+        : humanAudioActive
+          ? "listening"
+          : voiceState === "listening"
         ? "listening"
         : voiceState === "connecting" || voiceState === "thinking"
           ? "thinking"
@@ -4045,7 +4101,7 @@ export default function Home() {
     <>
       <section
         ref={visualRef}
-        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""}`}
+        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""} ${araIgnitionActive ? "ara-igniting" : ""} ${humanIgnitionActive ? "human-igniting" : ""} ${araAudioActive ? "ara-audio-active" : ""} ${humanAudioActive ? "human-audio-active" : ""}`}
         aria-label="Ara voice conversation"
       >
         <div className="first-moment-atmosphere" aria-hidden="true">
@@ -4053,6 +4109,8 @@ export default function Home() {
           <i className="first-moment-atmosphere-human" />
         </div>
         <div className="first-moment-presence" aria-hidden="true">
+          <span className="first-moment-wake first-moment-wake-ara" />
+          <span className="first-moment-wake first-moment-wake-human" />
           <span className="first-moment-feed first-moment-feed-ara">
             <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
               <defs>
