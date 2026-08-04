@@ -69,8 +69,8 @@ button { color: inherit; }
   opacity: 0;
   will-change: opacity, transform;
   transition:
-    opacity 360ms linear,
-    transform 1.8s cubic-bezier(.22,.61,.36,1);
+    opacity 240ms linear,
+    transform 1.15s cubic-bezier(.22,.61,.36,1);
 }
 .first-moment-atmosphere i::before,
 .first-moment-atmosphere i::after {
@@ -89,29 +89,29 @@ button { color: inherit; }
 .first-moment-atmosphere-ara {
   left: -18%;
   background:
-    radial-gradient(ellipse at 18% 44%, rgba(67,184,172,.26), transparent 54%),
-    radial-gradient(ellipse at 42% 70%, rgba(37,102,98,.14), transparent 58%);
+    radial-gradient(ellipse at 18% 44%, rgba(67,184,172,.38), transparent 56%),
+    radial-gradient(ellipse at 42% 70%, rgba(37,102,98,.22), transparent 60%);
   transform: translateX(-8%) scale(.94);
 }
 .first-moment-atmosphere-ara::before {
-  background: radial-gradient(ellipse at 22% 50%, rgba(93,224,210,.24), rgba(48,131,124,.09) 44%, transparent 73%);
+  background: radial-gradient(ellipse at 22% 50%, rgba(93,224,210,.36), rgba(48,131,124,.14) 44%, transparent 73%);
 }
 .first-moment-atmosphere-ara::after {
-  background: radial-gradient(ellipse at 36% 50%, rgba(117,229,215,.18), transparent 66%);
+  background: radial-gradient(ellipse at 36% 50%, rgba(117,229,215,.28), transparent 68%);
 }
 .first-moment-atmosphere-human {
   right: -18%;
   background:
-    radial-gradient(ellipse at 82% 44%, rgba(83,143,221,.26), transparent 54%),
-    radial-gradient(ellipse at 58% 70%, rgba(44,78,139,.14), transparent 58%);
+    radial-gradient(ellipse at 82% 44%, rgba(83,143,221,.38), transparent 56%),
+    radial-gradient(ellipse at 58% 70%, rgba(44,78,139,.22), transparent 60%);
   transform: translateX(8%) scale(.94);
 }
 .first-moment-atmosphere-human::before {
-  background: radial-gradient(ellipse at 78% 50%, rgba(115,169,239,.24), rgba(56,95,160,.09) 44%, transparent 73%);
+  background: radial-gradient(ellipse at 78% 50%, rgba(115,169,239,.36), rgba(56,95,160,.14) 44%, transparent 73%);
   transform: rotate(8deg) scale(.94);
 }
 .first-moment-atmosphere-human::after {
-  background: radial-gradient(ellipse at 64% 50%, rgba(136,180,240,.18), transparent 66%);
+  background: radial-gradient(ellipse at 64% 50%, rgba(136,180,240,.28), transparent 68%);
   transform: rotate(-9deg) scale(.88);
 }
 .first-moment-presence {
@@ -204,7 +204,7 @@ button { color: inherit; }
   opacity: 0;
   transform-origin: 50% 50%;
   transition:
-    transform 3.8s cubic-bezier(.2,.68,.2,1),
+    transform 4.56s cubic-bezier(.2,.68,.2,1),
     opacity 1.1s cubic-bezier(.22,.61,.36,1),
     filter 180ms ease-out,
     box-shadow 180ms ease-out;
@@ -333,7 +333,7 @@ button { color: inherit; }
 }
 .arrival-illuminating .first-moment-atmosphere i,
 .arrival-settled .first-moment-atmosphere i {
-  opacity: .065;
+  opacity: .08;
 }
 .arrival-illuminating .first-moment-atmosphere-ara,
 .arrival-settled .first-moment-atmosphere-ara {
@@ -380,11 +380,11 @@ button { color: inherit; }
   opacity: 1;
 }
 .ara-first-moment.moment-listening .first-moment-atmosphere-human {
-  opacity: var(--human-ambient-opacity, .12);
+  opacity: var(--human-ambient-opacity, .24);
   transform: translateX(calc(-1 * var(--human-ambient-shift, 0vw))) scale(var(--human-ambient-scale, .98));
 }
 .ara-first-moment.moment-listening .first-moment-atmosphere-ara {
-  opacity: .025;
+  opacity: .04;
   transform: translateX(-3%) scale(.94);
 }
 .moment-thinking .first-moment-bars { filter: brightness(.94); }
@@ -397,8 +397,8 @@ button { color: inherit; }
 .moment-thinking .first-moment-presence::before { transform: translate(-61%, -51%) scale(.93); }
 .moment-thinking .first-moment-presence::after { transform: translate(-39%, -49%) scale(.88); }
 .moment-thinking .first-moment-atmosphere { opacity: .72; }
-.ara-first-moment.moment-thinking .first-moment-atmosphere-ara { opacity: .07; transform: translateX(1%) scale(.97); }
-.ara-first-moment.moment-thinking .first-moment-atmosphere-human { opacity: .045; transform: translateX(-1%) scale(.95); }
+.ara-first-moment.moment-thinking .first-moment-atmosphere-ara { opacity: .11; transform: translateX(1%) scale(.98); }
+.ara-first-moment.moment-thinking .first-moment-atmosphere-human { opacity: .065; transform: translateX(-1%) scale(.96); }
 .moment-speaking .first-moment-bars i:first-child {
   opacity: var(--ara-bar-opacity, .91);
   filter: brightness(var(--ara-bar-light, 1.06));
@@ -429,11 +429,11 @@ button { color: inherit; }
   opacity: 1;
 }
 .ara-first-moment.moment-speaking .first-moment-atmosphere-ara {
-  opacity: var(--ara-ambient-opacity, .12);
+  opacity: var(--ara-ambient-opacity, .24);
   transform: translateX(var(--ara-ambient-shift, 0vw)) scale(var(--ara-ambient-scale, .98));
 }
 .ara-first-moment.moment-speaking .first-moment-atmosphere-human {
-  opacity: .025;
+  opacity: .04;
   transform: translateX(3%) scale(.94);
 }
 .moment-understanding .first-moment-bars,

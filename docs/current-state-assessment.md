@@ -8,7 +8,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 - a polished Today, Ara, Recall, and Approvals workspace;
 - a live OpenAI Realtime voice connection over WebRTC;
-- semantic turn detection with balanced automatic eagerness, live barge-in, and a single opening per voice session;
+- semantic turn detection with patient low eagerness, far-field input noise reduction, live barge-in, and a single opening per voice session;
 - Microsoft 365 delegated sign-in and live mailbox, calendar, directory, SharePoint, and file lookup;
 - attendee resolution from spoken names;
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
@@ -30,7 +30,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 ## Runtime and boundaries
 
 - UI/runtime: Next.js 16, React 19, Vinext, Cloudflare-compatible output.
-- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at automatic eagerness, interruption enabled, Marin voice.
+- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at low eagerness, far-field noise reduction, interruption enabled, Marin voice.
 - External action boundary: governed calendar changes, non-overwriting SharePoint publishing, and reviewed Outlook email are live. Teams chat remains draft-only. Desktop requests remain prepare-only until a signed local companion exists.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
 - Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.
@@ -58,7 +58,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 7. Pricing reconciliation still needs a versioned server-side rate table.
 8. Recall remains connected search plus declared and meeting memory, not yet the blueprint's complete work graph.
 9. The first-day scan can run quietly during the first conversation, but it does not yet classify Teams messages, crawl every email body, or run continuously after the session.
-10. Mobile push, email handoff, and Ara-initiated phone or Teams calls need a verified-device handoff service and background execution plane.
+10. Mobile push, email handoff, and Ara-initiated phone or Teams calls need a verified-device handoff service and background execution plane. A Teams voice participant additionally requires a separate calling bot and application-hosted media service.
 
 ## Naming decision
 

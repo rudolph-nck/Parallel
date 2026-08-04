@@ -197,11 +197,15 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /voice:\s*"marin"/);
   assert.match(route, /name:\s*"search_recall"/);
   assert.match(route, /type:\s*"semantic_vad"/);
-  assert.match(route, /eagerness:\s*"auto"/);
+  assert.match(route, /eagerness:\s*"low"/);
+  assert.match(route, /noise_reduction:\s*\{\s*type:\s*"far_field"/);
   assert.match(route, /interrupt_response:\s*true/);
   assert.match(route, /opening asks "What’s your name\?"/);
   assert.match(route, /one and only post-name welcome/);
   assert.match(route, /Every spoken turn must add something new/);
+  assert.match(route, /phrases are forbidden during the first meeting/);
+  assert.match(route, /grounded in the Book of Ara/);
+  assert.match(route, /Familiarity is not access/);
   assert.match(route, /small integration handoff/);
   assert.match(route, /meet, connect,[\s\S]*observe quietly,[\s\S]*return later with findings/);
   assert.match(route, /calendar_period/);
@@ -255,7 +259,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /A role like that usually means/);
   assert.match(route, /observe-first posture/);
   assert.match(route, /does not want to change anything yet/);
-  assert.match(route, /What do you do\?/);
+  assert.match(route, /what do you do there\?/i);
   assert.match(route, /Never respond to a direct\s+question by jumping into setup/);
   assert.match(route, /Every count or percentage must come from a tool result/);
   assert.match(route, /Do not claim Teams coverage/);
