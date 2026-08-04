@@ -98,9 +98,11 @@ type VoiceState =
 
 type ArrivalPhase =
   | "black"
-  | "wordmark"
-  | "converging"
-  | "coloring"
+  | "descending"
+  | "meeting"
+  | "revealing"
+  | "rotating"
+  | "illuminating"
   | "breathing"
   | "settled";
 type ArrivalRecoveryKind = "autoplay" | "microphone" | "connection" | null;
@@ -273,18 +275,18 @@ const buildFirstMeetingInstruction = (
   ].filter(Boolean).join(" · ");
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first meeting with ${name} as a relaxed conversation, not a setup flow. Answer whatever they say or ask first. If it has not come up naturally, briefly explain that you are their right hand inside Parallel, then ask at most one curious question about their work. A tangent is welcome. Do not reintroduce yourself or force a Microsoft transition.`;
+    return `Resume the first meeting with ${name} as a relaxed conversation, not a setup flow. Answer whatever they say or ask first. If it has not come up naturally, briefly explain that you are their right hand inside Parallel. Stay curious about their actual environment: make one role-specific inference, frame it as likely rather than known, and ask at most one question about the systems, requests, people, or pressure behind it. A tangent is welcome. Do not reintroduce yourself, propose fixes yet, or force a Microsoft transition.`;
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, make one specific human connection to what they shared, and let the conversation breathe. Mention connecting Microsoft only at a natural lull or when they ask to start working; never request credentials.`;
+    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, make one specific human connection to what they shared, and let the conversation breathe. Once their role, environment, and one pressure are clear, explain your observe-first posture naturally: you do not want to change anything today; you want to learn how work reaches them and bring back a useful picture before recommending change. Mention connecting Microsoft only at a natural lull or when they ask to start working; never request credentials.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
     (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
   ) {
-    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected. Start scan_first_day_workspace silently, then immediately keep the current conversation moving; do not announce setup, narrate research, wait for the scan, or reintroduce yourself. On a later suitable turn, check_first_day_workspace can surface one relevant finding.`;
+    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected. Start scan_first_day_workspace silently, then immediately keep the current conversation moving; do not announce setup, narrate research, wait for the scan, propose changes, or reintroduce yourself. Stay in discovery until you understand their environment and one pressure. Then explain your observe-first posture naturally: you will watch how work reaches them and learn their judgment before recommending change. On a later suitable turn, check_first_day_workspace can surface one relevant finding.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -453,6 +455,7 @@ export default function Home() {
   const autoArrivalAttemptedRef = useRef(false);
   const arrivalScriptActiveRef = useRef(false);
   const arrivalScriptStartedRef = useRef(false);
+  const arrivalVisualReadyRef = useRef(false);
   const understandingTimerRef = useRef<number | null>(null);
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
@@ -805,22 +808,28 @@ export default function Home() {
     inputContextRef.current = null;
     outputContextRef.current = null;
 
-    visualRef.current?.style.setProperty("--human-glow-opacity", ".13");
-    visualRef.current?.style.setProperty("--human-glow-scale", ".94");
-    visualRef.current?.style.setProperty("--human-companion-glow-opacity", ".065");
-    visualRef.current?.style.setProperty("--human-companion-glow-scale", ".9");
+    visualRef.current?.style.setProperty("--human-glow-opacity", ".24");
+    visualRef.current?.style.setProperty("--human-glow-scale", ".98");
+    visualRef.current?.style.setProperty("--human-companion-glow-opacity", ".015");
+    visualRef.current?.style.setProperty("--human-companion-glow-scale", ".82");
     visualRef.current?.style.setProperty("--human-bar-light", "1.055");
     visualRef.current?.style.setProperty("--human-bar-opacity", ".9");
+    visualRef.current?.style.setProperty("--human-line-length", "1");
+    visualRef.current?.style.setProperty("--human-inner-opacity", ".54");
+    visualRef.current?.style.setProperty("--human-halo", "14px");
     visualRef.current?.style.setProperty("--human-companion-light", "1.015");
-    visualRef.current?.style.setProperty("--human-companion-opacity", ".78");
-    visualRef.current?.style.setProperty("--ara-glow-opacity", ".13");
-    visualRef.current?.style.setProperty("--ara-glow-scale", ".94");
-    visualRef.current?.style.setProperty("--ara-companion-glow-opacity", ".065");
-    visualRef.current?.style.setProperty("--ara-companion-glow-scale", ".9");
+    visualRef.current?.style.setProperty("--human-companion-opacity", ".44");
+    visualRef.current?.style.setProperty("--ara-glow-opacity", ".24");
+    visualRef.current?.style.setProperty("--ara-glow-scale", ".98");
+    visualRef.current?.style.setProperty("--ara-companion-glow-opacity", ".015");
+    visualRef.current?.style.setProperty("--ara-companion-glow-scale", ".82");
     visualRef.current?.style.setProperty("--ara-bar-light", "1.06");
     visualRef.current?.style.setProperty("--ara-bar-opacity", ".91");
+    visualRef.current?.style.setProperty("--ara-line-length", "1");
+    visualRef.current?.style.setProperty("--ara-inner-opacity", ".58");
+    visualRef.current?.style.setProperty("--ara-halo", "14px");
     visualRef.current?.style.setProperty("--ara-companion-light", "1.015");
-    visualRef.current?.style.setProperty("--ara-companion-opacity", ".79");
+    visualRef.current?.style.setProperty("--ara-companion-opacity", ".44");
     transcriptRef.current = "";
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -943,23 +952,29 @@ export default function Home() {
       smoothedEnergy += (measuredEnergy - smoothedEnergy) * response;
 
       if (presence === "human") {
-        visualRef.current?.style.setProperty("--human-glow-opacity", `${0.13 + smoothedEnergy * 0.24}`);
-        visualRef.current?.style.setProperty("--human-glow-scale", `${0.94 + smoothedEnergy * 0.1}`);
-        visualRef.current?.style.setProperty("--human-companion-glow-opacity", `${0.065 + smoothedEnergy * 0.045}`);
-        visualRef.current?.style.setProperty("--human-companion-glow-scale", `${0.9 + smoothedEnergy * 0.035}`);
-        visualRef.current?.style.setProperty("--human-bar-light", `${1.055 + smoothedEnergy * 0.11}`);
+        visualRef.current?.style.setProperty("--human-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
+        visualRef.current?.style.setProperty("--human-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
+        visualRef.current?.style.setProperty("--human-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
+        visualRef.current?.style.setProperty("--human-companion-glow-scale", `${0.82 + smoothedEnergy * 0.02}`);
+        visualRef.current?.style.setProperty("--human-bar-light", `${1.055 + smoothedEnergy * 0.18}`);
         visualRef.current?.style.setProperty("--human-bar-opacity", `${0.9 + smoothedEnergy * 0.075}`);
+        visualRef.current?.style.setProperty("--human-line-length", `${1 + smoothedEnergy * 0.055}`);
+        visualRef.current?.style.setProperty("--human-inner-opacity", `${0.48 + smoothedEnergy * 0.46}`);
+        visualRef.current?.style.setProperty("--human-halo", `${16 + smoothedEnergy * 32}px`);
         visualRef.current?.style.setProperty("--human-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
-        visualRef.current?.style.setProperty("--human-companion-opacity", `${0.78 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--human-companion-opacity", `${0.44 + smoothedEnergy * 0.02}`);
       } else {
-        visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.13 + smoothedEnergy * 0.24}`);
-        visualRef.current?.style.setProperty("--ara-glow-scale", `${0.94 + smoothedEnergy * 0.1}`);
-        visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.065 + smoothedEnergy * 0.045}`);
-        visualRef.current?.style.setProperty("--ara-companion-glow-scale", `${0.9 + smoothedEnergy * 0.035}`);
-        visualRef.current?.style.setProperty("--ara-bar-light", `${1.06 + smoothedEnergy * 0.105}`);
+        visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
+        visualRef.current?.style.setProperty("--ara-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
+        visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
+        visualRef.current?.style.setProperty("--ara-companion-glow-scale", `${0.82 + smoothedEnergy * 0.02}`);
+        visualRef.current?.style.setProperty("--ara-bar-light", `${1.06 + smoothedEnergy * 0.18}`);
         visualRef.current?.style.setProperty("--ara-bar-opacity", `${0.91 + smoothedEnergy * 0.065}`);
+        visualRef.current?.style.setProperty("--ara-line-length", `${1 + smoothedEnergy * 0.055}`);
+        visualRef.current?.style.setProperty("--ara-inner-opacity", `${0.5 + smoothedEnergy * 0.46}`);
+        visualRef.current?.style.setProperty("--ara-halo", `${16 + smoothedEnergy * 32}px`);
         visualRef.current?.style.setProperty("--ara-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
-        visualRef.current?.style.setProperty("--ara-companion-opacity", `${0.79 + smoothedEnergy * 0.035}`);
+        visualRef.current?.style.setProperty("--ara-companion-opacity", `${0.44 + smoothedEnergy * 0.02}`);
       }
     };
 
@@ -1109,7 +1124,7 @@ export default function Home() {
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
         research_status: research.status,
         instruction:
-          "Answer every question in their last turn first. If they asked what you do, explain naturally that you are their right hand inside Parallel—connecting scattered work, helping them think, and carrying agreed work forward. Then make one specific observation about their work. Do not announce setup, narrate the Microsoft read, or force a transition. Continue with at most one human follow-up.",
+          "Answer every question in their last turn first. If they asked what you do, explain naturally that you are their right hand inside Parallel—learning how work reaches them, connecting scattered context, helping them think, and carrying agreed work forward. Stay with their world; do not jump to 'let me see how I can help,' setup, or a proposed action. Make one specific inference from the role they described and clearly frame it as likely rather than verified. Ask at most one human follow-up about the systems, requests, people, or pressure behind that inference. Once you understand their role, environment, and one real pressure, explain naturally that you do not want to change anything today: you want to observe how work reaches them, learn their judgment, and bring back a useful picture before recommending change. Do not announce or narrate the quiet Microsoft read.",
       };
     }
 
@@ -2749,6 +2764,7 @@ export default function Home() {
       channel.readyState !== "open" ||
       !arrivalChannelReadyRef.current ||
       !arrivalAudioReadyRef.current ||
+      !arrivalVisualReadyRef.current ||
       arrivalScriptStartedRef.current
     ) {
       return;
@@ -3186,27 +3202,37 @@ export default function Home() {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    const wordmarkTimer = window.setTimeout(
-      () => setArrivalPhase("wordmark"),
-      prefersReducedMotion ? 650 : 1600,
+    const descentTimer = window.setTimeout(
+      () => setArrivalPhase("descending"),
+      prefersReducedMotion ? 350 : 1500,
     );
-    const convergeTimer = window.setTimeout(
-      () => setArrivalPhase("converging"),
-      prefersReducedMotion ? 1450 : 4800,
+    const meetingTimer = window.setTimeout(
+      () => setArrivalPhase("meeting"),
+      prefersReducedMotion ? 700 : 5000,
     );
-    const colorTimer = window.setTimeout(
-      () => setArrivalPhase("coloring"),
-      prefersReducedMotion ? 1900 : 9000,
+    const revealTimer = window.setTimeout(
+      () => setArrivalPhase("revealing"),
+      prefersReducedMotion ? 1050 : 5650,
+    );
+    const rotateTimer = window.setTimeout(
+      () => setArrivalPhase("rotating"),
+      prefersReducedMotion ? 1450 : 8900,
+    );
+    const illuminateTimer = window.setTimeout(
+      () => setArrivalPhase("illuminating"),
+      prefersReducedMotion ? 1850 : 11800,
     );
     const breathTimer = prefersReducedMotion
       ? null
-      : window.setTimeout(() => setArrivalPhase("breathing"), 10400);
+      : window.setTimeout(() => setArrivalPhase("breathing"), 13050);
     const settleTimer = window.setTimeout(
       () => {
+        arrivalVisualReadyRef.current = true;
         setArrivalPhase("settled");
         setShowStartup(false);
+        startPreparedOpening();
       },
-      prefersReducedMotion ? 2350 : 13200,
+      prefersReducedMotion ? 2300 : 15400,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -3252,9 +3278,11 @@ export default function Home() {
     }, 0);
 
     return () => {
-      window.clearTimeout(wordmarkTimer);
-      window.clearTimeout(convergeTimer);
-      window.clearTimeout(colorTimer);
+      window.clearTimeout(descentTimer);
+      window.clearTimeout(meetingTimer);
+      window.clearTimeout(revealTimer);
+      window.clearTimeout(rotateTimer);
+      window.clearTimeout(illuminateTimer);
       if (breathTimer !== null) window.clearTimeout(breathTimer);
       window.clearTimeout(settleTimer);
       window.clearTimeout(hydrateTimer);
@@ -3334,8 +3362,8 @@ export default function Home() {
 
   useEffect(() => {
     if (
-      showStartup ||
       !platformReady ||
+      arrivalPhase !== "revealing" ||
       autoArrivalAttemptedRef.current ||
       voiceConnected ||
       peerRef.current
@@ -3346,11 +3374,11 @@ export default function Home() {
       autoArrivalAttemptedRef.current = true;
       setArrivalAttempted(true);
       void startVoiceSession(demoIntroductionInstruction);
-    }, 650);
+    }, 220);
     return () => window.clearTimeout(arrivalTimer);
-    // Arrival owns the first conversation attempt. Later sessions remain user-controlled.
+    // Prepare voice while the brand reveal is still moving; speech waits for visual settlement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showStartup, platformReady]);
+  }, [arrivalPhase, platformReady]);
 
   useEffect(() => {
     return () => {
@@ -3426,7 +3454,7 @@ export default function Home() {
       ? "arriving"
       : voiceState === "listening"
         ? "listening"
-        : voiceState === "thinking"
+        : voiceState === "connecting" || voiceState === "thinking"
           ? "thinking"
           : voiceState === "speaking"
             ? "speaking"
