@@ -4053,6 +4053,8 @@ export default function Home() {
           <i className="first-moment-atmosphere-human" />
         </div>
         <div className="first-moment-presence" aria-hidden="true">
+          <span className="first-moment-feed first-moment-feed-ara" />
+          <span className="first-moment-feed first-moment-feed-human" />
           <span className="first-moment-wordmark">parallel</span>
           <div className="first-moment-bars">
             <i />
