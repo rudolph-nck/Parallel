@@ -96,7 +96,13 @@ type VoiceState =
   | "synced"
   | "wrapping";
 
-type ArrivalPhase = "black" | "revealing" | "breathing" | "settled";
+type ArrivalPhase =
+  | "black"
+  | "wordmark"
+  | "converging"
+  | "coloring"
+  | "breathing"
+  | "settled";
 type ArrivalRecoveryKind = "autoplay" | "microphone" | "connection" | null;
 type ApprovalMethod = "voice" | "button" | null;
 type MicrosoftStatus =
@@ -801,10 +807,19 @@ export default function Home() {
     inputContextRef.current = null;
     outputContextRef.current = null;
 
-    visualRef.current?.style.setProperty("--human-gap", "14px");
-    visualRef.current?.style.setProperty("--human-luminance", "1");
-    visualRef.current?.style.setProperty("--ara-luminance", "1");
-    visualRef.current?.style.setProperty("--ara-opacity", ".82");
+    visualRef.current?.style.setProperty("--human-gap", "18px");
+    visualRef.current?.style.setProperty("--human-primary-scale", "1.018");
+    visualRef.current?.style.setProperty("--human-companion-scale", "1.008");
+    visualRef.current?.style.setProperty("--human-primary-light", "1.045");
+    visualRef.current?.style.setProperty("--human-companion-light", "1.02");
+    visualRef.current?.style.setProperty("--human-primary-opacity", ".88");
+    visualRef.current?.style.setProperty("--human-companion-opacity", ".76");
+    visualRef.current?.style.setProperty("--ara-primary-scale", "1.018");
+    visualRef.current?.style.setProperty("--ara-companion-scale", "1.008");
+    visualRef.current?.style.setProperty("--ara-primary-light", "1.05");
+    visualRef.current?.style.setProperty("--ara-companion-light", "1.02");
+    visualRef.current?.style.setProperty("--ara-primary-opacity", ".89");
+    visualRef.current?.style.setProperty("--ara-companion-opacity", ".78");
     transcriptRef.current = "";
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
@@ -892,27 +907,52 @@ export default function Home() {
     void audioContext.resume().catch(() => undefined);
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.68;
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.82;
     source.connect(analyser);
-    const levels = new Uint8Array(analyser.frequencyBinCount);
+    const samples = new Uint8Array(analyser.fftSize);
+    let smoothedEnergy = 0;
+    let lastVisualUpdate = 0;
 
-    const readLevel = () => {
-      analyser.getByteFrequencyData(levels);
-      const average =
-        levels.reduce((total, level) => total + level, 0) / levels.length;
-      const energy = Math.min(1, average / 58);
-      if (presence === "human") {
-        visualRef.current?.style.setProperty("--human-gap", `${14 + energy * 2}px`);
-        visualRef.current?.style.setProperty("--human-luminance", `${1 + energy * 0.045}`);
-      } else {
-        visualRef.current?.style.setProperty("--ara-luminance", `${1 + energy * 0.06}`);
-        visualRef.current?.style.setProperty("--ara-opacity", `${0.82 + energy * 0.08}`);
-      }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
+    const readLevel = (timestamp: number) => {
       frameRef.current = window.requestAnimationFrame(readLevel);
+      if (document.hidden || timestamp - lastVisualUpdate < 33) return;
+      lastVisualUpdate = timestamp;
+
+      analyser.getByteTimeDomainData(samples);
+      let squareSum = 0;
+      for (const sample of samples) {
+        const centered = (sample - 128) / 128;
+        squareSum += centered * centered;
+      }
+      const rms = Math.sqrt(squareSum / samples.length);
+      const measuredEnergy = Math.min(1, Math.max(0, (rms - 0.018) / 0.1));
+      const response = measuredEnergy > smoothedEnergy ? 0.36 : 0.1;
+      smoothedEnergy += (measuredEnergy - smoothedEnergy) * response;
+
+      if (presence === "human") {
+        visualRef.current?.style.setProperty("--human-gap", `${18 + smoothedEnergy * 2}px`);
+        visualRef.current?.style.setProperty("--human-primary-scale", `${1.018 + smoothedEnergy * 0.032}`);
+        visualRef.current?.style.setProperty("--human-companion-scale", `${1.008 + smoothedEnergy * 0.012}`);
+        visualRef.current?.style.setProperty("--human-primary-light", `${1.045 + smoothedEnergy * 0.055}`);
+        visualRef.current?.style.setProperty("--human-companion-light", `${1.02 + smoothedEnergy * 0.025}`);
+        visualRef.current?.style.setProperty("--human-primary-opacity", `${0.88 + smoothedEnergy * 0.06}`);
+        visualRef.current?.style.setProperty("--human-companion-opacity", `${0.76 + smoothedEnergy * 0.035}`);
+      } else {
+        visualRef.current?.style.setProperty("--ara-primary-scale", `${1.018 + smoothedEnergy * 0.032}`);
+        visualRef.current?.style.setProperty("--ara-companion-scale", `${1.008 + smoothedEnergy * 0.012}`);
+        visualRef.current?.style.setProperty("--ara-primary-light", `${1.05 + smoothedEnergy * 0.05}`);
+        visualRef.current?.style.setProperty("--ara-companion-light", `${1.02 + smoothedEnergy * 0.025}`);
+        visualRef.current?.style.setProperty("--ara-primary-opacity", `${0.89 + smoothedEnergy * 0.055}`);
+        visualRef.current?.style.setProperty("--ara-companion-opacity", `${0.78 + smoothedEnergy * 0.035}`);
+      }
     };
 
-    readLevel();
+    frameRef.current = window.requestAnimationFrame(readLevel);
   };
 
   const parseFunctionArguments = (call: RealtimeFunctionCall) => {
@@ -3148,19 +3188,27 @@ export default function Home() {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    const revealTimer = window.setTimeout(
-      () => setArrivalPhase("revealing"),
-      prefersReducedMotion ? 900 : 1500,
+    const wordmarkTimer = window.setTimeout(
+      () => setArrivalPhase("wordmark"),
+      prefersReducedMotion ? 650 : 1250,
+    );
+    const convergeTimer = window.setTimeout(
+      () => setArrivalPhase("converging"),
+      prefersReducedMotion ? 1450 : 3150,
+    );
+    const colorTimer = window.setTimeout(
+      () => setArrivalPhase("coloring"),
+      prefersReducedMotion ? 1900 : 5250,
     );
     const breathTimer = prefersReducedMotion
       ? null
-      : window.setTimeout(() => setArrivalPhase("breathing"), 3450);
+      : window.setTimeout(() => setArrivalPhase("breathing"), 6100);
     const settleTimer = window.setTimeout(
       () => {
         setArrivalPhase("settled");
         setShowStartup(false);
       },
-      prefersReducedMotion ? 2100 : 5700,
+      prefersReducedMotion ? 2350 : 8200,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -3206,7 +3254,9 @@ export default function Home() {
     }, 0);
 
     return () => {
-      window.clearTimeout(revealTimer);
+      window.clearTimeout(wordmarkTimer);
+      window.clearTimeout(convergeTimer);
+      window.clearTimeout(colorTimer);
       if (breathTimer !== null) window.clearTimeout(breathTimer);
       window.clearTimeout(settleTimer);
       window.clearTimeout(hydrateTimer);
@@ -3902,6 +3952,7 @@ export default function Home() {
         aria-label="Ara voice conversation"
       >
         <div ref={visualRef} className="first-moment-presence" aria-hidden="true">
+          <span className="first-moment-wordmark">Parallel</span>
           <div className="first-moment-bars">
             <i />
             <i />
