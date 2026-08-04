@@ -60,6 +60,11 @@ Updated: 2026-08-01
 16. The first load of a new application release resets the demo first meeting to `NEW` exactly once.
 17. Reloading the same release preserves in-progress first-meeting state.
 18. A release reset clears prior introduction details and scan results while preserving Microsoft authorization and unrelated operational records.
+19. The opening asks “What’s your name?” and the response after saving it contains exactly one welcome sentiment and uses the preferred name once.
+20. Realtime interruption and automatic turn responses remain disabled until Ara finishes the fixed introduction; microphone listening and normal interruption begin only afterward.
+21. Ara does not echo the user's answer or repeat an acknowledgement with different wording.
+22. After genuine discovery, Ara presents only currently available integrations as a compact task list and never claims a planned source such as Wrike is live.
+23. Once a source is connected, Ara frames the next few days as read-only observation and reserves the evidence-based findings conversation for a later return.
 
 ## Controlled personal calendar
 

@@ -74,7 +74,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /Welcome to Parallel\./);
   assert.match(page, /I don’t know you yet…/);
   assert.match(page, /and I don’t want to pretend that I do\./);
-  assert.match(page, /What should I call you\?/);
+  assert.match(page, /What’s your name\?/);
+  assert.doesNotMatch(page, /What should I call you\?/);
   assert.match(page, /setArrivalPhase\("descending"\)/);
   assert.match(page, /setArrivalPhase\("revealing"\)/);
   assert.match(page, /setArrivalPhase\("rotating"\)/);
@@ -92,6 +93,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /arrival-revealing/);
   assert.match(styles, /arrival-rotating/);
   assert.match(styles, /arrival-illuminating/);
+  assert.match(styles, /first-moment-atmosphere-ara/);
+  assert.match(styles, /first-moment-atmosphere-human/);
+  assert.match(styles, /--ara-ambient-opacity/);
+  assert.match(styles, /--human-ambient-opacity/);
   assert.match(styles, /--ara-line-length/);
   assert.match(styles, /--human-line-length/);
   assert.match(styles, /--ara-halo/);
@@ -108,6 +113,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /search_recall/);
   assert.match(page, /approve_pending_action/);
   assert.match(page, /setMicrophoneEnabled\(false\)/);
+  assert.match(page, /setRealtimeInterruptionMode/);
+  assert.match(page, /create_response:\s*enabled/);
+  assert.match(page, /interrupt_response:\s*enabled/);
+  assert.match(page, /setRealtimeInterruptionMode\(channel, false\)/);
+  assert.match(page, /setRealtimeInterruptionMode\(channelRef\.current, true\)/);
   assert.match(page, /Thoughtful pause · interrupt Ara anytime/);
   assert.match(page, /That sounds good, send it/);
   assert.match(page, /Respond naturally—“Sounds good\.”/);
@@ -189,6 +199,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /type:\s*"semantic_vad"/);
   assert.match(route, /eagerness:\s*"auto"/);
   assert.match(route, /interrupt_response:\s*true/);
+  assert.match(route, /opening asks "What’s your name\?"/);
+  assert.match(route, /one and only post-name welcome/);
+  assert.match(route, /Every spoken turn must add something new/);
+  assert.match(route, /small integration handoff/);
+  assert.match(route, /meet, connect,[\s\S]*observe quietly,[\s\S]*return later with findings/);
   assert.match(route, /calendar_period/);
   assert.match(route, /name:\s*"read_calendar_window"/);
   assert.match(route, /name:\s*"focus_calendar_canvas"/);
@@ -239,7 +254,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Discovery is a relationship, not an intake interview/);
   assert.match(route, /A role like that usually means/);
   assert.match(route, /observe-first posture/);
-  assert.match(route, /does not want to change anything on day one/);
+  assert.match(route, /does not want to change anything yet/);
   assert.match(route, /What do you do\?/);
   assert.match(route, /Never respond to a direct\s+question by jumping into setup/);
   assert.match(route, /Every count or percentage must come from a tool result/);

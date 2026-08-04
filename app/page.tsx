@@ -232,7 +232,7 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
-const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What should I call you?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What’s your name?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
 
 Hi.
@@ -243,7 +243,7 @@ Welcome to Parallel.
 
 I don’t know you yet… and I don’t want to pretend that I do.
 
-What should I call you?
+What’s your name?
 
 Begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question feel personal and genuinely curious—like opening a door, never collecting a field in a form. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
 const naturalCompletionInstruction =
@@ -279,14 +279,14 @@ const buildFirstMeetingInstruction = (
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, make one specific human connection to what they shared, and let the conversation breathe. Once their role, environment, and one pressure are clear, explain your observe-first posture naturally: you do not want to change anything today; you want to learn how work reaches them and bring back a useful picture before recommending change. Mention connecting Microsoft only at a natural lull or when they ask to start working; never request credentials.`;
+    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, make one specific human connection to what they shared, and let the conversation breathe. Once their role, environment, and one pressure are clear, move naturally into a small integration handoff: explain that Microsoft 365 is the first available connection for mail, calendar, meetings, and files, and give them that one secure task without requesting credentials. Do not claim Wrike or another source is currently available unless a tool says it is. After the connection, explain your observe-first posture: you do not want to change anything yet; over the next few days you want to learn how work reaches them, then return later with evidence-based observations and possible improvements.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
     (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
   ) {
-    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected. Start scan_first_day_workspace silently, then immediately keep the current conversation moving; do not announce setup, narrate research, wait for the scan, propose changes, or reintroduce yourself. Stay in discovery until you understand their environment and one pressure. Then explain your observe-first posture naturally: you will watch how work reaches them and learn their judgment before recommending change. On a later suitable turn, check_first_day_workspace can surface one relevant finding.`;
+    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so acknowledge it once only when relevant and do not ask them to reconnect. Start scan_first_day_workspace silently, then immediately keep the current conversation moving; do not narrate research, wait for the scan, propose changes, or reintroduce yourself. Stay in discovery until you understand their environment and one pressure. Then explain your observe-first posture naturally: you do not want to change anything yet; over the next few days you will learn how work reaches them and how they make judgments. Tell them you will return in a later conversation with evidence-based observations and possible improvements. Observation is read-only and authorizes no external action. On a later suitable turn, check_first_day_workspace can surface one relevant finding.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -952,6 +952,9 @@ export default function Home() {
       smoothedEnergy += (measuredEnergy - smoothedEnergy) * response;
 
       if (presence === "human") {
+        visualRef.current?.style.setProperty("--human-ambient-opacity", `${0.16 + smoothedEnergy * 0.38}`);
+        visualRef.current?.style.setProperty("--human-ambient-scale", `${0.98 + smoothedEnergy * 0.11}`);
+        visualRef.current?.style.setProperty("--human-ambient-shift", `${smoothedEnergy * 2.8}vw`);
         visualRef.current?.style.setProperty("--human-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
         visualRef.current?.style.setProperty("--human-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--human-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
@@ -964,6 +967,9 @@ export default function Home() {
         visualRef.current?.style.setProperty("--human-companion-light", `${1.015 + smoothedEnergy * 0.035}`);
         visualRef.current?.style.setProperty("--human-companion-opacity", `${0.44 + smoothedEnergy * 0.02}`);
       } else {
+        visualRef.current?.style.setProperty("--ara-ambient-opacity", `${0.16 + smoothedEnergy * 0.38}`);
+        visualRef.current?.style.setProperty("--ara-ambient-scale", `${0.98 + smoothedEnergy * 0.11}`);
+        visualRef.current?.style.setProperty("--ara-ambient-shift", `${smoothedEnergy * 2.8}vw`);
         visualRef.current?.style.setProperty("--ara-glow-opacity", `${0.24 + smoothedEnergy * 0.36}`);
         visualRef.current?.style.setProperty("--ara-glow-scale", `${0.98 + smoothedEnergy * 0.17}`);
         visualRef.current?.style.setProperty("--ara-companion-glow-opacity", `${0.015 + smoothedEnergy * 0.015}`);
@@ -1099,7 +1105,7 @@ export default function Home() {
         saved: true,
         preferred_name: preferredName,
         instruction:
-          `Their preferred name is ${preferredName}. Respond to their whole last turn, not merely the saved preference. Answer any question first. Then welcome them with one sincere, natural sentence that uses their name once—vary naturally between sentiments such as “It’s really nice to meet you, ${preferredName},” “I’m glad to meet you, ${preferredName},” or, only when it genuinely fits, “That’s a lovely name.” Do not stack compliments or sound scripted. If they have not already shared their work, ask one relaxed question: “Tell me a little about your work—where are you, and what do you do there?” Do not mention onboarding, saved preferences, setup, or Microsoft.`,
+          `Their preferred name is ${preferredName}. This tool result owns the single post-name welcome. Call this tool silently, with no spoken preamble. Respond to their whole last turn and answer any direct question first. Then say exactly one sincere welcome sentence that uses their name once, such as “It’s really nice to meet you, ${preferredName}.” Do not add a second greeting, compliment, or another version of “nice to meet you” in this response or the next one. If they have not already shared their work, continue naturally with one invitation: “Tell me a little about your work—where are you, and what do you do there?” Do not mention onboarding, saved preferences, setup, or Microsoft.`,
       };
     }
 
@@ -1124,7 +1130,7 @@ export default function Home() {
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
         research_status: research.status,
         instruction:
-          "Answer every question in their last turn first. If they asked what you do, explain naturally that you are their right hand inside Parallel—learning how work reaches them, connecting scattered context, helping them think, and carrying agreed work forward. Stay with their world; do not jump to 'let me see how I can help,' setup, or a proposed action. Make one specific inference from the role they described and clearly frame it as likely rather than verified. Ask at most one human follow-up about the systems, requests, people, or pressure behind that inference. Once you understand their role, environment, and one real pressure, explain naturally that you do not want to change anything today: you want to observe how work reaches them, learn their judgment, and bring back a useful picture before recommending change. Do not announce or narrate the quiet Microsoft read.",
+          "Answer every question in their last turn first. If they asked what you do, explain naturally that you are their right hand inside Parallel—learning how work reaches them, connecting scattered context, helping them think, and carrying agreed work forward. Do not repeat or paraphrase what they just told you. Make one specific inference from their role and clearly frame it as likely rather than verified. Ask at most one human follow-up about the systems, requests, people, or pressure behind that inference. Stay in the relationship long enough to understand their world. At a genuine lull, explain the small integration task list: connect the work sources Parallel currently supports, beginning with Microsoft 365 when it is not already connected; describe other systems only as they become available, never as live today. After at least one source is connected, explain that you do not want to change anything yet: you want to observe how work reaches them over the next few days, learn their judgment, and later return with evidence-based observations and possible improvements. Observation is read-only and authorizes no external action. Do not announce or narrate the quiet Microsoft read.",
       };
     }
 
@@ -2688,9 +2694,35 @@ export default function Home() {
     }
   };
 
+  const setRealtimeInterruptionMode = (
+    channel: RTCDataChannel,
+    enabled: boolean,
+  ) => {
+    if (channel.readyState !== "open") return;
+    channel.send(
+      JSON.stringify({
+        type: "session.update",
+        session: {
+          type: "realtime",
+          audio: {
+            input: {
+              turn_detection: {
+                type: "semantic_vad",
+                eagerness: "auto",
+                create_response: enabled,
+                interrupt_response: enabled,
+              },
+            },
+          },
+        },
+      }),
+    );
+  };
+
   const sendArrivalPerformance = (channel: RTCDataChannel) => {
     if (channel.readyState !== "open") return;
 
+    setRealtimeInterruptionMode(channel, false);
     arrivalScriptActiveRef.current = true;
     responseCompletedRef.current = false;
     outputAudioDrainedRef.current = false;
@@ -3019,6 +3051,9 @@ export default function Home() {
           setVoiceState("synced");
           understandingTimerRef.current = window.setTimeout(() => {
             understandingTimerRef.current = null;
+            if (channelRef.current) {
+              setRealtimeInterruptionMode(channelRef.current, true);
+            }
             void beginArrivalListening();
           }, 520);
           break;
@@ -3204,27 +3239,27 @@ export default function Home() {
     ).matches;
     const descentTimer = window.setTimeout(
       () => setArrivalPhase("descending"),
-      prefersReducedMotion ? 350 : 1500,
+      prefersReducedMotion ? 350 : 1600,
     );
     const meetingTimer = window.setTimeout(
       () => setArrivalPhase("meeting"),
-      prefersReducedMotion ? 700 : 5000,
+      prefersReducedMotion ? 700 : 5500,
     );
     const revealTimer = window.setTimeout(
       () => setArrivalPhase("revealing"),
-      prefersReducedMotion ? 1050 : 5650,
+      prefersReducedMotion ? 1050 : 6200,
     );
     const rotateTimer = window.setTimeout(
       () => setArrivalPhase("rotating"),
-      prefersReducedMotion ? 1450 : 8900,
+      prefersReducedMotion ? 1450 : 9500,
     );
     const illuminateTimer = window.setTimeout(
       () => setArrivalPhase("illuminating"),
-      prefersReducedMotion ? 1850 : 11800,
+      prefersReducedMotion ? 1850 : 12450,
     );
     const breathTimer = prefersReducedMotion
       ? null
-      : window.setTimeout(() => setArrivalPhase("breathing"), 13050);
+      : window.setTimeout(() => setArrivalPhase("breathing"), 13750);
     const settleTimer = window.setTimeout(
       () => {
         arrivalVisualReadyRef.current = true;
@@ -3232,7 +3267,7 @@ export default function Home() {
         setShowStartup(false);
         startPreparedOpening();
       },
-      prefersReducedMotion ? 2300 : 15400,
+      prefersReducedMotion ? 2300 : 16150,
     );
 
     const hydrateTimer = window.setTimeout(() => {
@@ -3971,10 +4006,15 @@ export default function Home() {
   return (
     <>
       <section
+        ref={visualRef}
         className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"}`}
         aria-label="Ara voice conversation"
       >
-        <div ref={visualRef} className="first-moment-presence" aria-hidden="true">
+        <div className="first-moment-atmosphere" aria-hidden="true">
+          <i className="first-moment-atmosphere-ara" />
+          <i className="first-moment-atmosphere-human" />
+        </div>
+        <div className="first-moment-presence" aria-hidden="true">
           <span className="first-moment-wordmark">parallel</span>
           <div className="first-moment-bars">
             <i />
