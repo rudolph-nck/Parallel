@@ -232,8 +232,10 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
-const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What’s your name?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
+const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Before the first word, make one quiet, brief audible inhale lasting less than half a second. Do not describe or verbalize the breath. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What’s your name?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
+
+Before the first word, make one quiet, brief audible inhale lasting less than half a second. It should feel natural and nearly unconscious—like breath arriving just before a person speaks. It must not sound like a sigh, gasp, ASMR effect, or dramatic performance. Do not say or describe the breath.
 
 Hi.
 
@@ -245,7 +247,7 @@ I don’t know you yet… and I don’t want to pretend that I do.
 
 What’s your name?
 
-Begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question feel personal and genuinely curious—like opening a door, never collecting a field in a form. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
+After the inhale, begin close and gentle, as if you have quietly joined one person in a room. Let a natural breath of silence follow each short thought. Allow a faint smile into “Welcome to Parallel.” Let the final question feel personal and genuinely curious—like opening a door, never collecting a field in a form. Keep the pauses thoughtful but connected so the performance never sounds stopped and restarted. Do not say these directions. Do not add, remove, or rephrase any spoken words. Avoid theatricality, marketing energy, and exaggerated emotion.`;
 const naturalCompletionInstruction =
   'Close naturally in one to four words. Vary between "All set.", "You’re good.", "Taken care of.", "That’s handled.", and "Done." Do not ask another question.';
 const emptyProfile: UserProfile = {

@@ -124,6 +124,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(styles, /--human-line-length/);
   assert.match(styles, /--ara-halo/);
   assert.match(page, /arrival-caption-toggle/);
+  assert.match(page, /quiet, brief audible inhale lasting less than half a second/);
+  assert.match(page, /must not sound like a sigh, gasp, ASMR effect, or dramatic performance/);
   assert.match(page, /setAraBarAwake\(true\)/);
   assert.match(page, /setHumanBarAwake\(true\)/);
   assert.match(page, /setAraAudioActive\(true\)/);
