@@ -240,8 +240,14 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /type:\s*"semantic_vad"/);
   assert.match(route, /eagerness:\s*"medium"/);
   assert.match(route, /noise_reduction:\s*\{\s*type:\s*"far_field"/);
+  assert.match(route, /transcription:\s*\{\s*model:\s*"gpt-4o-mini-transcribe"/);
+  assert.match(route, /language:\s*"en"/);
   assert.match(route, /interrupt_response:\s*true/);
   assert.match(route, /create_response:\s*false/);
+  assert.match(page, /conversation\.item\.input_audio_transcription\.completed/);
+  assert.match(page, /Private speech check/);
+  assert.match(page, /call save_onboarding_identity silently before speaking/);
+  assert.match(page, /inputTranscriptGraceTimerRef/);
   assert.match(route, /one mission during this first meeting/);
   assert.match(route, /I missed that—what should I call you/);
   assert.match(route, /What can I help you get started on today/);

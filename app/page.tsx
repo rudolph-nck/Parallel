@@ -201,6 +201,7 @@ type RealtimeEvent = {
   error?: { message?: string };
   delta?: string;
   transcript?: string;
+  item_id?: string;
   response_id?: string;
   response?: {
     id?: string;
@@ -316,11 +317,13 @@ const buildLiveConversationMission = (
   if (state === "NEW" || !name) {
     return `# Current mission: meet the person
 The only relationship goal for this turn is to learn what the person wants to be called.
-Respond to what they actually said in one brief human sentence, but do not begin work,
-setup, recommendations, or a capability menu. Return naturally to one question: “What
-should I call you?” If the audio was unclear, say only, “I missed that—what should I call
-you?” Never say you lack enough information and never ask how you can help today. Start the
-response immediately with no preamble.`;
+If they gave a clear name, call save_onboarding_identity silently before speaking and do
+not ask for their name again. Respond to the whole thing they actually said in one brief
+human sentence, but do not begin work, setup, recommendations, or a capability menu. Only
+when no name was given, return naturally to the same question: “What’s your name?” If the
+audio was genuinely unclear, say only, “I missed that—could you say your name one more
+time?” Never say you lack enough information and never ask how you can help today. Start
+the response immediately with no preamble.`;
   }
 
   if (state === "NAME_LEARNED") {
@@ -499,6 +502,11 @@ export default function Home() {
   const arrivalAudioReadyRef = useRef(false);
   const fastFirstReplyRef = useRef(false);
   const userTurnAwaitingResponseRef = useRef(false);
+  const pendingCommittedTurnRef = useRef(false);
+  const pendingCommittedItemRef = useRef("");
+  const latestInputTranscriptRef = useRef("");
+  const inputTranscriptsByItemRef = useRef(new Map<string, string>());
+  const inputTranscriptGraceTimerRef = useRef<number | null>(null);
   const observationWrapUpRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
@@ -790,6 +798,10 @@ export default function Home() {
       window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
+    if (inputTranscriptGraceTimerRef.current !== null) {
+      window.clearTimeout(inputTranscriptGraceTimerRef.current);
+      inputTranscriptGraceTimerRef.current = null;
+    }
   };
 
   const persistSessionReceipt = (closeReason: SessionCloseReason) => {
@@ -842,6 +854,10 @@ export default function Home() {
     arrivalAudioReadyRef.current = false;
     fastFirstReplyRef.current = false;
     userTurnAwaitingResponseRef.current = false;
+    pendingCommittedTurnRef.current = false;
+    pendingCommittedItemRef.current = "";
+    latestInputTranscriptRef.current = "";
+    inputTranscriptsByItemRef.current.clear();
     const channel = channelRef.current;
     channelRef.current = null;
     channel?.close();
@@ -2888,6 +2904,12 @@ export default function Home() {
               noise_reduction: {
                 type: "far_field",
               },
+              transcription: {
+                model: "gpt-4o-mini-transcribe",
+                language: "en",
+                prompt:
+                  "A natural one-on-one conversation. Preserve personal names, job titles, company names, and software names exactly when spoken.",
+              },
               turn_detection: {
                 type: "semantic_vad",
                 eagerness,
@@ -3061,9 +3083,57 @@ export default function Home() {
       return;
     }
 
+    const sendResponseForCommittedTurn = (roughTranscript = "") => {
+      if (
+        !pendingCommittedTurnRef.current ||
+        arrivalScriptActiveRef.current ||
+        channel.readyState !== "open"
+      ) {
+        return;
+      }
+
+      pendingCommittedTurnRef.current = false;
+      userTurnAwaitingResponseRef.current = false;
+      if (pendingCommittedItemRef.current) {
+        inputTranscriptsByItemRef.current.delete(pendingCommittedItemRef.current);
+        pendingCommittedItemRef.current = "";
+      }
+      if (inputTranscriptGraceTimerRef.current !== null) {
+        window.clearTimeout(inputTranscriptGraceTimerRef.current);
+        inputTranscriptGraceTimerRef.current = null;
+      }
+
+      const verifiedWords = roughTranscript.replace(/\s+/g, " ").trim().slice(0, 600);
+      const speechGrounding = verifiedWords
+        ? `\n\n# Private speech check\nA separate recognizer produced this rough transcript of the person's latest audio:\n${JSON.stringify(verifiedWords)}\nUse it only as supporting evidence for what was said; never mention or display a transcript. The native audio remains authoritative. If this clearly contains the name they want to be called and the relationship state is NEW, call save_onboarding_identity silently now and never repeat the name question.`
+        : "\n\n# Speech check\nNo reliable supporting transcript arrived in time. Use the native audio. If the words are not clear enough to answer, repair the exact conversational thread once rather than inventing an answer or cycling through alternate versions of the same question.";
+
+      responseCompletedRef.current = false;
+      outputAudioDrainedRef.current = false;
+      channel.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            input: [],
+            instructions: `${buildLiveConversationMission(
+              platformWorkspaceRef.current?.onboarding,
+              Boolean(microsoftSnapshotRef.current),
+            )}${speechGrounding}`,
+          },
+        }),
+      );
+    };
+
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
         userTurnAwaitingResponseRef.current = true;
+        pendingCommittedTurnRef.current = false;
+        pendingCommittedItemRef.current = "";
+        latestInputTranscriptRef.current = "";
+        if (inputTranscriptGraceTimerRef.current !== null) {
+          window.clearTimeout(inputTranscriptGraceTimerRef.current);
+          inputTranscriptGraceTimerRef.current = null;
+        }
         setHumanAudioActive(true);
         setHumanBarAwake(true);
         if (conversationStateRef.current === "RESPONDING") {
@@ -3113,21 +3183,39 @@ export default function Home() {
         ) {
           break;
         }
-        userTurnAwaitingResponseRef.current = false;
-        responseCompletedRef.current = false;
-        outputAudioDrainedRef.current = false;
-        channel.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              input: [],
-              instructions: buildLiveConversationMission(
-                platformWorkspaceRef.current?.onboarding,
-                Boolean(microsoftSnapshotRef.current),
-              ),
-            },
-          }),
-        );
+        pendingCommittedTurnRef.current = true;
+        pendingCommittedItemRef.current = event.item_id ?? "";
+        const committedTranscript = event.item_id
+          ? inputTranscriptsByItemRef.current.get(event.item_id) ?? ""
+          : latestInputTranscriptRef.current;
+        if (committedTranscript) {
+          sendResponseForCommittedTurn(committedTranscript);
+          break;
+        }
+        inputTranscriptGraceTimerRef.current = window.setTimeout(() => {
+          inputTranscriptGraceTimerRef.current = null;
+          sendResponseForCommittedTurn();
+        }, 650);
+        break;
+      case "conversation.item.input_audio_transcription.completed": {
+        const completedTranscript = event.transcript?.trim() ?? "";
+        latestInputTranscriptRef.current = completedTranscript;
+        if (event.item_id) {
+          inputTranscriptsByItemRef.current.set(event.item_id, completedTranscript);
+        }
+        const belongsToPendingTurn =
+          pendingCommittedTurnRef.current &&
+          (!pendingCommittedItemRef.current ||
+            pendingCommittedItemRef.current === event.item_id);
+        if (belongsToPendingTurn) {
+          sendResponseForCommittedTurn(completedTranscript);
+        }
+        break;
+      }
+      case "conversation.item.input_audio_transcription.failed":
+        if (pendingCommittedTurnRef.current) {
+          sendResponseForCommittedTurn();
+        }
         break;
       case "response.created":
         clearVoiceTimers();
@@ -3678,6 +3766,9 @@ export default function Home() {
       }
       if (understandingTimerRef.current !== null) {
         window.clearTimeout(understandingTimerRef.current);
+      }
+      if (inputTranscriptGraceTimerRef.current !== null) {
+        window.clearTimeout(inputTranscriptGraceTimerRef.current);
       }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();

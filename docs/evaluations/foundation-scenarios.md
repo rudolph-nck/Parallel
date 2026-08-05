@@ -39,6 +39,9 @@ Updated: 2026-08-01
 3. Silence after the opening does not produce a second introduction.
 4. Background noise is not accepted as a consequential confirmation.
 5. Successful work closes with a short varied phrase and no new question.
+6. Visible microphone energy alone never counts as understood language; only a committed audio turn can create a response.
+7. A completed private input transcript grounds its matching audio item and can never leak into the next turn.
+8. If transcription is delayed, native Realtime audio proceeds after a short bounded grace period instead of leaving the user waiting.
 
 ## First meeting
 
@@ -99,6 +102,8 @@ Updated: 2026-08-01
 55. After `Tell me a little about yourself`, Ara responds to the detail the person chose to share with one direct, specific observation and at most one same-thread question.
 56. Ara never says `Let me think about what that suggests for your day-to-day`, announces interpretation, or makes the person wait through a placeholder analysis sentence.
 57. A personal disclosure receives personal curiosity; Ara does not automatically steer it toward work, systems, pain, or configuration.
+58. A clearly transcribed preferred name triggers silent identity memory and Ara never asks for the name again in that turn.
+59. Input transcription remains private supporting evidence: it is neither rendered on the Ara canvas nor presented back to the member as a transcript.
 
 ## Controlled personal calendar
 

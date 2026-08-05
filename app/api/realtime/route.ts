@@ -560,6 +560,12 @@ const sessionConfig = {
       noise_reduction: {
         type: "far_field",
       },
+      transcription: {
+        model: "gpt-4o-mini-transcribe",
+        language: "en",
+        prompt:
+          "A natural one-on-one conversation. Preserve personal names, job titles, company names, and software names exactly when spoken.",
+      },
       turn_detection: {
         type: "semantic_vad",
         eagerness: "medium",
