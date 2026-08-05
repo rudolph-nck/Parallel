@@ -306,6 +306,60 @@ const buildFirstMeetingInstruction = (
   return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
 };
 
+const buildLiveConversationMission = (
+  onboarding: OnboardingProfile | null | undefined,
+  microsoftConnected: boolean,
+) => {
+  const state = onboarding?.lifecycle_state ?? "NEW";
+  const name = onboarding?.preferred_name?.trim() ?? "";
+
+  if (state === "NEW" || !name) {
+    return `# Current mission: meet the person
+The only relationship goal for this turn is to learn what the person wants to be called.
+Respond to what they actually said in one brief human sentence, but do not begin work,
+setup, recommendations, or a capability menu. Return naturally to one question: “What
+should I call you?” If the audio was unclear, say only, “I missed that—what should I call
+you?” Never say you lack enough information and never ask how you can help today. Start the
+response immediately with no preamble.`;
+  }
+
+  if (state === "NAME_LEARNED") {
+    return `# Current mission: meet ${name}
+Stay in the first human conversation. Respond directly to the last clear detail ${name}
+shared, then ask at most one same-thread question that genuine curiosity earns. Do not
+switch to tasks, setup, recommendations, software, or a generic “how can I help?” fallback.
+If the latest audio was unclear, repair the thread: “You cut out for a second. You were
+telling me about yourself—what was that last part?” If one phrase was definitely heard,
+mention only that phrase. Start the response immediately; do not narrate thought.`;
+  }
+
+  if (state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
+    return `# Current mission: understand ${name}, then earn the connection
+Continue the living work story from the person's last answer. Be curious about the role as
+they experience it: who relies on them, what reaches them, what their days become, what they
+enjoy, or what gets crowded out. Choose only the one thread their last answer earned. Do not
+wrap or surface Microsoft until you can offer a whole-system synthesis and ${name} clearly
+confirms or corrects it; then let them meet Ara before transitioning. If audio is unclear,
+ask for the missing last part and stay on the same thread. Never fall back to general help.
+Start the response immediately with no preamble.`;
+  }
+
+  if (
+    state === "CONNECTION_READY" ||
+    (state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
+  ) {
+    return `# Current mission: complete the first relationship with ${name}
+Do not restart discovery or offer generic help. If understanding has not yet been confirmed,
+finish the synthesis and reciprocal Ara introduction first. Otherwise explain the bounded,
+connected, read-only observation relationship naturally and call begin_observation only
+after every required condition is true. If the latest audio was unclear, repair the exact
+thread instead of advancing. Start the response immediately with no preamble.`;
+  }
+
+  return `Follow Ara's session instructions and answer the person's current request directly.
+Start the response immediately with no narrated thinking or unnecessary preamble.`;
+};
+
 const subscribeToLocalDate = () => () => {};
 const getLocalDay = () => new Date().getDay();
 const getServerDay = () => 0;
@@ -444,6 +498,7 @@ export default function Home() {
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
   const fastFirstReplyRef = useRef(false);
+  const userTurnAwaitingResponseRef = useRef(false);
   const observationWrapUpRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
@@ -557,6 +612,20 @@ export default function Home() {
       setPlatformReady(true);
       return null;
     }
+  };
+
+  const updateOnboardingSnapshot = (patch: Partial<OnboardingProfile>) => {
+    const current = platformWorkspaceRef.current;
+    if (!current) return;
+    const next: PlatformWorkspace = {
+      ...current,
+      onboarding: {
+        ...current.onboarding,
+        ...patch,
+      },
+    };
+    platformWorkspaceRef.current = next;
+    setPlatformWorkspace(next);
   };
 
   const startFirstDayResearch = () => {
@@ -772,6 +841,7 @@ export default function Home() {
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
     fastFirstReplyRef.current = false;
+    userTurnAwaitingResponseRef.current = false;
     const channel = channelRef.current;
     channelRef.current = null;
     channel?.close();
@@ -1097,6 +1167,14 @@ export default function Home() {
             : verified || proposed || preferredName;
         })(),
       };
+      updateOnboardingSnapshot({
+        preferred_name: identity.preferredName,
+        full_name: identity.fullName,
+        lifecycle_state:
+          platformWorkspaceRef.current?.onboarding.lifecycle_state === "NEW"
+            ? "NAME_LEARNED"
+            : platformWorkspaceRef.current?.onboarding.lifecycle_state ?? "NAME_LEARNED",
+      });
       void updatePlatform("onboarding.save_identity", identity)
         .then(() => refreshPlatformWorkspace())
         .catch(() => setPlatformNote("Ara will quietly retry that memory"));
@@ -1131,6 +1209,31 @@ export default function Home() {
         protectedWork:
           typeof args.protected_work === "string" ? args.protected_work : "",
       };
+      const currentOnboarding = platformWorkspaceRef.current?.onboarding;
+      updateOnboardingSnapshot({
+        company: workContext.company || currentOnboarding?.company || "",
+        job_title: workContext.jobTitle || currentOnboarding?.job_title || "",
+        role_summary: workContext.roleSummary || currentOnboarding?.role_summary || "",
+        team_size: workContext.teamSize ?? currentOnboarding?.team_size ?? null,
+        responsibilities: workContext.responsibilities.length
+          ? workContext.responsibilities
+          : currentOnboarding?.responsibilities ?? [],
+        systems: workContext.systems.length
+          ? workContext.systems
+          : currentOnboarding?.systems ?? [],
+        communication_channels: workContext.communicationChannels.length
+          ? workContext.communicationChannels
+          : currentOnboarding?.communication_channels ?? [],
+        biggest_pressure:
+          workContext.biggestPressure || currentOnboarding?.biggest_pressure || "",
+        systemic_pressure:
+          workContext.systemicPressure || currentOnboarding?.systemic_pressure || "",
+        protected_work:
+          workContext.protectedWork || currentOnboarding?.protected_work || "",
+        lifecycle_state: microsoftSnapshotRef.current
+          ? "CONNECTION_READY"
+          : "WORK_CONTEXT_LEARNED",
+      });
       void updatePlatform("onboarding.save_work_context", workContext)
         .then(() => refreshPlatformWorkspace())
         .catch(() => setPlatformNote("Ara will quietly retry that context"));
@@ -2774,6 +2877,12 @@ export default function Home() {
         type: "session.update",
         session: {
           type: "realtime",
+          reasoning: {
+            effort:
+              platformWorkspaceRef.current?.onboarding.lifecycle_state === "COMPLETE"
+                ? "low"
+                : "minimal",
+          },
           audio: {
             input: {
               noise_reduction: {
@@ -2782,7 +2891,7 @@ export default function Home() {
               turn_detection: {
                 type: "semantic_vad",
                 eagerness,
-                create_response: enabled,
+                create_response: false,
                 interrupt_response: enabled,
               },
             },
@@ -2887,6 +2996,7 @@ export default function Home() {
     if (opening === demoIntroductionInstruction) {
       sendArrivalPerformance(channel);
     } else {
+      setRealtimeInterruptionMode(channel, true, "medium");
       const knownPreferences = Object.entries(userProfile)
         .filter(([, value]) => value.trim())
         .map(([category, value]) => `${category}: ${value}`)
@@ -2953,6 +3063,7 @@ export default function Home() {
 
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
+        userTurnAwaitingResponseRef.current = true;
         setHumanAudioActive(true);
         setHumanBarAwake(true);
         if (conversationStateRef.current === "RESPONDING") {
@@ -2993,6 +3104,30 @@ export default function Home() {
         setMicrophoneEnabled(true);
         setVoiceState("thinking");
         setVoiceNote("Ara is thinking");
+        break;
+      case "input_audio_buffer.committed":
+        if (
+          !userTurnAwaitingResponseRef.current ||
+          arrivalScriptActiveRef.current ||
+          channel.readyState !== "open"
+        ) {
+          break;
+        }
+        userTurnAwaitingResponseRef.current = false;
+        responseCompletedRef.current = false;
+        outputAudioDrainedRef.current = false;
+        channel.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              instructions: buildLiveConversationMission(
+                platformWorkspaceRef.current?.onboarding,
+                Boolean(microsoftSnapshotRef.current),
+              ),
+            },
+          }),
+        );
         break;
       case "response.created":
         clearVoiceTimers();
@@ -3140,7 +3275,7 @@ export default function Home() {
               setRealtimeInterruptionMode(channelRef.current, true, "high");
             }
             void beginArrivalListening();
-          }, 520);
+          }, 240);
           break;
         }
         if (observationWrapUpRef.current) {
@@ -3208,6 +3343,7 @@ export default function Home() {
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
     fastFirstReplyRef.current = false;
+    userTurnAwaitingResponseRef.current = false;
     observationWrapUpRef.current = false;
     setObservationClosing(false);
     toolPendingCountRef.current = 0;
@@ -3349,21 +3485,30 @@ export default function Home() {
       () => setArrivalPhase("rotating"),
       prefersReducedMotion ? 1450 : 10770,
     );
-    const illuminateTimer = window.setTimeout(
-      () => setArrivalPhase("illuminating"),
-      prefersReducedMotion ? 1850 : 13720,
-    );
+    const illuminateTimer = window.setTimeout(() => {
+      setArrivalPhase("illuminating");
+      if (prefersReducedMotion) {
+        arrivalVisualReadyRef.current = true;
+        startPreparedOpening();
+      }
+    }, prefersReducedMotion ? 1850 : 13720);
     const breathTimer = prefersReducedMotion
       ? null
-      : window.setTimeout(() => setArrivalPhase("breathing"), 15020);
+      : window.setTimeout(() => {
+          setArrivalPhase("breathing");
+          arrivalVisualReadyRef.current = true;
+          startPreparedOpening();
+        }, 15020);
     const settleTimer = window.setTimeout(
       () => {
-        arrivalVisualReadyRef.current = true;
+        if (!arrivalVisualReadyRef.current) {
+          arrivalVisualReadyRef.current = true;
+          startPreparedOpening();
+        }
         setArrivalPhase("settled");
         setShowStartup(false);
-        startPreparedOpening();
       },
-      prefersReducedMotion ? 2300 : 17420,
+      prefersReducedMotion ? 2150 : 16020,
     );
 
     const hydrateTimer = window.setTimeout(() => {
