@@ -158,7 +158,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   );
   assert.match(toolFollowUpHandler, /type: "response\.create"/);
   assert.doesNotMatch(toolFollowUpHandler, /input:\s*\[\]/);
-  assert.doesNotMatch(toolFollowUpHandler, /response:\s*\{/);
+  assert.match(toolFollowUpHandler, /tool_choice:\s*"none"/);
+  assert.match(
+    toolFollowUpHandler,
+    /if \(!silentMemoryTurn\) \{\s*setMicrophoneEnabled\(false\);/,
+  );
   assert.match(page, /updateOnboardingSnapshot/);
   assert.match(page, /arrivalVisualReadyRef\.current = true;[\s\S]*startPreparedOpening\(\)/);
   assert.match(page, /Thoughtful pause · interrupt Ara anytime/);

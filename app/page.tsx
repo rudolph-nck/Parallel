@@ -2650,7 +2650,12 @@ export default function Home() {
     for (const call of calls) {
       toolPendingCountRef.current += 1;
       moveConversationState("TOOL_STARTED");
-      setMicrophoneEnabled(false);
+      // Remembering what the member shared is an invisible side effect, not a
+      // blocking action. Keep the microphone live so a memory save never looks
+      // or feels like the conversation disconnected.
+      if (!silentMemoryTurn) {
+        setMicrophoneEnabled(false);
+      }
       clearVoiceTimers();
 
       try {
@@ -2796,10 +2801,18 @@ export default function Home() {
         setFridayTranscript("");
       }
       // Keep the default conversation so Ara receives the tool result and full session mission.
-      // In the Realtime API, response.input: [] would clear that context for this response.
+      // In the Realtime API, an explicitly empty response input would clear that context.
+      // A silent memory save must be followed by speech, never another memory-tool loop.
       channel.send(
         JSON.stringify({
           type: "response.create",
+          ...(silentMemoryTurn
+            ? {
+                response: {
+                  tool_choice: "none",
+                },
+              }
+            : {}),
         }),
       );
     }
@@ -3056,7 +3069,7 @@ export default function Home() {
         responseCompletedRef.current = false;
         outputAudioDrainedRef.current = false;
         // Omitting response.input is intentional: the committed audio lives in the default
-        // conversation. Sending input: [] would make Ara respond without the member's words.
+        // conversation. An explicitly empty input would omit the member's words.
         channel.send(JSON.stringify({ type: "response.create" }));
         break;
       case "response.created":
