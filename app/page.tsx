@@ -285,7 +285,7 @@ const buildFirstMeetingInstruction = (
   ].filter(Boolean).join(" · ");
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react to one specific human detail, and follow only the thread they naturally opened. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. Do not ask about pain points, a biggest problem, or software as a checklist. Do not propose a fix today, explain a product, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
+    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react directly to one specific human detail, and follow only the thread they naturally opened. Never announce interpretation with “let me think about what that suggests,” “let me think about what that means,” or a close paraphrase. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. Do not ask about pain points, a biggest problem, or software as a checklist. Do not propose a fix today, explain a product, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
@@ -1139,7 +1139,7 @@ export default function Home() {
         persistence: "queued",
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
         instruction:
-          "This save is silent and does not advance the conversation. Memory is a byproduct of connection; never ask for a missing field. Answer every question in their last turn first. Do not repeat or paraphrase what they said. Add exactly one specific human observation or clearly framed inference rooted in what they volunteered. Ask at most one question only when it is the naturally curious next thing; prefer a light confirmation such as ‘Am I close?’ Never ask for pain points, a biggest problem, or software as an intake question. Do not offer to fix something today or introduce Microsoft, a task list, observation, or a proposed action in this response.",
+          "This save is silent and does not advance the conversation. Memory is a byproduct of connection; never ask for a missing field. Respond like a person who was genuinely listening to the part of themselves they chose to share. Use at most two beats: first, one warm, specific observation stated directly; second, one light question only if it naturally continues that same thread. Never announce analysis with ‘let me think about what that suggests,’ ‘let me think about what that means,’ ‘let me consider how that affects your day-to-day,’ or any close paraphrase. Do not repeat or summarize their answer, praise generically, or advance to the next information category. If they shared something personal, stay with it instead of steering to work. Never ask for pain points, a biggest problem, or software as an intake question. Do not offer to fix something today or introduce Microsoft, a task list, observation, or a proposed action in this response.",
       };
     }
 
