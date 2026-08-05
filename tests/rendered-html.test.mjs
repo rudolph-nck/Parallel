@@ -144,10 +144,21 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /setRealtimeInterruptionMode\(channel, true, "medium"\)/);
   assert.match(page, /fastFirstReplyRef/);
   assert.match(page, /case "input_audio_buffer\.committed"/);
-  assert.match(page, /buildLiveConversationMission/);
-  assert.match(page, /# Current mission: meet the person/);
   assert.match(page, /effort:[\s\S]*"minimal"/);
   assert.match(page, /case "input_audio_buffer\.committed"[\s\S]*type: "response\.create"/);
+  const committedTurnHandler = page.slice(
+    page.indexOf('case "input_audio_buffer.committed"'),
+    page.indexOf('case "response.created"'),
+  );
+  assert.doesNotMatch(committedTurnHandler, /input:\s*\[\]/);
+  assert.doesNotMatch(committedTurnHandler, /instructions:/);
+  const toolFollowUpHandler = page.slice(
+    page.indexOf("const completeFunctionCalls"),
+    page.indexOf("const setRealtimeInterruptionMode"),
+  );
+  assert.match(toolFollowUpHandler, /type: "response\.create"/);
+  assert.doesNotMatch(toolFollowUpHandler, /input:\s*\[\]/);
+  assert.doesNotMatch(toolFollowUpHandler, /response:\s*\{/);
   assert.match(page, /updateOnboardingSnapshot/);
   assert.match(page, /arrivalVisualReadyRef\.current = true;[\s\S]*startPreparedOpening\(\)/);
   assert.match(page, /Thoughtful pause · interrupt Ara anytime/);
@@ -240,14 +251,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /type:\s*"semantic_vad"/);
   assert.match(route, /eagerness:\s*"medium"/);
   assert.match(route, /noise_reduction:\s*\{\s*type:\s*"far_field"/);
-  assert.match(route, /transcription:\s*\{\s*model:\s*"gpt-4o-mini-transcribe"/);
-  assert.match(route, /language:\s*"en"/);
   assert.match(route, /interrupt_response:\s*true/);
   assert.match(route, /create_response:\s*false/);
-  assert.match(page, /conversation\.item\.input_audio_transcription\.completed/);
-  assert.match(page, /Private speech check/);
-  assert.match(page, /call save_onboarding_identity silently before speaking/);
-  assert.match(page, /inputTranscriptGraceTimerRef/);
+  assert.doesNotMatch(committedTurnHandler, /Private speech check/);
   assert.match(route, /one mission during this first meeting/);
   assert.match(route, /I missed that—what should I call you/);
   assert.match(route, /What can I help you get started on today/);
@@ -343,7 +349,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Teams chat remains draft-only/);
 
   assert.match(page, /const silentMemoryTurn = calls\.every/);
-  assert.match(page, /Give the one complete user-facing final answer now/);
+  assert.doesNotMatch(toolFollowUpHandler, /Give the one complete user-facing final answer now/);
   assert.match(page, /const relationshipReady =/);
   assert.match(page, /args\.user_confirmed_understanding === true/);
   assert.match(page, /args\.ara_reciprocated === true/);

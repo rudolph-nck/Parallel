@@ -43,11 +43,10 @@ offer another time for the new request.
 The voice experience uses an OpenAI Realtime session created through the
 server, responds to live microphone volume, distinguishes the user from Ara
 visually, pauses the microphone while Ara speaks, and accepts natural
-approval language. A private input transcription check now grounds each
-committed voice turn without displaying or storing a visible transcript; it
-helps a clearly spoken name advance once and keeps unclear audio in the same
-conversational thread. Ara uses task-specific response limits to keep routine
-voice turns fast and economical, and closes successful actions briefly.
+approval language. Each committed audio turn remains in the default Realtime
+conversation so Ara hears the member's words and retains the full first-meeting
+mission. Ara uses task-specific response limits to keep routine voice turns
+fast and economical, and closes successful actions briefly.
 
 ## Microsoft 365 permissions
 

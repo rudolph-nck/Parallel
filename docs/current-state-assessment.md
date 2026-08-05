@@ -8,7 +8,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 - a polished Today, Ara, Recall, and Approvals workspace;
 - a live OpenAI Realtime voice connection over WebRTC;
-- adaptive semantic turn detection with fast first-name capture, patient discovery turns, far-field input noise reduction, private committed-turn transcription grounding, live barge-in, and a single opening per voice session;
+- adaptive semantic turn detection with fast first-name capture, patient discovery turns, far-field input noise reduction, default-conversation audio continuity, live barge-in, and a single opening per voice session;
 - Microsoft 365 delegated sign-in and live mailbox, calendar, directory, SharePoint, and file lookup;
 - attendee resolution from spoken names;
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
@@ -35,7 +35,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 ## Runtime and boundaries
 
 - UI/runtime: Next.js 16, React 19, Vinext, Cloudflare-compatible output.
-- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at high eagerness for the short first-name reply and medium eagerness for the conversation after it, far-field noise reduction, private English input transcription as supporting evidence, interruption enabled, Marin voice.
+- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at high eagerness for the short first-name reply and medium eagerness for the conversation after it, far-field noise reduction, default-conversation responses, interruption enabled, Marin voice.
 - External action boundary: governed calendar changes, non-overwriting SharePoint publishing, and reviewed Outlook email are live. Teams chat remains draft-only. Desktop requests remain prepare-only until a signed local companion exists.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
 - Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.
@@ -44,7 +44,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 ## What is reliable today
 
 - Ara remains interruptible while speaking; browser echo cancellation and semantic turn detection reduce false turns without muting the user.
-- Raw microphone energy drives the member visual, but only a committed speech turn can prompt Ara. A short private transcription grace period grounds the response; stale transcripts are matched by item ID and cannot advance a later turn.
+- Raw microphone energy drives the member visual, but only a committed speech turn can prompt Ara. The response uses the default Realtime conversation so the committed audio and prior relationship context remain available.
 - Microsoft directory lookup can resolve short spoken names and refuses ambiguous first-name matches.
 - A meeting is prepared before it is created, and the final creation requires a natural-language approval.
 - Ara varies short natural completion phrases only after the external tool confirms success.

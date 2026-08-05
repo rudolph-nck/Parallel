@@ -201,7 +201,6 @@ type RealtimeEvent = {
   error?: { message?: string };
   delta?: string;
   transcript?: string;
-  item_id?: string;
   response_id?: string;
   response?: {
     id?: string;
@@ -305,62 +304,6 @@ const buildFirstMeetingInstruction = (
   }
 
   return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
-};
-
-const buildLiveConversationMission = (
-  onboarding: OnboardingProfile | null | undefined,
-  microsoftConnected: boolean,
-) => {
-  const state = onboarding?.lifecycle_state ?? "NEW";
-  const name = onboarding?.preferred_name?.trim() ?? "";
-
-  if (state === "NEW" || !name) {
-    return `# Current mission: meet the person
-The only relationship goal for this turn is to learn what the person wants to be called.
-If they gave a clear name, call save_onboarding_identity silently before speaking and do
-not ask for their name again. Respond to the whole thing they actually said in one brief
-human sentence, but do not begin work, setup, recommendations, or a capability menu. Only
-when no name was given, return naturally to the same question: “What’s your name?” If the
-audio was genuinely unclear, say only, “I missed that—could you say your name one more
-time?” Never say you lack enough information and never ask how you can help today. Start
-the response immediately with no preamble.`;
-  }
-
-  if (state === "NAME_LEARNED") {
-    return `# Current mission: meet ${name}
-Stay in the first human conversation. Respond directly to the last clear detail ${name}
-shared, then ask at most one same-thread question that genuine curiosity earns. Do not
-switch to tasks, setup, recommendations, software, or a generic “how can I help?” fallback.
-If the latest audio was unclear, repair the thread: “You cut out for a second. You were
-telling me about yourself—what was that last part?” If one phrase was definitely heard,
-mention only that phrase. Start the response immediately; do not narrate thought.`;
-  }
-
-  if (state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `# Current mission: understand ${name}, then earn the connection
-Continue the living work story from the person's last answer. Be curious about the role as
-they experience it: who relies on them, what reaches them, what their days become, what they
-enjoy, or what gets crowded out. Choose only the one thread their last answer earned. Do not
-wrap or surface Microsoft until you can offer a whole-system synthesis and ${name} clearly
-confirms or corrects it; then let them meet Ara before transitioning. If audio is unclear,
-ask for the missing last part and stay on the same thread. Never fall back to general help.
-Start the response immediately with no preamble.`;
-  }
-
-  if (
-    state === "CONNECTION_READY" ||
-    (state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
-  ) {
-    return `# Current mission: complete the first relationship with ${name}
-Do not restart discovery or offer generic help. If understanding has not yet been confirmed,
-finish the synthesis and reciprocal Ara introduction first. Otherwise explain the bounded,
-connected, read-only observation relationship naturally and call begin_observation only
-after every required condition is true. If the latest audio was unclear, repair the exact
-thread instead of advancing. Start the response immediately with no preamble.`;
-  }
-
-  return `Follow Ara's session instructions and answer the person's current request directly.
-Start the response immediately with no narrated thinking or unnecessary preamble.`;
 };
 
 const subscribeToLocalDate = () => () => {};
@@ -502,11 +445,6 @@ export default function Home() {
   const arrivalAudioReadyRef = useRef(false);
   const fastFirstReplyRef = useRef(false);
   const userTurnAwaitingResponseRef = useRef(false);
-  const pendingCommittedTurnRef = useRef(false);
-  const pendingCommittedItemRef = useRef("");
-  const latestInputTranscriptRef = useRef("");
-  const inputTranscriptsByItemRef = useRef(new Map<string, string>());
-  const inputTranscriptGraceTimerRef = useRef<number | null>(null);
   const observationWrapUpRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
@@ -798,10 +736,6 @@ export default function Home() {
       window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
-    if (inputTranscriptGraceTimerRef.current !== null) {
-      window.clearTimeout(inputTranscriptGraceTimerRef.current);
-      inputTranscriptGraceTimerRef.current = null;
-    }
   };
 
   const persistSessionReceipt = (closeReason: SessionCloseReason) => {
@@ -854,10 +788,6 @@ export default function Home() {
     arrivalAudioReadyRef.current = false;
     fastFirstReplyRef.current = false;
     userTurnAwaitingResponseRef.current = false;
-    pendingCommittedTurnRef.current = false;
-    pendingCommittedItemRef.current = "";
-    latestInputTranscriptRef.current = "";
-    inputTranscriptsByItemRef.current.clear();
     const channel = channelRef.current;
     channelRef.current = null;
     channel?.close();
@@ -2865,18 +2795,11 @@ export default function Home() {
         transcriptRef.current = "";
         setFridayTranscript("");
       }
+      // Keep the default conversation so Ara receives the tool result and full session mission.
+      // In the Realtime API, response.input: [] would clear that context for this response.
       channel.send(
         JSON.stringify({
           type: "response.create",
-          ...(silentMemoryTurn
-            ? {
-                response: {
-                  input: [],
-                  instructions:
-                    "Give the one complete user-facing final answer now. Use no commentary phase, no preamble, no narrated thinking, and no mention of memory or tools. Respond directly to the detail the person shared with one specific human observation and at most one naturally earned same-thread question.",
-                },
-              }
-            : {}),
         }),
       );
     }
@@ -2903,12 +2826,6 @@ export default function Home() {
             input: {
               noise_reduction: {
                 type: "far_field",
-              },
-              transcription: {
-                model: "gpt-4o-mini-transcribe",
-                language: "en",
-                prompt:
-                  "A natural one-on-one conversation. Preserve personal names, job titles, company names, and software names exactly when spoken.",
               },
               turn_detection: {
                 type: "semantic_vad",
@@ -3083,57 +3000,9 @@ export default function Home() {
       return;
     }
 
-    const sendResponseForCommittedTurn = (roughTranscript = "") => {
-      if (
-        !pendingCommittedTurnRef.current ||
-        arrivalScriptActiveRef.current ||
-        channel.readyState !== "open"
-      ) {
-        return;
-      }
-
-      pendingCommittedTurnRef.current = false;
-      userTurnAwaitingResponseRef.current = false;
-      if (pendingCommittedItemRef.current) {
-        inputTranscriptsByItemRef.current.delete(pendingCommittedItemRef.current);
-        pendingCommittedItemRef.current = "";
-      }
-      if (inputTranscriptGraceTimerRef.current !== null) {
-        window.clearTimeout(inputTranscriptGraceTimerRef.current);
-        inputTranscriptGraceTimerRef.current = null;
-      }
-
-      const verifiedWords = roughTranscript.replace(/\s+/g, " ").trim().slice(0, 600);
-      const speechGrounding = verifiedWords
-        ? `\n\n# Private speech check\nA separate recognizer produced this rough transcript of the person's latest audio:\n${JSON.stringify(verifiedWords)}\nUse it only as supporting evidence for what was said; never mention or display a transcript. The native audio remains authoritative. If this clearly contains the name they want to be called and the relationship state is NEW, call save_onboarding_identity silently now and never repeat the name question.`
-        : "\n\n# Speech check\nNo reliable supporting transcript arrived in time. Use the native audio. If the words are not clear enough to answer, repair the exact conversational thread once rather than inventing an answer or cycling through alternate versions of the same question.";
-
-      responseCompletedRef.current = false;
-      outputAudioDrainedRef.current = false;
-      channel.send(
-        JSON.stringify({
-          type: "response.create",
-          response: {
-            input: [],
-            instructions: `${buildLiveConversationMission(
-              platformWorkspaceRef.current?.onboarding,
-              Boolean(microsoftSnapshotRef.current),
-            )}${speechGrounding}`,
-          },
-        }),
-      );
-    };
-
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
         userTurnAwaitingResponseRef.current = true;
-        pendingCommittedTurnRef.current = false;
-        pendingCommittedItemRef.current = "";
-        latestInputTranscriptRef.current = "";
-        if (inputTranscriptGraceTimerRef.current !== null) {
-          window.clearTimeout(inputTranscriptGraceTimerRef.current);
-          inputTranscriptGraceTimerRef.current = null;
-        }
         setHumanAudioActive(true);
         setHumanBarAwake(true);
         if (conversationStateRef.current === "RESPONDING") {
@@ -3183,39 +3052,12 @@ export default function Home() {
         ) {
           break;
         }
-        pendingCommittedTurnRef.current = true;
-        pendingCommittedItemRef.current = event.item_id ?? "";
-        const committedTranscript = event.item_id
-          ? inputTranscriptsByItemRef.current.get(event.item_id) ?? ""
-          : latestInputTranscriptRef.current;
-        if (committedTranscript) {
-          sendResponseForCommittedTurn(committedTranscript);
-          break;
-        }
-        inputTranscriptGraceTimerRef.current = window.setTimeout(() => {
-          inputTranscriptGraceTimerRef.current = null;
-          sendResponseForCommittedTurn();
-        }, 650);
-        break;
-      case "conversation.item.input_audio_transcription.completed": {
-        const completedTranscript = event.transcript?.trim() ?? "";
-        latestInputTranscriptRef.current = completedTranscript;
-        if (event.item_id) {
-          inputTranscriptsByItemRef.current.set(event.item_id, completedTranscript);
-        }
-        const belongsToPendingTurn =
-          pendingCommittedTurnRef.current &&
-          (!pendingCommittedItemRef.current ||
-            pendingCommittedItemRef.current === event.item_id);
-        if (belongsToPendingTurn) {
-          sendResponseForCommittedTurn(completedTranscript);
-        }
-        break;
-      }
-      case "conversation.item.input_audio_transcription.failed":
-        if (pendingCommittedTurnRef.current) {
-          sendResponseForCommittedTurn();
-        }
+        userTurnAwaitingResponseRef.current = false;
+        responseCompletedRef.current = false;
+        outputAudioDrainedRef.current = false;
+        // Omitting response.input is intentional: the committed audio lives in the default
+        // conversation. Sending input: [] would make Ara respond without the member's words.
+        channel.send(JSON.stringify({ type: "response.create" }));
         break;
       case "response.created":
         clearVoiceTimers();
@@ -3766,9 +3608,6 @@ export default function Home() {
       }
       if (understandingTimerRef.current !== null) {
         window.clearTimeout(understandingTimerRef.current);
-      }
-      if (inputTranscriptGraceTimerRef.current !== null) {
-        window.clearTimeout(inputTranscriptGraceTimerRef.current);
       }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();
