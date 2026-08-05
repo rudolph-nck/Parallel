@@ -8,7 +8,7 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 
 - a polished Today, Ara, Recall, and Approvals workspace;
 - a live OpenAI Realtime voice connection over WebRTC;
-- semantic turn detection with patient low eagerness, far-field input noise reduction, live barge-in, and a single opening per voice session;
+- adaptive semantic turn detection with fast first-name capture, patient discovery turns, far-field input noise reduction, live barge-in, and a single opening per voice session;
 - Microsoft 365 delegated sign-in and live mailbox, calendar, directory, SharePoint, and file lookup;
 - attendee resolution from spoken names;
 - a review-and-approve calendar flow that creates a Teams meeting only after explicit approval;
@@ -27,13 +27,13 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - a release-aware private-demo reset that starts each newly published version with a fresh Ara introduction while preserving Microsoft authorization.
 - a simplified Ara conversation canvas with Ara centered above focused, task-specific views; dashboard-style operating information remains on Today.
 - a whole-system first-relationship memory that preserves named systems, communication channels, cumulative pressure, and the meaningful work that noise displaces;
-- first-speech visual identity in which Ara's teal and the member's blue are carried from their respective voice atmospheres into persistent Parallel bars;
+- first-speech visual identity in which Ara's teal and the member's blue settle into persistent, voice-reactive Parallel bars with soft side ambience and no literal light stream;
 - a minimal Microsoft 365 connection control that appears inside Ara's shared space only when the conversation earns it.
 
 ## Runtime and boundaries
 
 - UI/runtime: Next.js 16, React 19, Vinext, Cloudflare-compatible output.
-- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at low eagerness, far-field noise reduction, interruption enabled, Marin voice.
+- Voice: `gpt-realtime-2.1`, low reasoning, semantic VAD at high eagerness for the short first-name reply and medium eagerness for the conversation after it, far-field noise reduction, interruption enabled, Marin voice.
 - External action boundary: governed calendar changes, non-overwriting SharePoint publishing, and reviewed Outlook email are live. Teams chat remains draft-only. Desktop requests remain prepare-only until a signed local companion exists.
 - Secrets: the OpenAI API key remains server-side. Microsoft access tokens use the current browser session.
 - Persistence: durable operating state is stored in D1; browser storage remains a bounded fallback for session receipts and offline profile edits.

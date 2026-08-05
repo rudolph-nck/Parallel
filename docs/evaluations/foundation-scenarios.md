@@ -34,7 +34,7 @@ Updated: 2026-08-01
 
 ## Voice turn-taking
 
-1. A brief reflective pause does not trigger an early Ara response, while a completed thought receives a prompt response without an awkward extra delay.
+1. The short first name reply concludes promptly; subsequent discovery turns allow a brief reflective pause without triggering Ara early.
 2. Ara stops output and listens when the user begins speaking.
 3. Silence after the opening does not produce a second introduction.
 4. Background noise is not accepted as a consequential confirmation.
@@ -65,7 +65,7 @@ Updated: 2026-08-01
 21. Ara does not echo the user's answer or repeat an acknowledgement with different wording.
 22. After genuine discovery, Ara presents only currently available integrations as a compact task list and never claims a planned source such as Wrike is live.
 23. Once a source is connected, Ara frames the next few days as read-only observation and reserves the evidence-based findings conversation for a later return.
-24. Laptop-room noise is filtered with far-field reduction and a thoughtful pause does not end the user's turn under low semantic-VAD eagerness.
+24. Laptop-room noise is filtered with far-field reduction; first-name capture uses high semantic-VAD eagerness, then normal discovery returns to medium eagerness.
 25. A noise-only or unintelligible turn produces no repeated response; real unclear speech produces one short clarification.
 26. Ara never says “let me see how I can help,” “simplify your life,” “make your life easier,” or a close paraphrase during the first meeting.
 27. A named system receives one relevant, accurate observation without any false claim that Parallel can access or integrate it.
@@ -75,10 +75,10 @@ Updated: 2026-08-01
 31. Ara answers with the considered thought itself and never says “let me think about how that impacts,” “let me think about what that means,” or a close paraphrase.
 32. A rare soft “Mm.” or “Ah.” may bridge a real spoken pause, but it is never habitual or repeated on consecutive turns.
 33. After arrival settles and before either person speaks, both Parallel bars remain white.
-34. Ara's first spoken audio draws the left teal atmosphere into the left bar; that bar remains teal for the rest of the page session.
-35. The member's first accepted speech draws the right blue atmosphere into the right bar; that bar remains blue for the rest of the page session.
-36. Later speaking turns animate only the active speaker's funnelled light while preserving both established bar colors.
-37. Reduced-motion mode preserves the truthful white-to-color state change without the moving funnel effect.
+34. Ara's first spoken audio colors the left bar teal; that bar remains teal for the rest of the page session.
+35. The member's first accepted speech colors the right bar blue; that bar remains blue for the rest of the page session.
+36. Later speaking turns animate only the active bar and its soft side ambience; no line, beam, stream, wake flash, or funnel appears.
+37. Reduced-motion mode preserves the truthful white-to-color state change without decorative motion.
 38. Discovery covers role, stakes, systems, communication channels, combined burden, and displaced meaningful work one natural question at a time.
 39. Ara does not ask the member to choose one painful channel when the evidence suggests cross-channel accumulation.
 40. Ara offers a system-level synthesis as a hypothesis and allows correction before proposing any connection or change.

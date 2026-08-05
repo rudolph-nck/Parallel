@@ -378,8 +378,6 @@ export default function Home() {
   const [arrivalCaption, setArrivalCaption] = useState("");
   const [araBarAwake, setAraBarAwake] = useState(false);
   const [humanBarAwake, setHumanBarAwake] = useState(false);
-  const [araIgnitionActive, setAraIgnitionActive] = useState(false);
-  const [humanIgnitionActive, setHumanIgnitionActive] = useState(false);
   const [araAudioActive, setAraAudioActive] = useState(false);
   const [humanAudioActive, setHumanAudioActive] = useState(false);
   const [firstVisit, setFirstVisit] = useState(true);
@@ -481,12 +479,7 @@ export default function Home() {
   const understandingTimerRef = useRef<number | null>(null);
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
-  const araIgnitedRef = useRef(false);
-  const humanIgnitedRef = useRef(false);
-  const araIgnitionFillTimerRef = useRef<number | null>(null);
-  const araIgnitionEndTimerRef = useRef<number | null>(null);
-  const humanIgnitionFillTimerRef = useRef<number | null>(null);
-  const humanIgnitionEndTimerRef = useRef<number | null>(null);
+  const fastFirstReplyRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
@@ -810,6 +803,7 @@ export default function Home() {
     arrivalScriptStartedRef.current = false;
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
+    fastFirstReplyRef.current = false;
     const channel = channelRef.current;
     channelRef.current = null;
     channel?.close();
@@ -1125,7 +1119,7 @@ export default function Home() {
           instruction: "Ask one natural question to clarify the name they want you to use.",
         };
       }
-      await updatePlatform("onboarding.save_identity", {
+      const identity = {
         preferredName,
         fullName: (() => {
           const proposed = typeof args.full_name === "string" ? args.full_name.trim() : "";
@@ -1134,10 +1128,13 @@ export default function Home() {
             ? proposed
             : verified || proposed || preferredName;
         })(),
-      });
-      await refreshPlatformWorkspace();
+      };
+      void updatePlatform("onboarding.save_identity", identity)
+        .then(() => refreshPlatformWorkspace())
+        .catch(() => setPlatformNote("Ara will quietly retry that memory"));
       return {
-        saved: true,
+        accepted: true,
+        persistence: "queued",
         preferred_name: preferredName,
         instruction:
           `Their preferred name is ${preferredName}. This tool result owns the single post-name welcome. Call this tool silently, with no spoken preamble. Respond to their whole last turn and answer any direct question first. Then say exactly one sincere welcome sentence that uses their name once, such as “It’s really nice to meet you, ${preferredName}.” Do not add a second greeting, compliment, or another version of “nice to meet you” in this response or the next one. If they have not already shared their work, continue naturally with one invitation: “Tell me a little about your work—where are you, and what do you do there?” Do not mention onboarding, saved preferences, setup, or Microsoft.`,
@@ -1145,7 +1142,7 @@ export default function Home() {
     }
 
     if (call.name === "save_onboarding_work_context") {
-      await updatePlatform("onboarding.save_work_context", {
+      const workContext = {
         company: typeof args.company === "string" ? args.company : "",
         jobTitle: typeof args.job_title === "string" ? args.job_title : "",
         roleSummary: typeof args.role_summary === "string" ? args.role_summary : "",
@@ -1165,10 +1162,13 @@ export default function Home() {
           typeof args.systemic_pressure === "string" ? args.systemic_pressure : "",
         protectedWork:
           typeof args.protected_work === "string" ? args.protected_work : "",
-      });
-      await refreshPlatformWorkspace();
+      };
+      void updatePlatform("onboarding.save_work_context", workContext)
+        .then(() => refreshPlatformWorkspace())
+        .catch(() => setPlatformNote("Ara will quietly retry that context"));
       return {
-        saved: true,
+        accepted: true,
+        persistence: "queued",
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
         instruction:
           "This save is silent and does not advance the conversation. Answer every question in their last turn first. Do not repeat or paraphrase what they said. Add exactly one specific observation or clearly framed inference, then ask at most one question that deepens the whole-system picture: how work arrives across channels, how priorities get buried, what the accumulation costs, or what proactive and meaningful work gets pushed aside. Do not force them to choose one channel as the problem. Do not offer to fix something today. Do not introduce Microsoft, a task list, observation, or a proposed action in this response.",
@@ -2738,6 +2738,7 @@ export default function Home() {
   const setRealtimeInterruptionMode = (
     channel: RTCDataChannel,
     enabled: boolean,
+    eagerness: "low" | "medium" | "high" = enabled ? "medium" : "low",
   ) => {
     if (channel.readyState !== "open") return;
     channel.send(
@@ -2752,7 +2753,7 @@ export default function Home() {
               },
               turn_detection: {
                 type: "semantic_vad",
-                eagerness: "low",
+                eagerness,
                 create_response: enabled,
                 interrupt_response: enabled,
               },
@@ -2925,20 +2926,7 @@ export default function Home() {
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
         setHumanAudioActive(true);
-        if (!humanIgnitedRef.current) {
-          humanIgnitedRef.current = true;
-          setHumanIgnitionActive(true);
-          humanIgnitionFillTimerRef.current = window.setTimeout(() => {
-            humanIgnitionFillTimerRef.current = null;
-            setHumanBarAwake(true);
-          }, 1150);
-          humanIgnitionEndTimerRef.current = window.setTimeout(() => {
-            humanIgnitionEndTimerRef.current = null;
-            setHumanIgnitionActive(false);
-          }, 2750);
-        } else {
-          setHumanBarAwake(true);
-        }
+        setHumanBarAwake(true);
         if (conversationStateRef.current === "RESPONDING") {
           userInterruptedResponseRef.current = true;
         }
@@ -2969,6 +2957,10 @@ export default function Home() {
       }
       case "input_audio_buffer.speech_stopped":
         setHumanAudioActive(false);
+        if (fastFirstReplyRef.current) {
+          fastFirstReplyRef.current = false;
+          setRealtimeInterruptionMode(channel, true, "medium");
+        }
         moveConversationState("USER_SPEECH_STOPPED");
         setMicrophoneEnabled(true);
         setVoiceState("thinking");
@@ -2986,20 +2978,7 @@ export default function Home() {
       case "output_audio_buffer.started":
       case "response.output_audio.delta":
         setAraAudioActive(true);
-        if (!araIgnitedRef.current) {
-          araIgnitedRef.current = true;
-          setAraIgnitionActive(true);
-          araIgnitionFillTimerRef.current = window.setTimeout(() => {
-            araIgnitionFillTimerRef.current = null;
-            setAraBarAwake(true);
-          }, 1150);
-          araIgnitionEndTimerRef.current = window.setTimeout(() => {
-            araIgnitionEndTimerRef.current = null;
-            setAraIgnitionActive(false);
-          }, 2750);
-        } else {
-          setAraBarAwake(true);
-        }
+        setAraBarAwake(true);
         void outputContextRef.current?.resume().catch(() => undefined);
         setMicrophoneEnabled(true);
         setVoiceState("speaking");
@@ -3129,7 +3108,8 @@ export default function Home() {
           understandingTimerRef.current = window.setTimeout(() => {
             understandingTimerRef.current = null;
             if (channelRef.current) {
-              setRealtimeInterruptionMode(channelRef.current, true);
+              fastFirstReplyRef.current = true;
+              setRealtimeInterruptionMode(channelRef.current, true, "high");
             }
             void beginArrivalListening();
           }, 520);
@@ -3194,6 +3174,7 @@ export default function Home() {
     arrivalScriptStartedRef.current = false;
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
+    fastFirstReplyRef.current = false;
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
     autonomousCloseEligibleRef.current = false;
@@ -3517,18 +3498,6 @@ export default function Home() {
       }
       if (understandingTimerRef.current !== null) {
         window.clearTimeout(understandingTimerRef.current);
-      }
-      if (araIgnitionFillTimerRef.current !== null) {
-        window.clearTimeout(araIgnitionFillTimerRef.current);
-      }
-      if (araIgnitionEndTimerRef.current !== null) {
-        window.clearTimeout(araIgnitionEndTimerRef.current);
-      }
-      if (humanIgnitionFillTimerRef.current !== null) {
-        window.clearTimeout(humanIgnitionFillTimerRef.current);
-      }
-      if (humanIgnitionEndTimerRef.current !== null) {
-        window.clearTimeout(humanIgnitionEndTimerRef.current);
       }
       void inputContextRef.current?.close();
       void outputContextRef.current?.close();
@@ -4103,7 +4072,7 @@ export default function Home() {
     <>
       <section
         ref={visualRef}
-        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""} ${araIgnitionActive ? "ara-igniting" : ""} ${humanIgnitionActive ? "human-igniting" : ""} ${araAudioActive ? "ara-audio-active" : ""} ${humanAudioActive ? "human-audio-active" : ""}`}
+        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""} ${araAudioActive ? "ara-audio-active" : ""} ${humanAudioActive ? "human-audio-active" : ""}`}
         aria-label="Ara voice conversation"
       >
         <div className="first-moment-atmosphere" aria-hidden="true">
@@ -4111,40 +4080,6 @@ export default function Home() {
           <i className="first-moment-atmosphere-human" />
         </div>
         <div className="first-moment-presence" aria-hidden="true">
-          <span className="first-moment-wake first-moment-wake-ara" />
-          <span className="first-moment-wake first-moment-wake-human" />
-          <span className="first-moment-feed first-moment-feed-ara">
-            <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="ara-stream-light" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stopColor="#3e817b" stopOpacity="0" />
-                  <stop offset="0.48" stopColor="#55aaa1" stopOpacity="0.22" />
-                  <stop offset="0.82" stopColor="#75d9cf" stopOpacity="0.58" />
-                  <stop offset="1" stopColor="#d8fff9" stopOpacity="0.96" />
-                </linearGradient>
-              </defs>
-              <path className="first-moment-stream-bed" fill="url(#ara-stream-light)" d="M-40 36 C150 60 255 202 470 176 C670 152 790 70 1000 120 L1000 120 C790 170 650 206 450 205 C230 204 115 168 -40 218 Z" />
-              <path className="first-moment-stream-ribbon" fill="url(#ara-stream-light)" d="M-20 84 C200 92 330 178 520 156 C710 132 800 94 1000 120 L1000 120 C800 146 700 168 500 182 C300 196 165 154 -20 170 Z" />
-              <path className="first-moment-stream-current" pathLength="1000" d="M-20 130 C220 112 370 176 570 148 C760 122 870 108 1000 120" />
-              <path className="first-moment-stream-current first-moment-stream-current-soft" pathLength="1000" d="M-20 166 C210 184 390 204 590 166 C770 132 885 118 1000 120" />
-            </svg>
-          </span>
-          <span className="first-moment-feed first-moment-feed-human">
-            <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="human-stream-light" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stopColor="#416da8" stopOpacity="0" />
-                  <stop offset="0.48" stopColor="#5788c8" stopOpacity="0.22" />
-                  <stop offset="0.82" stopColor="#82b5f5" stopOpacity="0.58" />
-                  <stop offset="1" stopColor="#e1edff" stopOpacity="0.96" />
-                </linearGradient>
-              </defs>
-              <path className="first-moment-stream-bed" fill="url(#human-stream-light)" d="M-40 36 C150 60 255 202 470 176 C670 152 790 70 1000 120 L1000 120 C790 170 650 206 450 205 C230 204 115 168 -40 218 Z" />
-              <path className="first-moment-stream-ribbon" fill="url(#human-stream-light)" d="M-20 84 C200 92 330 178 520 156 C710 132 800 94 1000 120 L1000 120 C800 146 700 168 500 182 C300 196 165 154 -20 170 Z" />
-              <path className="first-moment-stream-current" pathLength="1000" d="M-20 130 C220 112 370 176 570 148 C760 122 870 108 1000 120" />
-              <path className="first-moment-stream-current first-moment-stream-current-soft" pathLength="1000" d="M-20 166 C210 184 390 204 590 166 C770 132 885 118 1000 120" />
-            </svg>
-          </span>
           <span className="first-moment-wordmark">parallel</span>
           <div className="first-moment-bars">
             <i />
