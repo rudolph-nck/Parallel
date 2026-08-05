@@ -239,6 +239,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Every spoken turn must add something new/);
   assert.match(route, /Respond to a completed social turn within one beat/);
   assert.match(route, /Silent memory tools remain silent/);
+  assert.match(route, /only commentary-phase\s+output:[\s\S]*emit no audio, no text/);
   assert.match(route, /following\s+phrases\s+are forbidden during the first meeting/);
   assert.match(route, /Ground the story in the Book of Ara/);
   assert.match(route, /Familiarity is\s+not access/);
@@ -281,6 +282,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"scan_first_day_workspace"/);
   assert.match(route, /name:\s*"check_first_day_workspace"/);
   assert.match(route, /name:\s*"begin_observation"/);
+  assert.match(route, /understanding_summary:[\s\S]*user_confirmed_understanding:[\s\S]*ara_reciprocated:[\s\S]*observation_boundary_explained:/);
   assert.match(route, /name:\s*"complete_first_meeting"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
@@ -303,6 +305,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /quiet memory, never a conversational agenda/i);
   assert.match(route, /Answer the question the user actually asked/);
   assert.match(route, /Discovery is a relationship, not an intake interview/);
+  assert.match(route, /Curiosity means\s+noticing something specific/);
+  assert.match(route, /First-conversation flow and exit criteria/);
+  assert.match(route, /Never wrap merely because Ara knows a name, title, company, or list of systems/);
   assert.match(route, /Ara never interviews the\s+user; she meets them/);
   assert.match(route, /Tell me\s+a little about yourself/);
   assert.match(route, /never ask a question merely because a memory field is empty/i);
@@ -319,6 +324,13 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /that sounds good, send/);
   assert.match(route, /bare "yes," silence, background sound/);
   assert.match(route, /Teams chat remains draft-only/);
+
+  assert.match(page, /const silentMemoryTurn = calls\.every/);
+  assert.match(page, /Give the one complete user-facing final answer now/);
+  assert.match(page, /const relationshipReady =/);
+  assert.match(page, /args\.user_confirmed_understanding === true/);
+  assert.match(page, /args\.ara_reciprocated === true/);
+  assert.match(page, /args\.observation_boundary_explained === true/);
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
   assert.match(platformRoute, /action === "onboarding\.microsoft_profile"/);

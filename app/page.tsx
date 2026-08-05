@@ -1167,17 +1167,27 @@ export default function Home() {
 
     if (call.name === "begin_observation") {
       const relationship = platformWorkspaceRef.current?.onboarding;
+      const understandingSummary =
+        typeof args.understanding_summary === "string"
+          ? args.understanding_summary.trim()
+          : "";
+      const relationshipReady =
+        understandingSummary.length >= 24 &&
+        args.user_confirmed_understanding === true &&
+        args.ara_reciprocated === true &&
+        args.observation_boundary_explained === true;
       if (
         !microsoftSnapshotRef.current ||
         !relationship ||
         relationship.lifecycle_state === "NEW" ||
-        relationship.lifecycle_state === "NAME_LEARNED"
+        relationship.lifecycle_state === "NAME_LEARNED" ||
+        !relationshipReady
       ) {
         return {
           observation_started: false,
           onboarding_complete: false,
           instruction:
-            "Do not close the first conversation yet. Continue meeting the person naturally; observation requires a real work understanding and a verified Microsoft 365 connection.",
+            "Do not close the first conversation yet. Continue from the unmet relationship step without announcing a process: understand the lived work story, offer a whole-system synthesis and receive clear confirmation, reciprocate with Ara's philosophy, verify Microsoft 365, and explain the read-only observation boundary. Ask only the one question naturally earned by the person's last answer.",
         };
       }
       observationWrapUpRef.current = true;
@@ -1186,6 +1196,7 @@ export default function Home() {
       return {
         observation_started: true,
         onboarding_complete: false,
+        understanding_summary: understandingSummary,
         instruction:
           "Close this first conversation softly. Preserve this meaning in warm, natural language: thank them for telling you a little about their life; say you are looking forward to working with them; say you will be in touch soon. Do not name a timeline, ask a question, list what you learned, mention onboarding, or add a feature pitch.",
       };
@@ -2581,6 +2592,12 @@ export default function Home() {
     calls: RealtimeFunctionCall[],
     channel: RTCDataChannel,
   ) => {
+    const silentMemoryTurn = calls.every(
+      (call) =>
+        call.name === "save_onboarding_identity" ||
+        call.name === "save_onboarding_work_context",
+    );
+
     for (const call of calls) {
       toolPendingCountRef.current += 1;
       moveConversationState("TOOL_STARTED");
@@ -2725,7 +2742,24 @@ export default function Home() {
       moveConversationState("TOOL_COMPLETED");
       responseCompletedRef.current = false;
       outputAudioDrainedRef.current = false;
-      channel.send(JSON.stringify({ type: "response.create" }));
+      if (silentMemoryTurn) {
+        transcriptRef.current = "";
+        setFridayTranscript("");
+      }
+      channel.send(
+        JSON.stringify({
+          type: "response.create",
+          ...(silentMemoryTurn
+            ? {
+                response: {
+                  input: [],
+                  instructions:
+                    "Give the one complete user-facing final answer now. Use no commentary phase, no preamble, no narrated thinking, and no mention of memory or tools. Respond directly to the detail the person shared with one specific human observation and at most one naturally earned same-thread question.",
+                },
+              }
+            : {}),
+        }),
+      );
     }
   };
 
