@@ -10,7 +10,7 @@ The current design language is an asset. The redesign preserves its visual calm 
 | --- | --- | --- | --- |
 | First launch | Dark cinematic arrival, two bars, restrained motion, Ara-centered composition | Remove Microsoft as an entry gate; make the first visible state relational rather than administrative | User meets Ara before being asked to connect a system |
 | First conversation | Live voice, interruption, concise responses | Replace stage-driven onboarding with curious conversation and quiet state capture | Ara answers the person before advancing product state |
-| Understanding | Minimal canvas | Add a small, correctable “What I’m learning” view; never show private analytical notes | User can see and correct declared context without a profile form |
+| Understanding | Voice relationship | Keep Ara's working understanding invisible during the first conversation; corrections happen naturally in conversation | User feels understood rather than profiled |
 | Connections | Existing Microsoft visual treatment and secure provider redirect | Introduce one connection at a natural moment; explain what, why, limits, and revocation | User understands the exchange before consent |
 | Observation | First-day read and evidence disclosure | Make read-only observation a real trust stage rather than immediate write-capable setup | No external writes during observation stage |
 | Ara page | Centered Ara presence and live task canvas | Remove dashboard behavior and persistent operational clutter from the conversation surface | Only the current conversation and supporting evidence are visible |
@@ -31,7 +31,7 @@ The first implementation slice preserves the existing look while changing the fi
 1. The cinematic boot remains.
 2. Microsoft no longer blocks entry into Parallel.
 3. The initial Ara page carries the human promise before setup.
-4. A quiet “What I’m learning” canvas reflects declared context.
+4. No visible profile-building canvas appears; Ara demonstrates understanding through a spoken synthesis the person can correct.
 5. Corrections remain available through voice or preferences.
 6. Microsoft connection appears only when Ara brings it into the conversation.
 7. The connection view explains context, limits, provider-owned sign-in, and revocation.
@@ -50,4 +50,3 @@ This is the foundation, not the completed journey. The next slice must enforce o
 - No error without a safe next step.
 - No recovered time automatically converted into more work.
 - No user leaves carrying more uncertainty than before.
-

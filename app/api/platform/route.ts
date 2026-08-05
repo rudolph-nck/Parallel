@@ -258,6 +258,11 @@ export async function POST(request: Request) {
       return Response.json({ saved: true, microsoftConnected: true });
     }
 
+    if (action === "onboarding.observation_started") {
+      await database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.observation_started", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Ara began bounded read-only observation after the first conversation", now).run();
+      return Response.json({ saved: true, onboardingComplete: false });
+    }
+
     if (action === "onboarding.scan_saved") {
       const scanJson = JSON.stringify(body.scan ?? null);
       if (scanJson === "null" || scanJson.length > 40_000) {

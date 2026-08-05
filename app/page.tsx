@@ -285,18 +285,18 @@ const buildFirstMeetingInstruction = (
   ].filter(Boolean).join(" · ");
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first meeting with ${name} as a relaxed conversation, not a setup flow. Answer whatever they say or ask first. Learn the role, stakes, systems, communication channels, combined burden, and what reactive noise pushes aside—one natural question at a time. Do not make them select one channel as the problem when the accumulation may be the problem. Do not propose a fix today, use generic help language, explain a product, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
+    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react to one specific human detail, and follow only the thread they naturally opened. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. Do not ask about pain points, a biggest problem, or software as a checklist. Do not propose a fix today, explain a product, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first meeting with ${name}. Quiet memory, not an agenda: ${context}. Answer the current turn first, add one specific new observation, and let the conversation breathe. Keep learning the whole system until you can explain how fragmented demand affects priorities and what meaningful work it displaces. Familiarity with a named system is not access. Offer a system-level synthesis and let them confirm or correct it before proposing anything. Then give them the fuller Book-of-Ara story: the person in the chair, fascinated by how people think, protective of peace and promises, and committed to understanding before change. After that reciprocal moment, say “I think I have what I need for now.” Match only real integrations to systems they named; Microsoft 365 is the one currently available. Do not claim Wrike, a service desk, or another source is available unless a tool says it is.`;
+    return `Resume the first conversation with ${name}. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Match only real integrations to systems they named; Microsoft 365 is the one currently available. Present it as one quiet connection, never configuration or a permissions task list.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
     (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
   ) {
-    return `Resume the first meeting with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect. If this is the return from sign-in, say once, “All right—it looks like I’m in.” Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for the scan. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Then explain that you will make no changes yet: over the next few days you will study only connected read-only work signals, learn how noise and conflicts move through their world, and later return with evidence-based observations. Do not promise a meeting invite unless a scheduling tool actually creates it.`;
+    return `Resume the first conversation with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect. If this is the return from sign-in, say once, “Perfect. You’re connected.” Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never give a fixed timeline. When the first conversation is ready to end, call begin_observation for the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -304,43 +304,6 @@ const buildFirstMeetingInstruction = (
   }
 
   return `Say exactly: "Hey ${name}—good to hear from you. What’s up?" Then wait. Do not give another greeting if the user is silent.`;
-};
-
-const buildUnderstandingItems = (
-  onboarding: OnboardingProfile | null | undefined,
-) => {
-  if (!onboarding) return [];
-  return [
-    onboarding.preferred_name
-      ? { label: "Call you", value: onboarding.preferred_name }
-      : null,
-    onboarding.job_title || onboarding.company
-      ? {
-          label: "Your work",
-          value: [onboarding.job_title, onboarding.company]
-            .filter(Boolean)
-            .join(" at "),
-        }
-      : null,
-    onboarding.role_summary
-      ? { label: "What you carry", value: onboarding.role_summary }
-      : null,
-    onboarding.systems.length
-      ? { label: "Your work system", value: onboarding.systems.join(" · ") }
-      : null,
-    onboarding.systemic_pressure || onboarding.biggest_pressure
-      ? { label: "Where work gets heavy", value: onboarding.systemic_pressure || onboarding.biggest_pressure }
-      : null,
-    onboarding.protected_work
-      ? { label: "What deserves protection", value: onboarding.protected_work }
-      : null,
-    onboarding.team_size !== null
-      ? {
-          label: "People you support",
-          value: `${onboarding.team_size} direct ${onboarding.team_size === 1 ? "report" : "reports"}`,
-        }
-      : null,
-  ].filter((item): item is { label: string; value: string } => item !== null);
 };
 
 const subscribeToLocalDate = () => () => {};
@@ -380,6 +343,7 @@ export default function Home() {
   const [humanBarAwake, setHumanBarAwake] = useState(false);
   const [araAudioActive, setAraAudioActive] = useState(false);
   const [humanAudioActive, setHumanAudioActive] = useState(false);
+  const [observationClosing, setObservationClosing] = useState(false);
   const [firstVisit, setFirstVisit] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>("today");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -480,6 +444,7 @@ export default function Home() {
   const arrivalChannelReadyRef = useRef(false);
   const arrivalAudioReadyRef = useRef(false);
   const fastFirstReplyRef = useRef(false);
+  const observationWrapUpRef = useRef(false);
   const conversationStateRef = useRef<ConversationLifecycleState>("IDLE");
   const sessionAuditRef = useRef<ConversationSessionDraft | null>(null);
   const closingTimerRef = useRef<number | null>(null);
@@ -794,6 +759,9 @@ export default function Home() {
     note = "Tap to start a new conversation",
     closeReason: SessionCloseReason = "manual",
   ) => {
+    const observationFinished = observationWrapUpRef.current;
+    observationWrapUpRef.current = false;
+    if (!observationFinished) setObservationClosing(false);
     clearVoiceTimers();
     if (sessionAuditRef.current) moveConversationState("BEGIN_DISCONNECT");
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1137,7 +1105,7 @@ export default function Home() {
         persistence: "queued",
         preferred_name: preferredName,
         instruction:
-          `Their preferred name is ${preferredName}. This tool result owns the single post-name welcome. Call this tool silently, with no spoken preamble. Respond to their whole last turn and answer any direct question first. Then say exactly one sincere welcome sentence that uses their name once, such as “It’s really nice to meet you, ${preferredName}.” Do not add a second greeting, compliment, or another version of “nice to meet you” in this response or the next one. If they have not already shared their work, continue naturally with one invitation: “Tell me a little about your work—where are you, and what do you do there?” Do not mention onboarding, saved preferences, setup, or Microsoft.`,
+          `Their preferred name is ${preferredName}. This tool result owns the single post-name welcome. Call this tool silently, with no spoken preamble. Respond to their whole last turn and answer any direct question first. Then say exactly one sincere welcome sentence that uses their name once, such as “It’s really nice to meet you, ${preferredName}.” Do not add a second greeting, compliment, or another version of “nice to meet you” in this response or the next one. If they have not already shared more about themselves, continue naturally with exactly: “Tell me a little about yourself.” Do not narrow this to work, employer, title, systems, onboarding, setup, or Microsoft.`,
       };
     }
 
@@ -1171,7 +1139,7 @@ export default function Home() {
         persistence: "queued",
         microsoft_connected: Boolean(microsoftSnapshotRef.current),
         instruction:
-          "This save is silent and does not advance the conversation. Answer every question in their last turn first. Do not repeat or paraphrase what they said. Add exactly one specific observation or clearly framed inference, then ask at most one question that deepens the whole-system picture: how work arrives across channels, how priorities get buried, what the accumulation costs, or what proactive and meaningful work gets pushed aside. Do not force them to choose one channel as the problem. Do not offer to fix something today. Do not introduce Microsoft, a task list, observation, or a proposed action in this response.",
+          "This save is silent and does not advance the conversation. Memory is a byproduct of connection; never ask for a missing field. Answer every question in their last turn first. Do not repeat or paraphrase what they said. Add exactly one specific human observation or clearly framed inference rooted in what they volunteered. Ask at most one question only when it is the naturally curious next thing; prefer a light confirmation such as ‘Am I close?’ Never ask for pain points, a biggest problem, or software as an intake question. Do not offer to fix something today or introduce Microsoft, a task list, observation, or a proposed action in this response.",
       };
     }
 
@@ -1193,7 +1161,33 @@ export default function Home() {
         connected: false,
         requires_user_action: true,
         instruction:
-          "The Microsoft 365 connection control is now visible in your shared space. If they named Microsoft or Office 365, connect it naturally to what they said. Ask them to choose Connect securely and explain that you will pick up here when they return. Never request credentials aloud and do not mention unavailable connectors.",
+          "One quiet Microsoft 365 card with one Connect action is now visible in your shared space. Relate it naturally to what they shared, then let them connect without explaining software configuration or reciting permissions. Say you will pick up here when they return. Never request credentials aloud and do not mention unavailable connectors.",
+      };
+    }
+
+    if (call.name === "begin_observation") {
+      const relationship = platformWorkspaceRef.current?.onboarding;
+      if (
+        !microsoftSnapshotRef.current ||
+        !relationship ||
+        relationship.lifecycle_state === "NEW" ||
+        relationship.lifecycle_state === "NAME_LEARNED"
+      ) {
+        return {
+          observation_started: false,
+          onboarding_complete: false,
+          instruction:
+            "Do not close the first conversation yet. Continue meeting the person naturally; observation requires a real work understanding and a verified Microsoft 365 connection.",
+        };
+      }
+      observationWrapUpRef.current = true;
+      autonomousCloseEligibleRef.current = true;
+      void updatePlatform("onboarding.observation_started").catch(() => undefined);
+      return {
+        observation_started: true,
+        onboarding_complete: false,
+        instruction:
+          "Close this first conversation softly. Preserve this meaning in warm, natural language: thank them for telling you a little about their life; say you are looking forward to working with them; say you will be in touch soon. Do not name a timeline, ask a question, list what you learned, mention onboarding, or add a feature pitch.",
       };
     }
 
@@ -3115,6 +3109,9 @@ export default function Home() {
           }, 520);
           break;
         }
+        if (observationWrapUpRef.current) {
+          setObservationClosing(true);
+        }
         if (audioDrainGuardTimerRef.current !== null) {
           window.clearTimeout(audioDrainGuardTimerRef.current);
           audioDrainGuardTimerRef.current = null;
@@ -3150,6 +3147,8 @@ export default function Home() {
       case "error":
         setAraAudioActive(false);
         setHumanAudioActive(false);
+        observationWrapUpRef.current = false;
+        setObservationClosing(false);
         console.error("Realtime voice event error.", event.error);
         recoverableErrorRef.current = true;
         autonomousCloseEligibleRef.current = false;
@@ -3175,6 +3174,8 @@ export default function Home() {
     arrivalChannelReadyRef.current = false;
     arrivalAudioReadyRef.current = false;
     fastFirstReplyRef.current = false;
+    observationWrapUpRef.current = false;
+    setObservationClosing(false);
     toolPendingCountRef.current = 0;
     approvalPendingRef.current = false;
     autonomousCloseEligibleRef.current = false;
@@ -4021,10 +4022,6 @@ export default function Home() {
     microsoftStatus === "checking" ||
     microsoftStatus === "connecting" ||
     microsoftStatus === "refreshing";
-  const onboarding = platformWorkspace?.onboarding;
-  const firstMeetingInProgress =
-    !onboarding || onboarding.lifecycle_state !== "COMPLETE";
-  const understandingItems = buildUnderstandingItems(onboarding);
   const userInitials = (microsoftSnapshot?.account.name || "Parallel user")
     .split(/\s+/)
     .filter(Boolean)
@@ -4072,7 +4069,7 @@ export default function Home() {
     <>
       <section
         ref={visualRef}
-        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""} ${araAudioActive ? "ara-audio-active" : ""} ${humanAudioActive ? "human-audio-active" : ""}`}
+        className={`ara-first-moment arrival-${arrivalPhase} moment-${firstMomentState} recovery-${arrivalRecoveryKind ?? "none"} ${observationClosing ? "observation-closing" : ""} ${araBarAwake ? "ara-color-awake" : ""} ${humanBarAwake ? "human-color-awake" : ""} ${araAudioActive ? "ara-audio-active" : ""} ${humanAudioActive ? "human-audio-active" : ""}`}
         aria-label="Ara voice conversation"
       >
         <div className="first-moment-atmosphere" aria-hidden="true">
@@ -4111,14 +4108,10 @@ export default function Home() {
         )}
         {onboardingConnectionPrompt && !microsoftConnected && (
           <section className="first-moment-integration" aria-label="Connect Microsoft 365">
-            <div>
-              <span className="first-moment-integration-mark" aria-hidden="true">M</span>
-              <p><strong>Microsoft 365</strong><small>Mail · Calendar · Meetings · Files</small></p>
-            </div>
+            <p><strong>Microsoft 365</strong></p>
             <button type="button" onClick={connectMicrosoft} disabled={microsoftActionPending}>
-              {microsoftActionPending ? "Opening Microsoft…" : "Connect securely"}
+              {microsoftActionPending ? "Opening…" : "Connect"}
             </button>
-            <small>Microsoft handles sign-in. Ara never sees your password.</small>
           </section>
         )}
         {arrivalNeedsRecovery && arrivalRecoveryKind === "autoplay" && (
@@ -4536,67 +4529,6 @@ export default function Home() {
           </div>
 
           <div className="conversation" aria-label="Ara's live canvas" aria-live="polite">
-            {firstMeetingInProgress && (
-              <section className="ara-live-card ara-understanding-view">
-                <header>
-                  <div>
-                    <p>OUR FIRST CONVERSATION</p>
-                    <h3>What I’m learning</h3>
-                  </div>
-                  <span>{understandingItems.length ? "Taking shape" : "Listening"}</span>
-                </header>
-                {understandingItems.length ? (
-                  <div className="understanding-list">
-                    {understandingItems.map((item) => (
-                      <div key={`${item.label}:${item.value}`}>
-                        <small>{item.label}</small>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="understanding-empty">
-                    No checklist. No profile to complete. Just tell Ara about the work as it comes naturally.
-                  </p>
-                )}
-                <footer>
-                  <small>
-                    Your words are the source of truth. Correct anything by voice or in your preferences.
-                  </small>
-                  {understandingItems.length > 0 && (
-                    <button onClick={() => setProfileOpen(true)}>Correct this</button>
-                  )}
-                </footer>
-              </section>
-            )}
-            {onboardingConnectionPrompt && !microsoftConnected && (
-              <section className="ara-live-card ara-connection-view">
-                <header>
-                  <div>
-                    <p>ONE CONNECTION · EXPLAINED CLEARLY</p>
-                    <h3>Let Ara observe your work quietly</h3>
-                  </div>
-                  <span className="ms-icon">M</span>
-                </header>
-                <p className="connection-intent">
-                  This gives Ara context from the work you can already access. It does not give her permission to act whenever she wants.
-                </p>
-                <div className="permission-preview">
-                  <div><strong>Calendar</strong><span>Understand when you’re available</span></div>
-                  <div><strong>Outlook</strong><span>Notice messages that may need you</span></div>
-                  <div><strong>SharePoint</strong><span>Find authorized source material</span></div>
-                </div>
-                <footer>
-                  <small>
-                    Microsoft handles sign-in. Ara never hears your password or verification code. You can change access at any time.
-                  </small>
-                  <button onClick={connectMicrosoft} disabled={microsoftActionPending}>
-                    {microsoftActionPending ? "Opening Microsoft…" : "Connect securely"}
-                  </button>
-                </footer>
-              </section>
-            )}
-
             {stage === "calendarView" && calendarCanvas && (
               <section className="calendar-canvas" aria-label={`${calendarCanvas.label} calendar`}>
                 <header>

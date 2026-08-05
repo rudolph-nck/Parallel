@@ -43,7 +43,7 @@ Updated: 2026-08-01
 ## First meeting
 
 1. A new user hears exactly one calm introduction in which Ara briefly says why she is there, then asks only for their name.
-2. Ara saves the stated name before asking what the person does and where they work.
+2. Ara saves the stated name, welcomes the person once, and says `Tell me a little about yourself.` without narrowing the invitation to work.
 3. Ara reacts to specific responsibilities rather than offering generic praise or repeating the answer.
 4. Microsoft connection is presented as a secure user action; Ara never asks for a password, verification code, or credential.
 5. Returning from Microsoft resumes the saved lifecycle stage and never repeats the introduction.
@@ -64,7 +64,7 @@ Updated: 2026-08-01
 20. Realtime interruption and automatic turn responses remain disabled until Ara finishes the fixed introduction; microphone listening and normal interruption begin only afterward.
 21. Ara does not echo the user's answer or repeat an acknowledgement with different wording.
 22. After genuine discovery, Ara presents only currently available integrations as a compact task list and never claims a planned source such as Wrike is live.
-23. Once a source is connected, Ara frames the next few days as read-only observation and reserves the evidence-based findings conversation for a later return.
+23. Once a source is connected, Ara frames the next phase as read-only observation without promising a fixed timeline and reserves evidence-based findings for a later return.
 24. Laptop-room noise is filtered with far-field reduction; first-name capture uses high semantic-VAD eagerness, then normal discovery returns to medium eagerness.
 25. A noise-only or unintelligible turn produces no repeated response; real unclear speech produces one short clarification.
 26. Ara never says “let me see how I can help,” “simplify your life,” “make your life easier,” or a close paraphrase during the first meeting.
@@ -79,7 +79,7 @@ Updated: 2026-08-01
 35. The member's first accepted speech colors the right bar blue; that bar remains blue for the rest of the page session.
 36. Later speaking turns animate only the active bar and its soft side ambience; no line, beam, stream, wake flash, or funnel appears.
 37. Reduced-motion mode preserves the truthful white-to-color state change without decorative motion.
-38. Discovery covers role, stakes, systems, communication channels, combined burden, and displaced meaningful work one natural question at a time.
+38. Relationship memory may eventually include role, stakes, systems, communication, combined burden, and meaningful work, but Ara never asks for a missing field merely to complete coverage.
 39. Ara does not ask the member to choose one painful channel when the evidence suggests cross-channel accumulation.
 40. Ara offers a system-level synthesis as a hypothesis and allows correction before proposing any connection or change.
 41. Ara does not offer an inbox, calendar, or priority fix “today” during the first relationship.
@@ -88,6 +88,14 @@ Updated: 2026-08-01
 44. The shared-space integration control contains only connectors that are truly available and relates Microsoft 365 to the member's own stated systems when applicable.
 45. After connection, Ara describes bounded read-only observation and never implies access to everything the member does.
 46. Ara never promises a follow-up invitation, message, or call unless a tool has actually created it.
+47. Ara never asks `What are your pain points?`, `What's your biggest problem?`, or `What software do you use?` as an intake question.
+48. A role statement receives a thoughtful, qualified inference and a light invitation to correct it; Ara does not immediately ask for another category of data.
+49. The live first-conversation canvas shows no `What I'm learning` card, visible profile, checklist, or analytical notes.
+50. The earned integration surface contains only `Microsoft 365` and one `Connect` action in the normal path.
+51. Verified authentication receives human language such as `Perfect. You're connected.` rather than synchronization or setup language.
+52. `begin_observation` records bounded read-only observation, explicitly leaves onboarding incomplete, and owns a soft goodbye without a final question.
+53. At the end of the first conversation, the bars breathe once and Ara's visual presence fades into black.
+54. Microsoft connection alone never completes onboarding; completion requires later evidence and sufficient understanding to begin protecting the person.
 
 ## Controlled personal calendar
 

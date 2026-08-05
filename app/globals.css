@@ -459,10 +459,33 @@ button { color: inherit; }
 .moment-complete .first-moment-bars,
 .moment-present .first-moment-bars { filter: brightness(1); }
 
+.observation-closing .first-moment-bars {
+  animation: observationBreath 2.4s cubic-bezier(.37,0,.63,1) 1 both;
+}
+.observation-closing .first-moment-atmosphere {
+  animation: observationAtmosphereFade 3.2s ease-out 1 both;
+}
+.observation-closing .first-moment-presence {
+  animation: observationPresenceFade 3.2s ease-out .7s 1 both;
+}
+
 @keyframes araArrivalAtmosphere {
   0% { opacity: .045; filter: blur(42px) saturate(.82); }
   48% { opacity: .085; filter: blur(38px) saturate(.88); }
   100% { opacity: .055; filter: blur(42px) saturate(.82); }
+}
+@keyframes observationBreath {
+  0% { filter: brightness(1); transform: scale(1); }
+  42% { filter: brightness(1.13); transform: scale(1.015); }
+  100% { filter: brightness(.92); transform: scale(1); }
+}
+@keyframes observationAtmosphereFade {
+  0%, 34% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes observationPresenceFade {
+  0%, 28% { opacity: 1; }
+  100% { opacity: 0; }
 }
 .arrival-captions {
   position: absolute;
@@ -508,10 +531,12 @@ button { color: inherit; }
   left: 50%;
   bottom: clamp(38px, 9vh, 84px);
   z-index: 5;
-  width: min(420px, calc(100vw - 40px));
-  display: grid;
-  gap: 16px;
-  padding: 20px;
+  width: min(360px, calc(100vw - 40px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 16px 17px 16px 20px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 18px;
   background: rgba(10,10,10,.88);
@@ -520,26 +545,7 @@ button { color: inherit; }
   backdrop-filter: blur(20px);
   animation: appArrive .7s ease-out both;
 }
-.first-moment-integration > div {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-.first-moment-integration-mark {
-  display: grid;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 9px;
-  background: #f0f1ef;
-  color: #171717;
-  font-size: 13px;
-  font-weight: 700;
-}
 .first-moment-integration p {
-  display: grid;
-  gap: 3px;
   margin: 0;
 }
 .first-moment-integration p strong {
@@ -547,16 +553,12 @@ button { color: inherit; }
   font-size: 14px;
   font-weight: 600;
 }
-.first-moment-integration p small,
-.first-moment-integration > small {
-  color: #817e79;
-  font-size: 10px;
-  line-height: 1.5;
-}
 .first-moment-integration button {
+  flex: 0 0 auto;
   min-height: 42px;
   border: 0;
   border-radius: 999px;
+  padding: 0 22px;
   background: #eeefec;
   color: #151515;
   font-size: 12px;
@@ -564,7 +566,6 @@ button { color: inherit; }
   cursor: pointer;
 }
 .first-moment-integration button:disabled { opacity: .52; cursor: default; }
-.first-moment-integration > small { text-align: center; }
 .first-moment-recovery {
   position: absolute;
   left: 50%;
@@ -1510,115 +1511,6 @@ button { color: inherit; }
   background: rgba(10,17,25,.55);
   box-shadow: 0 24px 70px rgba(0,0,0,.18);
 }
-.ara-understanding-view,
-.ara-connection-view {
-  overflow: hidden;
-  animation: appArrive .45s ease-out both;
-}
-.ara-understanding-view > header,
-.ara-connection-view > header,
-.ara-understanding-view > footer,
-.ara-connection-view > footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 18px 21px;
-}
-.ara-understanding-view > header,
-.ara-connection-view > header { border-bottom: 1px solid var(--line); }
-.ara-understanding-view > footer,
-.ara-connection-view > footer { border-top: 1px solid var(--line); }
-.ara-understanding-view h3,
-.ara-connection-view h3 {
-  margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 20px;
-  font-weight: 400;
-}
-.ara-understanding-view header > span {
-  color: #6d8295;
-  font-size: 8px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.understanding-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--line);
-}
-.understanding-list > div {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-  padding: 17px 21px;
-  background: rgba(9,16,24,.93);
-}
-.understanding-list small {
-  color: #607184;
-  font-size: 7px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.understanding-list strong {
-  overflow-wrap: anywhere;
-  color: #c6d3df;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1.55;
-}
-.ara-live-card .understanding-empty {
-  margin: 0;
-  padding: 24px 21px;
-  color: #758598;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 13px;
-  line-height: 1.65;
-  letter-spacing: 0;
-}
-.ara-understanding-view footer small,
-.ara-connection-view footer small {
-  max-width: 520px;
-  color: #667789;
-  font-size: 8px;
-  line-height: 1.55;
-}
-.ara-understanding-view button,
-.ara-connection-view button {
-  flex: 0 0 auto;
-  border: 1px solid rgba(119,227,213,.25);
-  border-radius: 9px;
-  padding: 11px 14px;
-  background: linear-gradient(135deg, rgba(101,167,255,.16), rgba(119,227,213,.14));
-  color: #def8f4;
-  cursor: pointer;
-}
-.ara-connection-view { margin-top: 14px; }
-.ara-connection-view header .ms-icon { width: 32px; height: 32px; }
-.ara-live-card .connection-intent {
-  margin: 0;
-  padding: 19px 21px;
-  color: #8b9aab;
-  font-size: 10px;
-  line-height: 1.65;
-  letter-spacing: 0;
-}
-.permission-preview {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--line);
-}
-.permission-preview > div {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  padding: 16px 18px;
-  background: rgba(9,16,24,.9);
-}
-.permission-preview strong { color: #c7d4e0; font-size: 9px; }
-.permission-preview span { color: #617286; font-size: 8px; line-height: 1.45; }
 .calendar-canvas {
   overflow: hidden;
   border: 1px solid rgba(101,167,255,.17);
@@ -2413,14 +2305,6 @@ button { color: inherit; }
   .first-meeting-connect { align-items: flex-start; flex-direction: column; }
   .first-day-readout { grid-template-columns: 1fr; }
   .first-day-readout > div { border-right: 0; border-bottom: 1px solid var(--line); }
-  .understanding-list,
-  .permission-preview { grid-template-columns: 1fr; }
-  .ara-understanding-view > header,
-  .ara-connection-view > header,
-  .ara-understanding-view > footer,
-  .ara-connection-view > footer { align-items: flex-start; flex-direction: column; }
-  .ara-understanding-view button,
-  .ara-connection-view button { width: 100%; }
   .calendar-week { grid-template-columns: 1fr; }
   .calendar-day { min-height: 0; }
 }

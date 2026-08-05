@@ -27,6 +27,8 @@ Parallel is a deployed, voice-first prototype centered on Ara, Nick's AI Chief o
 - a release-aware private-demo reset that starts each newly published version with a fresh Ara introduction while preserving Microsoft authorization.
 - a simplified Ara conversation canvas with Ara centered above focused, task-specific views; dashboard-style operating information remains on Today.
 - a whole-system first-relationship memory that preserves named systems, communication channels, cumulative pressure, and the meaningful work that noise displaces;
+- a Canon-governed first conversation that begins with `Tell me a little about yourself`, follows volunteered human threads instead of missing fields, synthesizes before connecting, and closes softly into observation;
+- a single-action Microsoft 365 connection card with no visible profile-building, permissions wall, or onboarding checklist;
 - first-speech visual identity in which Ara's teal and the member's blue settle into persistent, voice-reactive Parallel bars with soft side ambience and no literal light stream;
 - a minimal Microsoft 365 connection control that appears inside Ara's shared space only when the conversation earns it.
 

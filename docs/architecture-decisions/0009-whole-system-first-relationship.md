@@ -18,7 +18,7 @@ Extend durable onboarding memory with:
 - a qualified whole-system pressure synthesis;
 - proactive, strategic, leadership, creative, or enjoyable work that the member wants to protect.
 
-The runtime conversation follows these phases without treating them as a visible checklist:
+The runtime relationship may move through these phases, but they are never a conversational sequence to complete:
 
 `MEET → MAP THE WORK SYSTEM → SYNTHESIZE → RECIPROCATE → CONNECT → OBSERVE → RETURN WITH EVIDENCE`
 
@@ -30,7 +30,7 @@ Observation is bounded to connected sources and remains read-only. A future revi
 
 ## Visual relationship
 
-The two Parallel bars begin white. Ara's first spoken audio carries teal light from the left atmosphere into the left bar. The member's first speech carries blue light from the right atmosphere into the right bar. Each color persists for the page session, while later audio modulates the corresponding light channel. The visual state is driven by real voice events and audio energy, not a decorative loop.
+The two Parallel bars begin white. Ara's first spoken audio colors the left bar teal; the member's first speech colors the right bar blue. Each color persists for the page session, while later audio modulates the corresponding bar and soft side ambience. There is no literal light stream, funnel, or impact effect. The visual state is driven by real voice events and audio energy, not a decorative loop.
 
 ## Consequences
 

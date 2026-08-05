@@ -161,8 +161,13 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /calendar-canvas/);
   assert.match(page, /calendarCanvasFocus/);
   assert.match(page, /Ara's live canvas/);
-  assert.match(page, /Let Ara observe your work quietly/);
-  assert.match(page, /Connect securely/);
+  assert.doesNotMatch(page, /What I’m learning/);
+  assert.doesNotMatch(page, /permission-preview/);
+  assert.match(page, /<strong>Microsoft 365<\/strong>/);
+  assert.match(page, /microsoftActionPending \? "Opening…" : "Connect"/);
+  assert.match(page, /observation-closing/);
+  assert.match(styles, /@keyframes observationBreath/);
+  assert.match(styles, /@keyframes observationPresenceFade/);
   assert.match(page, /onboarding\.microsoft_profile/);
   assert.doesNotMatch(page, /microsoftWelcomeRequired/);
   assert.doesNotMatch(page, /className="sidebar"/);
@@ -186,6 +191,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /prepare_workspace_connection/);
   assert.match(page, /scan_first_day_workspace/);
   assert.match(page, /check_first_day_workspace/);
+  assert.match(page, /begin_observation/);
+  assert.match(page, /onboarding\.observation_started/);
   assert.match(page, /readMicrosoftFirstDayScan/);
   assert.match(page, /createBackgroundResearchController/);
   assert.doesNotMatch(page, /CONVERSATION MEMORY/);
@@ -236,11 +243,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Ground the story in the Book of Ara/);
   assert.match(route, /Familiarity is\s+not access/);
   assert.match(route, /Never ask which single\s+channel is the problem/);
-  assert.match(route, /what that burden costs them/);
+  assert.match(route, /what parts of the work do you still really enjoy/i);
   assert.match(route, /I think I have what I need for now/);
   assert.match(route, /systems:[\s\S]*communication_channels:[\s\S]*systemic_pressure:[\s\S]*protected_work:/);
   assert.match(route, /small integration handoff/);
-  assert.match(route, /meet, connect,[\s\S]*observe quietly,[\s\S]*return later with findings/);
+  assert.match(route, /meet, understand,[\s\S]*connect,[\s\S]*observe quietly,[\s\S]*return later with findings/);
   assert.match(route, /calendar_period/);
   assert.match(route, /name:\s*"read_calendar_window"/);
   assert.match(route, /name:\s*"focus_calendar_canvas"/);
@@ -273,6 +280,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"prepare_workspace_connection"/);
   assert.match(route, /name:\s*"scan_first_day_workspace"/);
   assert.match(route, /name:\s*"check_first_day_workspace"/);
+  assert.match(route, /name:\s*"begin_observation"/);
   assert.match(route, /name:\s*"complete_first_meeting"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /trusted right-hand person/);
@@ -291,10 +299,14 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /quiet memory, never a conversational agenda/i);
   assert.match(route, /Answer the question the user actually asked/);
   assert.match(route, /Discovery is a relationship, not an intake interview/);
-  assert.match(route, /Build the story in four layers/);
+  assert.match(route, /Ara never interviews the\s+user; she meets them/);
+  assert.match(route, /Tell me\s+a little about yourself/);
+  assert.match(route, /never ask a question merely because a memory field is empty/i);
+  assert.match(route, /What are your pain points\?/);
   assert.match(route, /observe-first posture/);
-  assert.match(route, /does not want to change anything yet/);
-  assert.match(route, /what do you do there\?/i);
+  assert.match(route, /Perfect\.\s+You’re connected/);
+  assert.match(route, /Never promise a number of\s+days or any fixed timeline/);
+  assert.doesNotMatch(route, /Tell me a little\s+about your work—where are you/);
   assert.match(route, /Never respond to a direct\s+question by jumping into setup/);
   assert.match(route, /Every count or percentage must come from a tool result/);
   assert.match(route, /Do not claim Teams coverage/);
@@ -306,6 +318,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
   assert.match(platformRoute, /action === "onboarding\.microsoft_profile"/);
+  assert.match(platformRoute, /action === "onboarding\.observation_started"/);
+  assert.match(platformRoute, /onboardingComplete: false/);
   assert.match(platformRoute, /Verified Microsoft profile synchronized/);
   assert.match(platformRoute, /export async function GET\(request: Request\)/);
   assert.match(platformRoute, /x-parallel-release-id/);
