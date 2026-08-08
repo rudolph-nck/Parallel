@@ -60,6 +60,7 @@ import {
   updatePlatform,
   type Commitment,
   type DecisionProfile,
+  type OnboardingLifecycleState,
   type OnboardingProfile,
   type PlatformWorkspace,
 } from "./lib/parallel-platform";
@@ -233,7 +234,23 @@ const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
 const MICROSOFT_CONVERSATION_RETURN_KEY = "parallel:microsoft-conversation-return";
-const MICROSOFT_CONVERSATION_RETURN_TTL_MS = 30 * 60 * 1000;
+const FIRST_MEETING_TOOL_NAMES = new Set([
+  "save_onboarding_identity",
+  "save_onboarding_work_context",
+  "prepare_workspace_connection",
+  "scan_first_day_workspace",
+  "check_first_day_workspace",
+  "begin_observation",
+  "complete_first_meeting",
+]);
+const isFirstMeetingLifecycle = (
+  lifecycleState?: OnboardingLifecycleState,
+) =>
+  lifecycleState === "NEW" ||
+  lifecycleState === "NAME_LEARNED" ||
+  lifecycleState === "WORK_CONTEXT_LEARNED" ||
+  lifecycleState === "CONNECTION_PENDING" ||
+  lifecycleState === "CONNECTION_READY";
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Before the first word, make one quiet, brief audible inhale lasting less than half a second. Do not describe or verbalize the breath. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What’s your name?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
 
@@ -292,6 +309,19 @@ const buildFirstMeetingInstruction = (
     onboarding.job_title,
     onboarding.company,
     onboarding.role_summary,
+    onboarding.organization_employee_count !== null
+      ? `Organization employees: ${onboarding.organization_employee_count}`
+      : "",
+    onboarding.organization_asset_size
+      ? `Organization scale: ${onboarding.organization_asset_size}`
+      : "",
+    onboarding.direct_reports !== null
+      ? `Direct reports: ${onboarding.direct_reports}`
+      : "",
+    onboarding.reports_to ? `Reports to: ${onboarding.reports_to}` : "",
+    onboarding.reporting_structure
+      ? `Reporting structure: ${onboarding.reporting_structure}`
+      : "",
     onboarding.systems.length ? `Systems: ${onboarding.systems.join(", ")}` : "",
     onboarding.communication_channels.length
       ? `Channels: ${onboarding.communication_channels.join(", ")}`
@@ -303,18 +333,23 @@ const buildFirstMeetingInstruction = (
   ].filter(Boolean).join(" · ");
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react directly to one specific human detail, and follow only the thread they naturally opened. Never announce interpretation with “let me think about what that suggests,” “let me think about what that means,” or a close paraphrase. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. Do not ask about pain points, a biggest problem, or software as a checklist. Do not propose a fix today, explain a product, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
+    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Your mission is to understand the person and the real organizational world around their role—not to solve work today. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react directly to one specific human detail, and follow only the thread they naturally opened. Never announce interpretation with “let me think about what that suggests,” “let me think about what that means,” or a close paraphrase. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. When work becomes the natural thread, become genuinely curious about the organization: its scale, what it exists to do, the team around them, who relies on them, who they report to, and how responsibility moves above and below them. For a financial institution, asset size can be as meaningful as employee count; for another organization, use an equivalent measure. Ask exactly one naturally earned question at a time, never a checklist. Do not ask about pain points, a biggest problem, or software as intake. Do not propose a fix today, explain a product, create calendar time, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
   }
 
-  if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first conversation with ${name}. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Before synthesizing, let the role gain one naturally relevant dimension beyond title and company—organizational scale, who relies on them, the team beside them, or how responsibility is distributed—unless they already supplied it. Never ask these as a checklist. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Microsoft 365 is the one currently available connection. Do not skip the connection because they did not name their tools: ask naturally whether most of the work moves through Microsoft 365 and, when confirmed, call prepare_workspace_connection. Never say you will be in touch or give a goodbye before a successful begin_observation result.`;
+  if (
+    (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" ||
+      onboarding.lifecycle_state === "CONNECTION_PENDING") &&
+    !microsoftConnected
+  ) {
+    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Before synthesizing, the role needs meaningful organizational dimensionality: learn at least one natural fact about scale (employee count, assets, revenue, membership, reach, or an equivalent measure) and one natural fact about responsibility (direct reports, their manager, reporting structure, or who depends on their team). Ask exactly one conversational question at a time, only when earned by what they just said. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Microsoft 365 is the one currently available connection. Do not skip the connection because they did not name their tools: ask naturally whether most of the work moves through Microsoft 365 and, when confirmed, call prepare_workspace_connection. If the connection card was already presented, leave it available and continue from that exact handoff. Never create or suggest a calendar block. Never say you will be in touch or give a goodbye before a successful begin_observation result.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
-    (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
+    ((onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" ||
+      onboarding.lifecycle_state === "CONNECTION_PENDING") && microsoftConnected)
   ) {
-    return `Resume the first conversation with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect or show another connection card. If this is the return from sign-in, say once, “Perfect. You’re connected.” Otherwise, at the earned connection transition, acknowledge once that Microsoft 365 is already connected and briefly explain the bounded read-only scope; do not let the person leave wondering whether integration was skipped. Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Before synthesizing, let the role gain one naturally relevant dimension beyond title and company—organizational scale, who relies on them, the team beside them, or how responsibility is distributed—unless they already supplied it. Never ask these as a checklist. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never give a fixed timeline. Never say you will be in touch or give a goodbye until begin_observation returns observation_started true; that tool result owns the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
+    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect or show another connection card. If this is the return from sign-in, say once, “Perfect. You’re connected.” Otherwise, at the earned connection transition, acknowledge once that Microsoft 365 is already connected and briefly explain the bounded read-only scope; do not let the person leave wondering whether integration was skipped. Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Before synthesizing, the role needs at least one natural fact about organizational scale and one about responsibility or reporting structure. Ask one question at a time and never make it sound like intake. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never create or suggest a calendar block. Never give a fixed timeline. Never say you will be in touch or give a goodbye until begin_observation returns observation_started true; that tool result owns the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -455,6 +490,7 @@ export default function Home() {
   const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
   const initialResponseRef = useRef<string | null>(null);
   const microsoftConversationReturnRef = useRef(false);
+  const suppressArrivalAnimationRef = useRef(false);
   const autoArrivalAttemptedRef = useRef(false);
   const arrivalScriptActiveRef = useRef(false);
   const arrivalScriptStartedRef = useRef(false);
@@ -551,7 +587,17 @@ export default function Home() {
       setPlatformWorkspace(workspace);
       setUserProfile({ ...emptyProfile, ...workspace.profile });
       const startsFresh = workspace.onboarding.lifecycle_state === "NEW";
+      const connectionIsPending =
+        workspace.onboarding.lifecycle_state === "CONNECTION_PENDING";
       setFirstVisit(startsFresh);
+      if (connectionIsPending) {
+        suppressArrivalAnimationRef.current = true;
+        microsoftConversationReturnRef.current = true;
+        arrivalVisualReadyRef.current = true;
+        setArrivalPhase("settled");
+        setShowStartup(false);
+        setOnboardingConnectionPrompt(!workspace.onboarding.microsoft_connected);
+      }
       if (startsFresh) {
         firstDayResearchRef.current.reset();
         setFirstDayResearchState("idle");
@@ -1112,6 +1158,19 @@ export default function Home() {
 
   const runFridayFunction = async (call: RealtimeFunctionCall) => {
     const args = parseFunctionArguments(call);
+    const currentLifecycle =
+      platformWorkspaceRef.current?.onboarding.lifecycle_state;
+
+    if (
+      isFirstMeetingLifecycle(currentLifecycle) &&
+      !FIRST_MEETING_TOOL_NAMES.has(call.name)
+    ) {
+      return {
+        blocked_during_first_meeting: true,
+        instruction:
+          "That operational capability is intentionally unavailable during the first meeting. Do not mention the block, prepare an action, suggest a calendar block, or offer a quick fix. Return naturally to the person's story. Respond to what they just shared, then ask exactly one curious question about their organization, its scale, their team, or the reporting structure only if that question is naturally earned.",
+      };
+    }
 
     if (call.name === "save_onboarding_identity") {
       const preferredName =
@@ -1158,6 +1217,21 @@ export default function Home() {
         jobTitle: typeof args.job_title === "string" ? args.job_title : "",
         roleSummary: typeof args.role_summary === "string" ? args.role_summary : "",
         teamSize: typeof args.team_size === "number" ? args.team_size : null,
+        organizationEmployeeCount:
+          typeof args.organization_employee_count === "number"
+            ? args.organization_employee_count
+            : null,
+        organizationAssetSize:
+          typeof args.organization_asset_size === "string"
+            ? args.organization_asset_size
+            : "",
+        directReports:
+          typeof args.direct_reports === "number" ? args.direct_reports : null,
+        reportsTo: typeof args.reports_to === "string" ? args.reports_to : "",
+        reportingStructure:
+          typeof args.reporting_structure === "string"
+            ? args.reporting_structure
+            : "",
         responsibilities: Array.isArray(args.responsibilities)
           ? args.responsibilities.filter((item): item is string => typeof item === "string")
           : [],
@@ -1180,6 +1254,22 @@ export default function Home() {
         job_title: workContext.jobTitle || currentOnboarding?.job_title || "",
         role_summary: workContext.roleSummary || currentOnboarding?.role_summary || "",
         team_size: workContext.teamSize ?? currentOnboarding?.team_size ?? null,
+        organization_employee_count:
+          workContext.organizationEmployeeCount ??
+          currentOnboarding?.organization_employee_count ??
+          null,
+        organization_asset_size:
+          workContext.organizationAssetSize ||
+          currentOnboarding?.organization_asset_size ||
+          "",
+        direct_reports:
+          workContext.directReports ?? currentOnboarding?.direct_reports ?? null,
+        reports_to:
+          workContext.reportsTo || currentOnboarding?.reports_to || "",
+        reporting_structure:
+          workContext.reportingStructure ||
+          currentOnboarding?.reporting_structure ||
+          "",
         responsibilities: workContext.responsibilities.length
           ? workContext.responsibilities
           : currentOnboarding?.responsibilities ?? [],
@@ -1195,9 +1285,12 @@ export default function Home() {
           workContext.systemicPressure || currentOnboarding?.systemic_pressure || "",
         protected_work:
           workContext.protectedWork || currentOnboarding?.protected_work || "",
-        lifecycle_state: microsoftSnapshotRef.current
-          ? "CONNECTION_READY"
-          : "WORK_CONTEXT_LEARNED",
+        lifecycle_state:
+          currentOnboarding?.lifecycle_state === "CONNECTION_PENDING"
+            ? "CONNECTION_PENDING"
+            : microsoftSnapshotRef.current
+              ? "CONNECTION_READY"
+              : "WORK_CONTEXT_LEARNED",
       });
       void updatePlatform("onboarding.save_work_context", workContext)
         .then(() => refreshPlatformWorkspace())
@@ -1223,6 +1316,8 @@ export default function Home() {
             "Microsoft 365 is already connected and the read can happen quietly. Do not explain connection or change the subject. Continue the current conversation naturally.",
         };
       }
+      updateOnboardingSnapshot({ lifecycle_state: "CONNECTION_PENDING" });
+      await updatePlatform("onboarding.connection_requested").catch(() => undefined);
       setOnboardingConnectionPrompt(true);
       setVoiceNote("Secure Microsoft sign-in is ready below");
       return {
@@ -1244,24 +1339,42 @@ export default function Home() {
         args.user_confirmed_understanding === true &&
         args.ara_reciprocated === true &&
         args.observation_boundary_explained === true;
-      if (!microsoftSnapshotRef.current) {
-        setOnboardingConnectionPrompt(true);
-        setVoiceNote("Secure Microsoft sign-in is ready below");
-      }
+      const organizationalScaleReady = Boolean(
+        typeof relationship?.organization_employee_count === "number" ||
+        relationship?.organization_asset_size,
+      );
+      const responsibilityDepthReady = Boolean(
+        typeof relationship?.direct_reports === "number" ||
+        relationship?.reports_to ||
+        relationship?.reporting_structure ||
+        typeof relationship?.team_size === "number",
+      );
+      const organizationalDepthReady =
+        organizationalScaleReady && responsibilityDepthReady;
       if (
-        !microsoftSnapshotRef.current ||
         !relationship ||
         relationship.lifecycle_state === "NEW" ||
         relationship.lifecycle_state === "NAME_LEARNED" ||
-        !relationshipReady
+        !relationshipReady ||
+        !organizationalDepthReady
       ) {
         return {
           observation_started: false,
           onboarding_complete: false,
           instruction:
-            !microsoftSnapshotRef.current
-              ? "Do not close the first conversation yet. The secure Microsoft 365 connection card is now visible. Explain naturally that this read-only connection is the next step, let the person connect, and say you will pick up at this exact point when they return. Do not say goodbye, promise to be in touch, or ask another discovery question."
-              : "Do not close the first conversation yet. Continue from the unmet relationship step without announcing a process: understand the lived work story, offer a whole-system synthesis and receive clear confirmation, reciprocate with Ara's philosophy, acknowledge the verified Microsoft 365 connection, and explain the read-only observation boundary. Ask only the one question naturally earned by the person's last answer.",
+            "Do not close the first conversation or introduce Microsoft yet. The organizational picture is not dimensional enough. Continue like a thoughtful coworker, not an interviewer: respond to what they just shared, then ask exactly one naturally earned question about organizational scale or about their team, manager, and reporting structure—whichever side is still missing. Never announce that a field is missing, ask a list, propose a fix, or create calendar time.",
+        };
+      }
+      if (!microsoftSnapshotRef.current) {
+        updateOnboardingSnapshot({ lifecycle_state: "CONNECTION_PENDING" });
+        await updatePlatform("onboarding.connection_requested").catch(() => undefined);
+        setOnboardingConnectionPrompt(true);
+        setVoiceNote("Secure Microsoft sign-in is ready below");
+        return {
+          observation_started: false,
+          onboarding_complete: false,
+          instruction:
+            "Do not close the first conversation yet. The secure Microsoft 365 connection card is now visible. Explain naturally that this read-only connection is the next step, let the person connect, and say you will pick up at this exact point when they return. Do not say goodbye, promise to be in touch, or ask another discovery question.",
         };
       }
       observationWrapUpRef.current = true;
@@ -3407,6 +3520,11 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/sdp",
+          "X-Parallel-Conversation-Mode": isFirstMeetingLifecycle(
+            platformWorkspaceRef.current?.onboarding.lifecycle_state,
+          )
+            ? "first-meeting"
+            : "operating",
         },
         body: offer.sdp,
       });
@@ -3456,18 +3574,21 @@ export default function Home() {
     let settleTimer: number | null = null;
 
     const arrivalBootstrapTimer = window.setTimeout(() => {
+      if (suppressArrivalAnimationRef.current) {
+        arrivalVisualReadyRef.current = true;
+        setArrivalPhase("settled");
+        setShowStartup(false);
+        return;
+      }
       let returningFromMicrosoft = false;
       try {
         const rawReturn = window.sessionStorage.getItem(
           MICROSOFT_CONVERSATION_RETURN_KEY,
         );
         const savedReturn = rawReturn
-          ? JSON.parse(rawReturn) as { startedAt?: number }
+          ? JSON.parse(rawReturn) as { pending?: boolean }
           : null;
-        returningFromMicrosoft = Boolean(
-          savedReturn?.startedAt &&
-          Date.now() - savedReturn.startedAt < MICROSOFT_CONVERSATION_RETURN_TTL_MS,
-        );
+        returningFromMicrosoft = savedReturn?.pending === true;
         if (!returningFromMicrosoft && rawReturn) {
           window.sessionStorage.removeItem(MICROSOFT_CONVERSATION_RETURN_KEY);
         }
@@ -3484,22 +3605,31 @@ export default function Home() {
       }
 
       descentTimer = window.setTimeout(
-        () => setArrivalPhase("descending"),
+        () => {
+          if (!suppressArrivalAnimationRef.current) setArrivalPhase("descending");
+        },
         prefersReducedMotion ? 350 : 1600,
       );
       meetingTimer = window.setTimeout(
-        () => setArrivalPhase("meeting"),
+        () => {
+          if (!suppressArrivalAnimationRef.current) setArrivalPhase("meeting");
+        },
         prefersReducedMotion ? 700 : 6770,
       );
       revealTimer = window.setTimeout(
-        () => setArrivalPhase("revealing"),
+        () => {
+          if (!suppressArrivalAnimationRef.current) setArrivalPhase("revealing");
+        },
         prefersReducedMotion ? 1050 : 7470,
       );
       rotateTimer = window.setTimeout(
-        () => setArrivalPhase("rotating"),
+        () => {
+          if (!suppressArrivalAnimationRef.current) setArrivalPhase("rotating");
+        },
         prefersReducedMotion ? 1450 : 10770,
       );
       illuminateTimer = window.setTimeout(() => {
+        if (suppressArrivalAnimationRef.current) return;
         setArrivalPhase("illuminating");
         if (prefersReducedMotion) {
           arrivalVisualReadyRef.current = true;
@@ -3509,12 +3639,14 @@ export default function Home() {
       breathTimer = prefersReducedMotion
         ? null
         : window.setTimeout(() => {
+            if (suppressArrivalAnimationRef.current) return;
             setArrivalPhase("breathing");
             arrivalVisualReadyRef.current = true;
             startPreparedOpening();
           }, 15020);
       settleTimer = window.setTimeout(
         () => {
+          if (suppressArrivalAnimationRef.current) return;
           if (!arrivalVisualReadyRef.current) {
             arrivalVisualReadyRef.current = true;
             startPreparedOpening();
@@ -4126,7 +4258,7 @@ export default function Home() {
         try {
           window.sessionStorage.setItem(
             MICROSOFT_CONVERSATION_RETURN_KEY,
-            JSON.stringify({ startedAt: Date.now() }),
+            JSON.stringify({ pending: true }),
           );
           microsoftConversationReturnRef.current = true;
         } catch {
@@ -4148,6 +4280,11 @@ export default function Home() {
             jobTitle: onboarding.job_title,
             roleSummary: onboarding.role_summary,
             teamSize: onboarding.team_size,
+            organizationEmployeeCount: onboarding.organization_employee_count,
+            organizationAssetSize: onboarding.organization_asset_size,
+            directReports: onboarding.direct_reports,
+            reportsTo: onboarding.reports_to,
+            reportingStructure: onboarding.reporting_structure,
             responsibilities: onboarding.responsibilities,
             systems: onboarding.systems,
             communicationChannels: onboarding.communication_channels,
@@ -4156,6 +4293,8 @@ export default function Home() {
             protectedWork: onboarding.protected_work,
           }).catch(() => undefined);
         }
+        updateOnboardingSnapshot({ lifecycle_state: "CONNECTION_PENDING" });
+        await updatePlatform("onboarding.connection_requested").catch(() => undefined);
       }
       await connectMicrosoft365();
     } catch {

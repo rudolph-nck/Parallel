@@ -15,6 +15,7 @@ export type OnboardingLifecycleState =
   | "NEW"
   | "NAME_LEARNED"
   | "WORK_CONTEXT_LEARNED"
+  | "CONNECTION_PENDING"
   | "CONNECTION_READY"
   | "FIRST_VALUE_DELIVERED"
   | "COMPLETE";
@@ -27,6 +28,11 @@ export type OnboardingProfile = {
   job_title: string;
   role_summary: string;
   team_size: number | null;
+  organization_employee_count: number | null;
+  organization_asset_size: string;
+  direct_reports: number | null;
+  reports_to: string;
+  reporting_structure: string;
   responsibilities: string[];
   systems: string[];
   communication_channels: string[];

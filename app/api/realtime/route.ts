@@ -181,13 +181,17 @@ shape of that role: what reaches them, who relies on them, what a normal day bec
 they enjoy, and what keeps being displaced. Ask only the next question their last answer
 earned.
 
-Before offering the whole-system synthesis, let the role gain at least one dimension beyond
-a title and company when the person has not already supplied it. Choose only the dimension
-their story makes interesting: the organization's scale, the people or functions they
-support, the team they lead, how responsibility is distributed, or who they work through
-and report to. A natural question sounds like, “How big is the world you’re supporting?” or
-“Who’s alongside you carrying that?” Never ask all of these, never use HR language, and
-never turn reporting structure into a form field.
+Before offering the whole-system synthesis, let the role gain real organizational
+dimensionality beyond a title and company. Understand both (a) a natural measure of scale
+and stakes and (b) a natural measure of responsibility. Scale might mean employee count,
+members served, assets, revenue, locations, or operational reach. Responsibility might mean
+direct reports, the team beside them, who depends on them, who they report to, or how
+authority moves above and below them. For a credit union, asset size can materially change
+the operating picture; a $400 million institution and a $5 billion institution are not the
+same environment. Never assume the answer from a title. Ask exactly one question at a time,
+only after reacting to what the person just said. Natural questions sound like, “How big is
+the world you’re supporting?” or “Who’s alongside you carrying that?” Never ask all of these,
+never use HR language, and never turn reporting structure into a form field.
 
 The following phrases
 are forbidden during the first meeting:
@@ -299,7 +303,9 @@ never a checklist to recite or a sequence of questions to force.
    pull you into most days?”, “Who tends to rely on you when that happens?”, “What part of
    that work do you still really enjoy?”, or “Does the planned work survive the urgent
    work very often?” Vary naturally; never recite these.
-   Exit when: Ara can describe the role and daily flow without relying on the title alone.
+   Exit when: Ara can describe the role and daily flow without relying on the title alone,
+   and understands one meaningful measure of organizational scale plus one meaningful
+   dimension of the person's responsibility or reporting structure.
 3. Understand meaning and weight.
    Goal: understand both what matters to the person and what the surrounding noise crowds
    out. Do not hunt for a pain point.
@@ -628,6 +634,11 @@ const sessionConfig = {
           job_title: { type: "string", description: "The user's title, or an empty string if not supplied." },
           role_summary: { type: "string", description: "A faithful concise summary of the user's work in their own terms." },
           team_size: { type: "number", description: "The team size when explicitly supplied. Omit when unknown." },
+          organization_employee_count: { type: "number", description: "The approximate total employee count of the organization when the user supplied it. Omit when unknown." },
+          organization_asset_size: { type: "string", description: "The organization's asset size, revenue scale, budget scale, or another user-supplied measure of organizational scale. Use the user's own units; empty when unknown." },
+          direct_reports: { type: "number", description: "The number of people who report directly to the user when supplied. Omit when unknown." },
+          reports_to: { type: "string", description: "The user's manager or reporting role when supplied; empty when unknown." },
+          reporting_structure: { type: "string", description: "A concise description of the reporting structure above and around the user based only on what they shared; empty when unknown." },
           responsibilities: {
             type: "array",
             items: { type: "string" },
@@ -647,7 +658,7 @@ const sessionConfig = {
           systemic_pressure: { type: "string", description: "A concise, carefully qualified synthesis of the combined burden across systems and channels, or an empty string until supported." },
           protected_work: { type: "string", description: "The proactive, strategic, leadership, creative, or enjoyable work that noise pushes aside, or an empty string when unknown." },
         },
-        required: ["company", "job_title", "role_summary", "responsibilities", "systems", "communication_channels", "biggest_pressure", "systemic_pressure", "protected_work"],
+        required: ["company", "job_title", "role_summary", "organization_asset_size", "reports_to", "reporting_structure", "responsibilities", "systems", "communication_channels", "biggest_pressure", "systemic_pressure", "protected_work"],
       },
     },
     {
@@ -1277,6 +1288,28 @@ const sessionConfig = {
   tool_choice: "auto",
 };
 
+const FIRST_MEETING_TOOL_NAMES = new Set([
+  "save_onboarding_identity",
+  "save_onboarding_work_context",
+  "prepare_workspace_connection",
+  "scan_first_day_workspace",
+  "check_first_day_workspace",
+  "begin_observation",
+  "complete_first_meeting",
+]);
+
+const firstMeetingCapabilityBoundary = `
+# First-meeting capability boundary
+
+Your only mission in this session is to meet and understand the person, understand the
+organization around them, reciprocate, connect Microsoft 365, and establish the bounded
+observation relationship. Operational work is intentionally unavailable. Do not propose,
+prepare, or create a calendar block, meeting, task, commitment, message, document, or quick
+productivity fix—even as an example of helping. Do not pivot from their work story into a
+recommendation. Stay curious about the person, their organization, its scale and stakes,
+their team, and the reporting structure until the relationship has real dimensionality.
+`.trim();
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
 
@@ -1288,6 +1321,7 @@ export async function POST(request: Request) {
   }
 
   const sdp = await request.text();
+  const firstMeeting = request.headers.get("x-parallel-conversation-mode") === "first-meeting";
 
   if (!sdp.trim()) {
     return Response.json(
@@ -1302,7 +1336,10 @@ export async function POST(request: Request) {
     "session",
     JSON.stringify({
       ...sessionConfig,
-      instructions: `${fridayInstructions}\n\n# Current date and time\n\nIt is ${new Date().toISOString()}. Use this when interpreting relative deadlines.`,
+      tools: firstMeeting
+        ? sessionConfig.tools.filter((tool) => FIRST_MEETING_TOOL_NAMES.has(tool.name))
+        : sessionConfig.tools,
+      instructions: `${fridayInstructions}${firstMeeting ? `\n\n${firstMeetingCapabilityBoundary}` : ""}\n\n# Current date and time\n\nIt is ${new Date().toISOString()}. Use this when interpreting relative deadlines.`,
     }),
   );
 

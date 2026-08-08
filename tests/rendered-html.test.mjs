@@ -55,7 +55,7 @@ test("server-renders the Parallel Ara dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig, onboardingMigration] = await Promise.all([
+  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig, onboardingMigration, organizationMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
@@ -64,6 +64,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
     readFile(new URL("../.gitignore", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0003_normal_the_enforcers.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0004_known_loa.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /new RTCPeerConnection\(\)/);
@@ -188,8 +189,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /<strong>Microsoft 365<\/strong>/);
   assert.match(page, /microsoftActionPending \? "Opening…" : "Connect"/);
   assert.match(page, /MICROSOFT_CONVERSATION_RETURN_KEY/);
-  assert.match(page, /MICROSOFT_CONVERSATION_RETURN_TTL_MS/);
+  assert.match(page, /JSON\.stringify\(\{ pending: true \}\)/);
   assert.match(page, /microsoftConversationReturnRef/);
+  assert.match(page, /suppressArrivalAnimationRef/);
+  assert.match(page, /CONNECTION_PENDING/);
   assert.match(page, /Say once, exactly: “Perfect\. You’re connected\.”/);
   assert.match(
     page,
@@ -201,6 +204,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /<small>Read-only to begin<\/small>/);
   assert.match(styles, /--bar-rest:\s*16px/);
   assert.match(styles, /\.first-moment-integration::before/);
+  assert.match(styles, /\.first-moment-integration\s*\{[\s\S]*?justify-items:\s*stretch/);
+  assert.match(styles, /\.first-moment-integration button\s*\{[\s\S]*?width:\s*100%/);
   assert.match(styles, /@keyframes integrationArrive/);
   assert.match(page, /observation-closing/);
   assert.match(styles, /@keyframes observationBreath/);
@@ -327,6 +332,15 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /understanding_summary:[\s\S]*user_confirmed_understanding:[\s\S]*ara_reciprocated:[\s\S]*observation_boundary_explained:/);
   assert.match(route, /name:\s*"complete_first_meeting"/);
   assert.match(route, /tool_choice:\s*"auto"/);
+  assert.match(route, /FIRST_MEETING_TOOL_NAMES/);
+  assert.match(route, /x-parallel-conversation-mode/);
+  assert.match(route, /firstMeetingCapabilityBoundary/);
+  assert.match(route, /calendar block, meeting, task, commitment, message, document/);
+  assert.match(route, /organization_employee_count/);
+  assert.match(route, /organization_asset_size/);
+  assert.match(route, /direct_reports/);
+  assert.match(route, /reports_to/);
+  assert.match(route, /reporting_structure/);
   assert.match(route, /trusted right-hand person/);
   assert.match(route, /professional friend who earns the right to know the user well/);
   assert.match(route, /walked into your office/);
@@ -350,7 +364,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Curiosity means\s+noticing something specific/);
   assert.match(route, /First-conversation flow and exit criteria/);
   assert.match(route, /Never wrap merely because Ara knows a name, title, company, or list of systems/);
-  assert.match(route, /let the role gain at least one dimension beyond\s+a title and company/i);
+  assert.match(route, /real organizational\s+dimensionality beyond a title and company/i);
+  assert.match(route, /\$400 million institution and a \$5 billion institution/);
   assert.match(route, /never turn reporting structure into a form field/i);
   assert.match(route, /Not naming software is never a reason to skip the connection step/i);
   assert.match(route, /Hard closing invariant/);
@@ -375,6 +390,10 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /const silentMemoryTurn = calls\.every/);
   assert.doesNotMatch(toolFollowUpHandler, /Give the one complete user-facing final answer now/);
   assert.match(page, /const relationshipReady =/);
+  assert.match(page, /const organizationalDepthReady =/);
+  assert.match(page, /blocked_during_first_meeting/);
+  assert.match(page, /X-Parallel-Conversation-Mode/);
+  assert.match(page, /onboarding\.connection_requested/);
   assert.match(page, /args\.user_confirmed_understanding === true/);
   assert.match(page, /args\.ara_reciprocated === true/);
   assert.match(page, /args\.observation_boundary_explained === true/);
@@ -397,8 +416,19 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(platformRoute, /communication_channels_json/);
   assert.match(platformRoute, /systemic_pressure/);
   assert.match(platformRoute, /protected_work/);
+  assert.match(platformRoute, /organization_employee_count/);
+  assert.match(platformRoute, /organization_asset_size/);
+  assert.match(platformRoute, /direct_reports/);
+  assert.match(platformRoute, /reports_to/);
+  assert.match(platformRoute, /reporting_structure/);
+  assert.match(platformRoute, /action === "onboarding\.connection_requested"/);
   assert.match(onboardingMigration, /ADD `systems_json`/);
   assert.match(onboardingMigration, /ADD `communication_channels_json`/);
+  assert.match(organizationMigration, /ADD `organization_employee_count`/);
+  assert.match(organizationMigration, /ADD `organization_asset_size`/);
+  assert.match(organizationMigration, /ADD `direct_reports`/);
+  assert.match(organizationMigration, /ADD `reports_to`/);
+  assert.match(organizationMigration, /ADD `reporting_structure`/);
 
   assert.match(viteConfig, /createHash\("sha256"\)/);
   assert.match(viteConfig, /function buildReleaseId/);

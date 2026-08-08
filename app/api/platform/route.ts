@@ -71,7 +71,7 @@ async function resetOnboardingForRelease(
   if (existingReset) return false;
   const now = Date.now();
   await database.batch([
-    database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = '', full_name = '', company = '', job_title = '', role_summary = '', team_size = NULL, responsibilities_json = '[]', systems_json = '[]', communication_channels_json = '[]', biggest_pressure = '', systemic_pressure = '', protected_work = '', first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
+    database.prepare("UPDATE onboarding_profiles SET lifecycle_state = 'NEW', preferred_name = '', full_name = '', company = '', job_title = '', role_summary = '', team_size = NULL, organization_employee_count = NULL, organization_asset_size = '', direct_reports = NULL, reports_to = '', reporting_structure = '', responsibilities_json = '[]', systems_json = '[]', communication_channels_json = '[]', biggest_pressure = '', systemic_pressure = '', protected_work = '', first_scan_json = NULL, completed_at = NULL, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId),
     database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...identityBindings(owner), "onboarding.release_reset", "onboarding_profile", `onboarding_${owner.userAccountId}`, releaseId, now),
   ]);
   return true;
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     const releaseReset = await resetOnboardingForRelease(database, owner, releaseId);
     const [profile, onboarding, policies, attention, commitments, usage, capabilities, recentMeetingKnowledge] = await Promise.all([
       database.prepare("SELECT morning_briefing_time, role_and_responsibilities, current_priorities, communication_style, proactivity, interruption_threshold, accountability_style, delegation_boundaries FROM decision_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first(),
-      database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
+      database.prepare("SELECT lifecycle_state, preferred_name, full_name, company, job_title, role_summary, team_size, organization_employee_count, organization_asset_size, direct_reports, reports_to, reporting_structure, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work, microsoft_connected, first_scan_json, completed_at FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1").bind(owner.tenantId, owner.userAccountId).first<Record<string, unknown>>(),
       database.prepare("SELECT key, value, scope, precedence FROM policy_rules WHERE tenant_id = ? ORDER BY precedence DESC, key ASC").bind(owner.tenantId).all(),
       database.prepare("SELECT id, source, external_id AS externalId, kind, title, summary, urgency, state, reason, occurred_at AS occurredAt FROM attention_items WHERE tenant_id = ? AND user_account_id = ? AND state = 'open' ORDER BY CASE urgency WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, occurred_at DESC LIMIT 12").bind(owner.tenantId, owner.userAccountId).all(),
       database.prepare("SELECT id, title, owner_label AS ownerLabel, due_at AS dueAt, status, source, feedback FROM commitments WHERE tenant_id = ? AND user_account_id = ? ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'snoozed' THEN 1 ELSE 2 END, due_at ASC, created_at DESC LIMIT 30").bind(owner.tenantId, owner.userAccountId).all(),
@@ -112,6 +112,11 @@ export async function GET(request: Request) {
         job_title: onboarding?.job_title ?? "",
         role_summary: onboarding?.role_summary ?? "",
         team_size: onboarding?.team_size ?? null,
+        organization_employee_count: onboarding?.organization_employee_count ?? null,
+        organization_asset_size: onboarding?.organization_asset_size ?? "",
+        direct_reports: onboarding?.direct_reports ?? null,
+        reports_to: onboarding?.reports_to ?? "",
+        reporting_structure: onboarding?.reporting_structure ?? "",
         responsibilities: parseJson<string[]>(onboarding?.responsibilities_json, []),
         systems: parseJson<string[]>(onboarding?.systems_json, []),
         communication_channels: parseJson<string[]>(onboarding?.communication_channels_json, []),
@@ -174,7 +179,7 @@ export async function POST(request: Request) {
         directReports !== null && `Direct reports: ${directReports}`,
       ].filter(Boolean).join("\n");
       await database.batch([
-        database.prepare("UPDATE onboarding_profiles SET full_name = CASE WHEN COALESCE(full_name, '') = '' AND ? <> '' THEN ? ELSE full_name END, company = CASE WHEN COALESCE(company, '') = '' AND ? <> '' THEN ? ELSE company END, job_title = CASE WHEN COALESCE(job_title, '') = '' AND ? <> '' THEN ? ELSE job_title END, role_summary = CASE WHEN COALESCE(role_summary, '') = '' AND ? <> '' THEN ? ELSE role_summary END, team_size = COALESCE(team_size, ?), microsoft_connected = 1, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(fullName, fullName, company, company, jobTitle, jobTitle, verifiedContext, verifiedContext, directReports, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE onboarding_profiles SET full_name = CASE WHEN COALESCE(full_name, '') = '' AND ? <> '' THEN ? ELSE full_name END, company = CASE WHEN COALESCE(company, '') = '' AND ? <> '' THEN ? ELSE company END, job_title = CASE WHEN COALESCE(job_title, '') = '' AND ? <> '' THEN ? ELSE job_title END, role_summary = CASE WHEN COALESCE(role_summary, '') = '' AND ? <> '' THEN ? ELSE role_summary END, team_size = COALESCE(team_size, ?), direct_reports = COALESCE(direct_reports, ?), microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state IN ('WORK_CONTEXT_LEARNED', 'CONNECTION_PENDING') THEN 'CONNECTION_READY' ELSE lifecycle_state END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(fullName, fullName, company, company, jobTitle, jobTitle, verifiedContext, verifiedContext, directReports, directReports, now, owner.tenantId, owner.userAccountId),
         database.prepare("UPDATE people SET display_name = CASE WHEN (display_name = '' OR display_name = 'Parallel user') AND ? <> '' THEN ? ELSE display_name END WHERE tenant_id = ? AND id = ?").bind(fullName, fullName, owner.tenantId, owner.personId),
         database.prepare("UPDATE decision_profiles SET role_and_responsibilities = CASE WHEN role_and_responsibilities = '' AND ? <> '' THEN ? ELSE role_and_responsibilities END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, roleAndResponsibilities, now, owner.tenantId, owner.userAccountId),
         database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.microsoft_profile", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Verified Microsoft profile synchronized", now),
@@ -215,8 +220,17 @@ export async function POST(request: Request) {
       const teamSize = typeof body.teamSize === "number" && Number.isFinite(body.teamSize)
         ? Math.max(0, Math.min(10_000, Math.trunc(body.teamSize)))
         : null;
+      const organizationEmployeeCount = typeof body.organizationEmployeeCount === "number" && Number.isFinite(body.organizationEmployeeCount)
+        ? Math.max(0, Math.min(10_000_000, Math.trunc(body.organizationEmployeeCount)))
+        : null;
+      const organizationAssetSize = String(body.organizationAssetSize ?? "").trim().slice(0, 160);
+      const directReports = typeof body.directReports === "number" && Number.isFinite(body.directReports)
+        ? Math.max(0, Math.min(100_000, Math.trunc(body.directReports)))
+        : null;
+      const reportsTo = String(body.reportsTo ?? "").trim().slice(0, 240);
+      const reportingStructure = String(body.reportingStructure ?? "").trim().slice(0, 1_000);
       const existing = await database
-        .prepare("SELECT company, job_title, role_summary, team_size, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1")
+        .prepare("SELECT company, job_title, role_summary, team_size, organization_employee_count, organization_asset_size, direct_reports, reports_to, reporting_structure, responsibilities_json, systems_json, communication_channels_json, biggest_pressure, systemic_pressure, protected_work FROM onboarding_profiles WHERE tenant_id = ? AND user_account_id = ? LIMIT 1")
         .bind(owner.tenantId, owner.userAccountId)
         .first<Record<string, unknown>>();
       const existingArray = (value: unknown) => {
@@ -234,6 +248,11 @@ export async function POST(request: Request) {
       const mergedJobTitle = jobTitle || String(existing?.job_title ?? "");
       const mergedRoleSummary = roleSummary || String(existing?.role_summary ?? "");
       const mergedTeamSize = teamSize ?? (typeof existing?.team_size === "number" ? existing.team_size : null);
+      const mergedOrganizationEmployeeCount = organizationEmployeeCount ?? (typeof existing?.organization_employee_count === "number" ? existing.organization_employee_count : null);
+      const mergedOrganizationAssetSize = organizationAssetSize || String(existing?.organization_asset_size ?? "");
+      const mergedDirectReports = directReports ?? (typeof existing?.direct_reports === "number" ? existing.direct_reports : null);
+      const mergedReportsTo = reportsTo || String(existing?.reports_to ?? "");
+      const mergedReportingStructure = reportingStructure || String(existing?.reporting_structure ?? "");
       const mergedResponsibilities = responsibilities.length ? responsibilities : existingArray(existing?.responsibilities_json);
       const mergedSystems = systems.length ? systems : existingArray(existing?.systems_json);
       const mergedCommunicationChannels = communicationChannels.length ? communicationChannels : existingArray(existing?.communication_channels_json);
@@ -243,10 +262,10 @@ export async function POST(request: Request) {
       if (!mergedCompany && !mergedJobTitle && !mergedRoleSummary) {
         return Response.json({ error: "Work context is required." }, { status: 400 });
       }
-      const roleAndResponsibilities = [mergedJobTitle && `Role: ${mergedJobTitle}`, mergedCompany && `Organization: ${mergedCompany}`, mergedRoleSummary, mergedResponsibilities.length ? `Responsibilities: ${mergedResponsibilities.join("; ")}` : "", mergedSystems.length ? `Systems: ${mergedSystems.join("; ")}` : "", mergedCommunicationChannels.length ? `Communication channels: ${mergedCommunicationChannels.join("; ")}` : ""].filter(Boolean).join("\n");
+      const roleAndResponsibilities = [mergedJobTitle && `Role: ${mergedJobTitle}`, mergedCompany && `Organization: ${mergedCompany}`, mergedOrganizationEmployeeCount !== null && `Organization employees: ${mergedOrganizationEmployeeCount}`, mergedOrganizationAssetSize && `Organization asset size: ${mergedOrganizationAssetSize}`, mergedDirectReports !== null && `Direct reports: ${mergedDirectReports}`, mergedReportsTo && `Reports to: ${mergedReportsTo}`, mergedReportingStructure && `Reporting structure: ${mergedReportingStructure}`, mergedRoleSummary, mergedResponsibilities.length ? `Responsibilities: ${mergedResponsibilities.join("; ")}` : "", mergedSystems.length ? `Systems: ${mergedSystems.join("; ")}` : "", mergedCommunicationChannels.length ? `Communication channels: ${mergedCommunicationChannels.join("; ")}` : ""].filter(Boolean).join("\n");
       const durablePressure = mergedSystemicPressure || mergedBiggestPressure;
       await database.batch([
-        database.prepare("UPDATE onboarding_profiles SET company = ?, job_title = ?, role_summary = ?, team_size = ?, responsibilities_json = ?, systems_json = ?, communication_channels_json = ?, biggest_pressure = ?, systemic_pressure = ?, protected_work = ?, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' WHEN microsoft_connected = 1 THEN 'CONNECTION_READY' ELSE 'WORK_CONTEXT_LEARNED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(mergedCompany, mergedJobTitle, mergedRoleSummary, mergedTeamSize, JSON.stringify(mergedResponsibilities), JSON.stringify(mergedSystems), JSON.stringify(mergedCommunicationChannels), mergedBiggestPressure, mergedSystemicPressure, mergedProtectedWork, now, owner.tenantId, owner.userAccountId),
+        database.prepare("UPDATE onboarding_profiles SET company = ?, job_title = ?, role_summary = ?, team_size = ?, organization_employee_count = ?, organization_asset_size = ?, direct_reports = ?, reports_to = ?, reporting_structure = ?, responsibilities_json = ?, systems_json = ?, communication_channels_json = ?, biggest_pressure = ?, systemic_pressure = ?, protected_work = ?, lifecycle_state = CASE WHEN lifecycle_state = 'COMPLETE' THEN 'COMPLETE' WHEN lifecycle_state = 'CONNECTION_PENDING' THEN 'CONNECTION_PENDING' WHEN microsoft_connected = 1 THEN 'CONNECTION_READY' ELSE 'WORK_CONTEXT_LEARNED' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(mergedCompany, mergedJobTitle, mergedRoleSummary, mergedTeamSize, mergedOrganizationEmployeeCount, mergedOrganizationAssetSize, mergedDirectReports, mergedReportsTo, mergedReportingStructure, JSON.stringify(mergedResponsibilities), JSON.stringify(mergedSystems), JSON.stringify(mergedCommunicationChannels), mergedBiggestPressure, mergedSystemicPressure, mergedProtectedWork, now, owner.tenantId, owner.userAccountId),
         database.prepare("UPDATE decision_profiles SET role_and_responsibilities = ?, current_priorities = CASE WHEN ? = '' THEN current_priorities ELSE ? END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(roleAndResponsibilities, durablePressure, durablePressure, now, owner.tenantId, owner.userAccountId),
         database.prepare("INSERT INTO audit_events (id, tenant_id, person_id, user_account_id, ai_employee_id, event_type, resource_type, resource_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), ...ids, "onboarding.work_context_learned", "onboarding_profile", `onboarding_${owner.userAccountId}`, "Work context learned during first meeting", now),
       ]);
@@ -254,8 +273,13 @@ export async function POST(request: Request) {
     }
 
     if (action === "onboarding.connection_ready") {
-      await database.prepare("UPDATE onboarding_profiles SET microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state = 'WORK_CONTEXT_LEARNED' THEN 'CONNECTION_READY' ELSE lifecycle_state END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId).run();
+      await database.prepare("UPDATE onboarding_profiles SET microsoft_connected = 1, lifecycle_state = CASE WHEN lifecycle_state IN ('WORK_CONTEXT_LEARNED', 'CONNECTION_PENDING') THEN 'CONNECTION_READY' ELSE lifecycle_state END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId).run();
       return Response.json({ saved: true, microsoftConnected: true });
+    }
+
+    if (action === "onboarding.connection_requested") {
+      await database.prepare("UPDATE onboarding_profiles SET lifecycle_state = CASE WHEN lifecycle_state IN ('COMPLETE', 'FIRST_VALUE_DELIVERED') THEN lifecycle_state ELSE 'CONNECTION_PENDING' END, updated_at = ? WHERE tenant_id = ? AND user_account_id = ?").bind(now, owner.tenantId, owner.userAccountId).run();
+      return Response.json({ saved: true, lifecycleState: "CONNECTION_PENDING" });
     }
 
     if (action === "onboarding.observation_started") {
