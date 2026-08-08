@@ -124,7 +124,7 @@ button { color: inherit; }
   display: grid;
   place-items: center;
   --brand-open-y: clamp(35px, 5vw, 42px);
-  --bar-rest: 14px;
+  --bar-rest: 16px;
 }
 .ara-color-awake.arrival-settled .first-moment-atmosphere-ara {
   opacity: .11;

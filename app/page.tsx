@@ -307,14 +307,14 @@ const buildFirstMeetingInstruction = (
   }
 
   if (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && !microsoftConnected) {
-    return `Resume the first conversation with ${name}. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Match only real integrations to systems they named; Microsoft 365 is the one currently available. Present it as one quiet connection, never configuration or a permissions task list.`;
+    return `Resume the first conversation with ${name}. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Before synthesizing, let the role gain one naturally relevant dimension beyond title and company—organizational scale, who relies on them, the team beside them, or how responsibility is distributed—unless they already supplied it. Never ask these as a checklist. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Microsoft 365 is the one currently available connection. Do not skip the connection because they did not name their tools: ask naturally whether most of the work moves through Microsoft 365 and, when confirmed, call prepare_workspace_connection. Never say you will be in touch or give a goodbye before a successful begin_observation result.`;
   }
 
   if (
     onboarding.lifecycle_state === "CONNECTION_READY" ||
     (onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" && microsoftConnected)
   ) {
-    return `Resume the first conversation with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect. If this is the return from sign-in, say once, “Perfect. You’re connected.” Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never give a fixed timeline. When the first conversation is ready to end, call begin_observation for the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
+    return `Resume the first conversation with ${name}. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect or show another connection card. If this is the return from sign-in, say once, “Perfect. You’re connected.” Otherwise, at the earned connection transition, acknowledge once that Microsoft 365 is already connected and briefly explain the bounded read-only scope; do not let the person leave wondering whether integration was skipped. Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Before synthesizing, let the role gain one naturally relevant dimension beyond title and company—organizational scale, who relies on them, the team beside them, or how responsibility is distributed—unless they already supplied it. Never ask these as a checklist. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never give a fixed timeline. Never say you will be in touch or give a goodbye until begin_observation returns observation_started true; that tool result owns the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -1244,6 +1244,10 @@ export default function Home() {
         args.user_confirmed_understanding === true &&
         args.ara_reciprocated === true &&
         args.observation_boundary_explained === true;
+      if (!microsoftSnapshotRef.current) {
+        setOnboardingConnectionPrompt(true);
+        setVoiceNote("Secure Microsoft sign-in is ready below");
+      }
       if (
         !microsoftSnapshotRef.current ||
         !relationship ||
@@ -1255,7 +1259,9 @@ export default function Home() {
           observation_started: false,
           onboarding_complete: false,
           instruction:
-            "Do not close the first conversation yet. Continue from the unmet relationship step without announcing a process: understand the lived work story, offer a whole-system synthesis and receive clear confirmation, reciprocate with Ara's philosophy, verify Microsoft 365, and explain the read-only observation boundary. Ask only the one question naturally earned by the person's last answer.",
+            !microsoftSnapshotRef.current
+              ? "Do not close the first conversation yet. The secure Microsoft 365 connection card is now visible. Explain naturally that this read-only connection is the next step, let the person connect, and say you will pick up at this exact point when they return. Do not say goodbye, promise to be in touch, or ask another discovery question."
+              : "Do not close the first conversation yet. Continue from the unmet relationship step without announcing a process: understand the lived work story, offer a whole-system synthesis and receive clear confirmation, reciprocate with Ara's philosophy, acknowledge the verified Microsoft 365 connection, and explain the read-only observation boundary. Ask only the one question naturally earned by the person's last answer.",
         };
       }
       observationWrapUpRef.current = true;

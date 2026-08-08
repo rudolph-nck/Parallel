@@ -199,7 +199,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /sessionStorage\.setItem\([\s\S]*MICROSOFT_CONVERSATION_RETURN_KEY/);
   assert.match(page, /className="microsoft-window-mark"/);
   assert.match(page, /<small>Read-only to begin<\/small>/);
-  assert.match(styles, /--bar-rest:\s*14px/);
+  assert.match(styles, /--bar-rest:\s*16px/);
   assert.match(styles, /\.first-moment-integration::before/);
   assert.match(styles, /@keyframes integrationArrive/);
   assert.match(page, /observation-closing/);
@@ -350,6 +350,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Curiosity means\s+noticing something specific/);
   assert.match(route, /First-conversation flow and exit criteria/);
   assert.match(route, /Never wrap merely because Ara knows a name, title, company, or list of systems/);
+  assert.match(route, /let the role gain at least one dimension beyond\s+a title and company/i);
+  assert.match(route, /never turn reporting structure into a form field/i);
+  assert.match(route, /Not naming software is never a reason to skip the connection step/i);
+  assert.match(route, /Hard closing invariant/);
+  assert.match(route, /successful begin_observation tool result owns it/i);
   assert.match(route, /Ara never interviews the\s+user; she meets them/);
   assert.match(route, /Tell me\s+a little about yourself/);
   assert.match(route, /never ask a question merely because a memory field is empty/i);
@@ -373,6 +378,8 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /args\.user_confirmed_understanding === true/);
   assert.match(page, /args\.ara_reciprocated === true/);
   assert.match(page, /args\.observation_boundary_explained === true/);
+  assert.match(page, /Secure Microsoft sign-in is ready below/);
+  assert.match(page, /Do not say goodbye, promise to be in touch/);
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
   assert.match(platformRoute, /action === "onboarding\.microsoft_profile"/);
