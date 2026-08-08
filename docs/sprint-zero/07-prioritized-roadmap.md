@@ -26,15 +26,15 @@ Complexity: S, M, L, XL.
 - **Complexity:** L.
 - **Security/cost:** Highest security priority; rules-first and no model cost.
 
-### D3 — Observation-only Microsoft connection
+### D3 — Full Microsoft capability with governed authority
 
-- **Outcome:** The initial connection earns trust without quietly granting write authority.
+- **Outcome:** The initial connection grants the current operational capability set once while Parallel governs every action through explicit authority rules.
 - **Canon:** UX 03–05; Technical V, XV.
 - **Dependencies:** D2, connector split.
-- **Acceptance:** Base consent is read-only; write scopes requested only for a specific approved capability.
+- **Acceptance:** Current mail, calendar, meeting, transcript, and document scopes are requested together; provider permission never bypasses policy, ownership, risk, or confirmation rules.
 - **Tests:** Scope inventory, denied consent, revocation, read/write separation.
 - **Complexity:** M.
-- **Security/cost:** Least privilege; no incremental model cost.
+- **Security/cost:** Purpose-bounded capability set, explicit admin review for future tenant-wide Teams/calling scopes, and no incremental model cost.
 
 ### D4 — Flagship decision rehearsal
 
@@ -122,4 +122,3 @@ Each enterprise capability requires isolation, policy, idempotency, failure, cos
 - Cross-agent coordination through canonical ownership.
 
 These remain deferred until the pilot foundations prove that Parallel can preserve Ara's character, human authority, and calm under real operational pressure.
-

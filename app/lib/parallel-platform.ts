@@ -39,6 +39,7 @@ export type OnboardingProfile = {
   biggest_pressure: string;
   systemic_pressure: string;
   protected_work: string;
+  ara_reciprocated: boolean;
   microsoft_connected: boolean;
   first_day_scan: FirstDayScan | null;
   completed_at: number | null;

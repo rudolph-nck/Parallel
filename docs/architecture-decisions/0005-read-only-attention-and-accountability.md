@@ -1,6 +1,6 @@
 # ADR 0005: Read-only attention and accountability
 
-Status: Accepted  
+Status: Superseded by ADR 0012
 Date: 2026-08-01
 
 ## Decision

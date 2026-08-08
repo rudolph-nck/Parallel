@@ -42,7 +42,7 @@ test("server-renders the Parallel Ara dashboard", async () => {
   assert.match(html, /Ara proposes\./);
   assert.match(html, /class="ara-signature">ARA<\/span>/);
   assert.match(html, /You decide\./);
-  assert.match(html, /ATTENTION · READ ONLY/i);
+  assert.match(html, /ATTENTION · SIGNALS/i);
   assert.match(html, /COMMITMENTS · ACCOUNTABILITY/i);
   assert.match(html, /Ara uses the least costly capable route/i);
   assert.match(html, /CONTROLLED CALENDAR/i);
@@ -55,7 +55,7 @@ test("server-renders the Parallel Ara dashboard", async () => {
 });
 
 test("keeps the permanent key on the server and configures live Recall voice", async () => {
-  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig, onboardingMigration, organizationMigration] = await Promise.all([
+  const [page, styles, route, platformRoute, microsoft365, gitignore, viteConfig, onboardingMigration, organizationMigration, reciprocalMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api/realtime/route.ts", import.meta.url), "utf8"),
@@ -65,6 +65,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0003_normal_the_enforcers.sql", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0004_known_loa.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0005_public_wolverine.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /new RTCPeerConnection\(\)/);
@@ -201,7 +202,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /microsoftStatus === "checking"/);
   assert.match(page, /sessionStorage\.setItem\([\s\S]*MICROSOFT_CONVERSATION_RETURN_KEY/);
   assert.match(page, /className="microsoft-window-mark"/);
-  assert.match(page, /<small>Read-only to begin<\/small>/);
+  assert.match(page, /<small>Connect your workspace<\/small>/);
   assert.match(styles, /--bar-rest:\s*16px/);
   assert.match(styles, /\.first-moment-integration::before/);
   assert.match(styles, /\.first-moment-integration\s*\{[\s\S]*?justify-items:\s*stretch/);
@@ -228,6 +229,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /readPlatformWorkspace\(__PARALLEL_RELEASE_ID__\)/);
   assert.match(page, /save_onboarding_identity/);
   assert.match(page, /save_onboarding_work_context/);
+  assert.match(page, /share_ara_operating_philosophy/);
   assert.match(page, /void updatePlatform\("onboarding\.save_identity"/);
   assert.match(page, /void updatePlatform\("onboarding\.save_work_context"/);
   assert.match(page, /prepare_workspace_connection/);
@@ -235,6 +237,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(page, /check_first_day_workspace/);
   assert.match(page, /begin_observation/);
   assert.match(page, /onboarding\.observation_started/);
+  assert.match(page, /onboarding\.ara_reciprocated/);
   assert.match(page, /readMicrosoftFirstDayScan/);
   assert.match(page, /createBackgroundResearchController/);
   assert.doesNotMatch(page, /CONVERSATION MEMORY/);
@@ -288,7 +291,7 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Silent memory tools remain silent/);
   assert.match(route, /only commentary-phase\s+output:[\s\S]*emit no audio, no text/);
   assert.match(route, /following\s+phrases\s+are forbidden during the first meeting/);
-  assert.match(route, /Ground the story in the Book of Ara/);
+  assert.match(route, /Ground the\s+story in the Book of Ara/);
   assert.match(route, /Familiarity is\s+not access/);
   assert.match(route, /Never ask which single\s+channel is the problem/);
   assert.match(route, /what parts of the work do you still really enjoy/i);
@@ -325,11 +328,12 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /name:\s*"prepare_desktop_action"/);
   assert.match(route, /name:\s*"save_onboarding_identity"/);
   assert.match(route, /name:\s*"save_onboarding_work_context"/);
+  assert.match(route, /name:\s*"share_ara_operating_philosophy"/);
   assert.match(route, /name:\s*"prepare_workspace_connection"/);
   assert.match(route, /name:\s*"scan_first_day_workspace"/);
   assert.match(route, /name:\s*"check_first_day_workspace"/);
   assert.match(route, /name:\s*"begin_observation"/);
-  assert.match(route, /understanding_summary:[\s\S]*user_confirmed_understanding:[\s\S]*ara_reciprocated:[\s\S]*observation_boundary_explained:/);
+  assert.match(route, /share_ara_operating_philosophy[\s\S]*understanding_summary:[\s\S]*user_confirmed_understanding:/);
   assert.match(route, /name:\s*"complete_first_meeting"/);
   assert.match(route, /tool_choice:\s*"auto"/);
   assert.match(route, /FIRST_MEETING_TOOL_NAMES/);
@@ -374,9 +378,9 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(route, /Tell me\s+a little about yourself/);
   assert.match(route, /never ask a question merely because a memory field is empty/i);
   assert.match(route, /What are your pain points\?/);
-  assert.match(route, /observe-first posture/);
+  assert.match(route, /observe-first plan/);
   assert.match(route, /Perfect\.\s+You’re connected/);
-  assert.match(route, /Never promise a number of\s+days or any fixed timeline/);
+  assert.match(route, /Never promise a number of\s+days or any\s+fixed timeline/);
   assert.doesNotMatch(route, /Tell me a little\s+about your work—where are you/);
   assert.match(route, /Never respond to a direct\s+question by jumping into setup/);
   assert.match(route, /Every count or percentage must come from a tool result/);
@@ -389,20 +393,19 @@ test("keeps the permanent key on the server and configures live Recall voice", a
 
   assert.match(page, /const silentMemoryTurn = calls\.every/);
   assert.doesNotMatch(toolFollowUpHandler, /Give the one complete user-facing final answer now/);
-  assert.match(page, /const relationshipReady =/);
   assert.match(page, /const organizationalDepthReady =/);
   assert.match(page, /blocked_during_first_meeting/);
   assert.match(page, /X-Parallel-Conversation-Mode/);
   assert.match(page, /onboarding\.connection_requested/);
-  assert.match(page, /args\.user_confirmed_understanding === true/);
-  assert.match(page, /args\.ara_reciprocated === true/);
-  assert.match(page, /args\.observation_boundary_explained === true/);
+  assert.match(page, /args\.user_confirmed_understanding !== true/);
+  assert.match(page, /if \(!relationship\.ara_reciprocated\)/);
   assert.match(page, /Secure Microsoft sign-in is ready below/);
-  assert.match(page, /Do not say goodbye, promise to be in touch/);
+  assert.match(page, /say goodbye, promise to be in touch/);
 
   assert.match(platformRoute, /action === "onboarding\.reset_for_release"/);
   assert.match(platformRoute, /action === "onboarding\.microsoft_profile"/);
   assert.match(platformRoute, /action === "onboarding\.observation_started"/);
+  assert.match(platformRoute, /action === "onboarding\.ara_reciprocated"/);
   assert.match(platformRoute, /onboardingComplete: false/);
   assert.match(platformRoute, /Verified Microsoft profile synchronized/);
   assert.match(platformRoute, /export async function GET\(request: Request\)/);
@@ -429,6 +432,11 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.match(organizationMigration, /ADD `direct_reports`/);
   assert.match(organizationMigration, /ADD `reports_to`/);
   assert.match(organizationMigration, /ADD `reporting_structure`/);
+  assert.match(reciprocalMigration, /ADD `ara_reciprocated`/);
+  assert.match(microsoft365, /MICROSOFT_FULL_CONNECTION_SCOPES/);
+  assert.match(microsoft365, /Mail\.ReadWrite/);
+  assert.match(microsoft365, /Files\.ReadWrite\.All/);
+  assert.match(microsoft365, /Sites\.ReadWrite\.All/);
 
   assert.match(viteConfig, /createHash\("sha256"\)/);
   assert.match(viteConfig, /function buildReleaseId/);

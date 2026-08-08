@@ -26,7 +26,7 @@ Saving work context never authorizes a recommendation, connection, scan, or exte
 
 The connection surface appears only after Ara invokes a supported connector. Microsoft 365 is currently the only live first-meeting connection. Unsupported systems remain part of the member's work context but never become false connection controls.
 
-Observation is bounded to connected sources and remains read-only. A future review meeting is not promised until a scheduling or messaging tool confirms it was created.
+Observation is bounded to connected sources. Provider capability never overrides Parallel's action-authority rules. A future review meeting is not promised until a scheduling or messaging tool confirms it was created.
 
 ## Visual relationship
 

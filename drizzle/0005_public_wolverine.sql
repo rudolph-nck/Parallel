@@ -1,0 +1,1 @@
+ALTER TABLE `onboarding_profiles` ADD `ara_reciprocated` integer DEFAULT false NOT NULL;

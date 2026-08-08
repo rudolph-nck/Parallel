@@ -48,11 +48,20 @@ export const MICROSOFT_MEETING_INTELLIGENCE_SCOPES = [
 ] as const;
 
 export const MICROSOFT_DOCUMENT_PUBLISHING_SCOPES = [
-  "Files.ReadWrite",
+  "Files.ReadWrite.All",
+  "Sites.ReadWrite.All",
 ] as const;
 
 export const MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES = [
   "Mail.Send",
+] as const;
+
+export const MICROSOFT_FULL_CONNECTION_SCOPES = [
+  ...MICROSOFT_GRAPH_SCOPES,
+  "Mail.ReadWrite",
+  ...MICROSOFT_MEETING_INTELLIGENCE_SCOPES,
+  ...MICROSOFT_DOCUMENT_PUBLISHING_SCOPES,
+  ...MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES,
 ] as const;
 
 type GraphCollection<T> = {
@@ -806,7 +815,7 @@ async function readMicrosoftSnapshot(
 export async function connectMicrosoft365() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
-    scopes: [...MICROSOFT_GRAPH_SCOPES],
+    scopes: [...MICROSOFT_FULL_CONNECTION_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "select_account",
   });
@@ -815,7 +824,7 @@ export async function connectMicrosoft365() {
 export async function repairMicrosoftCalendarAccess() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
-    scopes: [...MICROSOFT_GRAPH_SCOPES],
+    scopes: [...MICROSOFT_FULL_CONNECTION_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "consent",
   });
@@ -824,10 +833,7 @@ export async function repairMicrosoftCalendarAccess() {
 export async function enableMicrosoftMeetingIntelligence() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
-    scopes: [
-      ...MICROSOFT_GRAPH_SCOPES,
-      ...MICROSOFT_MEETING_INTELLIGENCE_SCOPES,
-    ],
+    scopes: [...MICROSOFT_FULL_CONNECTION_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "consent",
   });
@@ -836,10 +842,7 @@ export async function enableMicrosoftMeetingIntelligence() {
 export async function enableMicrosoftDocumentPublishing() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
-    scopes: [
-      ...MICROSOFT_GRAPH_SCOPES,
-      ...MICROSOFT_DOCUMENT_PUBLISHING_SCOPES,
-    ],
+    scopes: [...MICROSOFT_FULL_CONNECTION_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "consent",
   });
@@ -848,10 +851,7 @@ export async function enableMicrosoftDocumentPublishing() {
 export async function enableMicrosoftOutboundCommunication() {
   const client = await getMicrosoftClient();
   await client.loginRedirect({
-    scopes: [
-      ...MICROSOFT_GRAPH_SCOPES,
-      ...MICROSOFT_OUTBOUND_COMMUNICATION_SCOPES,
-    ],
+    scopes: [...MICROSOFT_FULL_CONNECTION_SCOPES],
     redirectUri: getRedirectUri(),
     prompt: "consent",
   });

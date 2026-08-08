@@ -83,6 +83,7 @@ export const onboardingProfiles = sqliteTable("onboarding_profiles", {
   biggestPressure: text("biggest_pressure").notNull().default(""),
   systemicPressure: text("systemic_pressure").notNull().default(""),
   protectedWork: text("protected_work").notNull().default(""),
+  araReciprocated: integer("ara_reciprocated", { mode: "boolean" }).notNull().default(false),
   microsoftConnected: integer("microsoft_connected", { mode: "boolean" }).notNull().default(false),
   firstScanJson: text("first_scan_json"),
   completedAt: integer("completed_at"),

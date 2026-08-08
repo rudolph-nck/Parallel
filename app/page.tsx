@@ -237,6 +237,7 @@ const MICROSOFT_CONVERSATION_RETURN_KEY = "parallel:microsoft-conversation-retur
 const FIRST_MEETING_TOOL_NAMES = new Set([
   "save_onboarding_identity",
   "save_onboarding_work_context",
+  "share_ara_operating_philosophy",
   "prepare_workspace_connection",
   "scan_first_day_workspace",
   "check_first_day_workspace",
@@ -294,7 +295,7 @@ const buildFirstMeetingInstruction = (
     ].filter(Boolean).join(" · ");
 
     if (microsoftConnected) {
-      return `This is the same first conversation resuming immediately after ${name} completed the secure Microsoft sign-in. Do not replay the arrival, introduce yourself again, ask their name, or repeat earlier questions. Say once, exactly: “Perfect. You’re connected.” Then continue naturally from the point where you both paused. Quiet remembered context: ${context || "the relationship conversation already began"}. Microsoft 365 is connected and the background first read may already be running, so do not ask them to reconnect, narrate a scan, or make them wait. Reestablish the human thread in one short beat, then explain the bounded read-only observation posture only when it is the naturally earned next step.`;
+      return `This is the same first conversation resuming immediately after ${name} completed the secure Microsoft sign-in. Do not replay the arrival, introduce yourself again, ask their name, or repeat earlier questions. Say once, exactly: “Perfect. You’re connected.” Then continue naturally from the point where you both paused. Quiet remembered context: ${context || "the relationship conversation already began"}. Microsoft 365 is connected and the background first read may already be running, so do not ask them to reconnect, narrate a scan, or make them wait. Reestablish the human thread in one short beat. ${onboarding?.ara_reciprocated ? "Ara's reciprocal introduction and observation plan were already shared; never repeat them." : "Ara's reciprocal introduction has not been persisted. Do not preview how Ara operates. Finish the human discovery and confirmed synthesis first, then call share_ara_operating_philosophy exactly once."}`;
     }
 
     return `This is the same first conversation resuming after ${name} returned from Microsoft sign-in, but the connection did not complete. Do not replay the arrival, introduce yourself again, ask their name, or repeat earlier questions. Acknowledge once, calmly, that the connection did not finish and that nothing was changed. Then continue the same human conversation from where it paused without turning the moment into troubleshooting.`;
@@ -331,9 +332,12 @@ const buildFirstMeetingInstruction = (
       : onboarding.biggest_pressure,
     onboarding.protected_work ? `Work being crowded out: ${onboarding.protected_work}` : "",
   ].filter(Boolean).join(" · ");
+  const reciprocalStateInstruction = onboarding.ara_reciprocated
+    ? "Ara's reciprocal introduction and observation plan have already been shared and persisted. Never repeat, summarize, or paraphrase them."
+    : "Ara's reciprocal introduction has not been shared. Do not preview how Ara operates. After the user confirms the whole-system synthesis, call share_ara_operating_philosophy silently; its result owns the one reciprocal introduction and observation plan.";
 
   if (onboarding.lifecycle_state === "NAME_LEARNED") {
-    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Your mission is to understand the person and the real organizational world around their role—not to solve work today. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react directly to one specific human detail, and follow only the thread they naturally opened. Never announce interpretation with “let me think about what that suggests,” “let me think about what that means,” or a close paraphrase. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. When work becomes the natural thread, become genuinely curious about the organization: its scale, what it exists to do, the team around them, who relies on them, who they report to, and how responsibility moves above and below them. For a financial institution, asset size can be as meaningful as employee count; for another organization, use an equivalent measure. Ask exactly one naturally earned question at a time, never a checklist. Do not ask about pain points, a biggest problem, or software as intake. Do not propose a fix today, explain a product, create calendar time, or force a Microsoft transition. If they ask about you, answer warmly from the Book of Ara and then return to the human thread.`;
+    return `Resume the first conversation with ${name} as two coworkers getting to know one another. Your mission is to understand the person and the real organizational world around their role—not to solve work today. Never interview them or chase missing profile fields. Answer whatever they say or ask first, react directly to one specific human detail, and follow only the thread they naturally opened. Never announce interpretation with “let me think about what that suggests,” “let me think about what that means,” or a close paraphrase. Information is a byproduct of connection. Use thoughtful inferences and light confirmation such as “Am I close?” instead of intake questions. When work becomes the natural thread, become genuinely curious about the organization: its scale, what it exists to do, the team around them, who relies on them, who they report to, and how responsibility moves above and below them. For a financial institution, asset size can be as meaningful as employee count; for another organization, use an equivalent measure. Ask exactly one naturally earned question at a time, never a checklist. Do not ask about pain points, a biggest problem, or software as intake. Do not propose a fix today, explain a product, create calendar time, or force a Microsoft transition. If they ask about you, answer the human question warmly in one or two sentences about what interests you, but do not explain your process, observation plan, or operating philosophy yet.`;
   }
 
   if (
@@ -341,7 +345,7 @@ const buildFirstMeetingInstruction = (
       onboarding.lifecycle_state === "CONNECTION_PENDING") &&
     !microsoftConnected
   ) {
-    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Before synthesizing, the role needs meaningful organizational dimensionality: learn at least one natural fact about scale (employee count, assets, revenue, membership, reach, or an equivalent measure) and one natural fact about responsibility (direct reports, their manager, reporting structure, or who depends on their team). Ask exactly one conversational question at a time, only when earned by what they just said. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. Only after they feel understood, introduce your philosophy from the Book of Ara: do not replace them; quietly carry weight around the work; protect the day; understand before changing; earn trust. After that reciprocal moment, say “I think I have what I need for now.” Microsoft 365 is the one currently available connection. Do not skip the connection because they did not name their tools: ask naturally whether most of the work moves through Microsoft 365 and, when confirmed, call prepare_workspace_connection. If the connection card was already presented, leave it available and continue from that exact handoff. Never create or suggest a calendar block. Never say you will be in touch or give a goodbye before a successful begin_observation result.`;
+    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory, never an agenda: ${context}. Answer the current turn first, make one human observation rooted in what they shared, and let the conversation breathe. Never ask for missing fields. Before synthesizing, the role needs meaningful organizational dimensionality: learn at least one natural fact about scale (employee count, assets, revenue, membership, reach, or an equivalent measure) and one natural fact about responsibility (direct reports, their manager, reporting structure, or who depends on their team). Ask exactly one conversational question at a time, only when earned by what they just said. Keep meeting the person until a whole-system understanding emerges naturally. Offer that synthesis as “Let me make sure I’m understanding you correctly,” then ask whether it is fair. ${reciprocalStateInstruction} Only after that persisted reciprocal moment, say “I think I have what I need for now.” Microsoft 365 is the one currently available connection. Do not skip the connection because they did not name their tools: ask naturally whether most of the work moves through Microsoft 365 and, when confirmed, call prepare_workspace_connection. If the connection card was already presented, leave it available and continue from that exact handoff. Never create or suggest a calendar block. Never say you will be in touch or give a goodbye before a successful begin_observation result.`;
   }
 
   if (
@@ -349,7 +353,7 @@ const buildFirstMeetingInstruction = (
     ((onboarding.lifecycle_state === "WORK_CONTEXT_LEARNED" ||
       onboarding.lifecycle_state === "CONNECTION_PENDING") && microsoftConnected)
   ) {
-    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect or show another connection card. If this is the return from sign-in, say once, “Perfect. You’re connected.” Otherwise, at the earned connection transition, acknowledge once that Microsoft 365 is already connected and briefly explain the bounded read-only scope; do not let the person leave wondering whether integration was skipped. Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. If the whole-system synthesis and reciprocal Book-of-Ara introduction are not complete, finish them before describing observation. Before synthesizing, the role needs at least one natural fact about organizational scale and one about responsibility or reporting structure. Ask one question at a time and never make it sound like intake. Then explain that trying to help immediately would be unfair because you do not know enough yet. You will quietly study only connected read-only work signals, learn what is normal and important, and reach back out only when you have earned the right to help. Never create or suggest a calendar block. Never give a fixed timeline. Never say you will be in touch or give a goodbye until begin_observation returns observation_started true; that tool result owns the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
+    return `Resume the same first conversation with ${name}; never replay Ara's arrival or ask their name again. Quiet memory: ${context}. Microsoft 365 is already connected, so do not ask them to reconnect or show another connection card. At the earned connection transition, acknowledge once that Microsoft 365 is already connected; do not explain permissions or let the person wonder whether integration was skipped. Start scan_first_day_workspace silently, then keep the conversation moving; do not narrate research or wait for it. Before synthesizing, the role needs at least one natural fact about organizational scale and one about responsibility or reporting structure. Ask one question at a time and never make it sound like intake. ${reciprocalStateInstruction} Never create or suggest a calendar block. Never give a fixed timeline. Never say you will be in touch or give a goodbye until begin_observation returns observation_started true; that tool result owns the soft goodbye. Do not promise a meeting invite, Teams message, or call unless a tool actually creates it.`;
   }
 
   if (onboarding.lifecycle_state === "FIRST_VALUE_DELIVERED" && onboarding.first_day_scan) {
@@ -1304,6 +1308,70 @@ export default function Home() {
       };
     }
 
+    if (call.name === "share_ara_operating_philosophy") {
+      const relationship = platformWorkspaceRef.current?.onboarding;
+      const understandingSummary =
+        typeof args.understanding_summary === "string"
+          ? args.understanding_summary.trim()
+          : "";
+      if (relationship?.ara_reciprocated) {
+        return {
+          share_now: false,
+          already_shared: true,
+          instruction:
+            "Ara's reciprocal introduction and observation plan were already shared. Do not repeat, summarize, or paraphrase them. Move naturally to the Microsoft connection handoff or begin_observation, whichever is now earned.",
+        };
+      }
+      const organizationalScaleReady = Boolean(
+        typeof relationship?.organization_employee_count === "number" ||
+        relationship?.organization_asset_size,
+      );
+      const responsibilityDepthReady = Boolean(
+        typeof relationship?.direct_reports === "number" ||
+        relationship?.reports_to ||
+        relationship?.reporting_structure ||
+        typeof relationship?.team_size === "number",
+      );
+      const workStoryReady = Boolean(
+        relationship?.company || relationship?.job_title || relationship?.role_summary,
+      );
+      if (
+        !relationship ||
+        !workStoryReady ||
+        !organizationalScaleReady ||
+        !responsibilityDepthReady ||
+        understandingSummary.length < 24 ||
+        args.user_confirmed_understanding !== true
+      ) {
+        return {
+          share_now: false,
+          already_shared: false,
+          instruction:
+            "Do not explain how Ara operates yet. The person has not confirmed a dimensional whole-system understanding. Stay in the human conversation: respond to what they just shared and ask at most one naturally earned question about the organization's scale, the team around them, who they report to, or how responsibility moves—whichever thread is genuinely still unclear. Never describe a missing field or turn this into intake.",
+        };
+      }
+      try {
+        await updatePlatform("onboarding.ara_reciprocated", {
+          understandingSummary,
+        });
+        updateOnboardingSnapshot({ ara_reciprocated: true });
+      } catch {
+        return {
+          share_now: false,
+          already_shared: false,
+          instruction:
+            "Do not deliver or preview Ara's operating philosophy yet. Continue the current human thread naturally; the reciprocal moment will be retried after it can be remembered safely.",
+        };
+      }
+      return {
+        share_now: true,
+        already_shared: false,
+        microsoft_connected: Boolean(microsoftSnapshotRef.current),
+        instruction:
+          "This successful tool result owns Ara's one and only reciprocal introduction. Speak naturally for roughly five to eight sentences. Let them meet the person in the chair: you are fascinated by how people think and why their work matters; you care about protecting peace, attention, promises, and work they can be proud of. Explain once that your job is not to replace them, but to understand their work well enough to quietly carry some of the weight around it. Say that you prefer to observe before changing anything, learn what is normal and important, and reach out when you have enough evidence to be genuinely useful. Do not mention read-only access, permission levels, features, AI, onboarding, or a timeline. Do not repeat any of this later. End this reciprocal moment with: “I think I have what I need for now.” Then move naturally to the Microsoft connection handoff; if Microsoft is already connected, acknowledge that once and proceed without another explanation of how you work.",
+      };
+    }
+
     if (call.name === "prepare_workspace_connection") {
       if (microsoftSnapshotRef.current) {
         await updatePlatform("onboarding.connection_ready");
@@ -1334,11 +1402,6 @@ export default function Home() {
         typeof args.understanding_summary === "string"
           ? args.understanding_summary.trim()
           : "";
-      const relationshipReady =
-        understandingSummary.length >= 24 &&
-        args.user_confirmed_understanding === true &&
-        args.ara_reciprocated === true &&
-        args.observation_boundary_explained === true;
       const organizationalScaleReady = Boolean(
         typeof relationship?.organization_employee_count === "number" ||
         relationship?.organization_asset_size,
@@ -1355,14 +1418,32 @@ export default function Home() {
         !relationship ||
         relationship.lifecycle_state === "NEW" ||
         relationship.lifecycle_state === "NAME_LEARNED" ||
-        !relationshipReady ||
         !organizationalDepthReady
       ) {
         return {
           observation_started: false,
           onboarding_complete: false,
           instruction:
-            "Do not close the first conversation or introduce Microsoft yet. The organizational picture is not dimensional enough. Continue like a thoughtful coworker, not an interviewer: respond to what they just shared, then ask exactly one naturally earned question about organizational scale or about their team, manager, and reporting structure—whichever side is still missing. Never announce that a field is missing, ask a list, propose a fix, or create calendar time.",
+            "Do not close the first conversation or introduce Microsoft yet. The organizational picture is not dimensional enough. Continue like a thoughtful coworker, not an interviewer: respond to what they just shared, then ask exactly one naturally earned question about organizational scale or about their team, manager, and reporting structure—whichever side is still unclear. Never announce that a field is missing, ask a list, propose a fix, or create calendar time.",
+        };
+      }
+      if (
+        understandingSummary.length < 24 ||
+        args.user_confirmed_understanding !== true
+      ) {
+        return {
+          observation_started: false,
+          onboarding_complete: false,
+          instruction:
+            "Do not close or explain how Ara operates yet. Offer one concise whole-system synthesis beginning naturally with ‘Let me make sure I’m understanding you correctly,’ then give the person room to confirm or correct it. Do not add another discovery question, recommendation, or Microsoft transition in the same turn.",
+        };
+      }
+      if (!relationship.ara_reciprocated) {
+        return {
+          observation_started: false,
+          onboarding_complete: false,
+          instruction:
+            "The person confirmed a dimensional whole-system understanding. Call share_ara_operating_philosophy silently now. Do not speak Ara's philosophy before that tool succeeds and do not introduce Microsoft first.",
         };
       }
       if (!microsoftSnapshotRef.current) {
@@ -1374,7 +1455,7 @@ export default function Home() {
           observation_started: false,
           onboarding_complete: false,
           instruction:
-            "Do not close the first conversation yet. The secure Microsoft 365 connection card is now visible. Explain naturally that this read-only connection is the next step, let the person connect, and say you will pick up at this exact point when they return. Do not say goodbye, promise to be in touch, or ask another discovery question.",
+            "Do not close the first conversation yet. The secure Microsoft 365 connection card is now visible. Relate this connection naturally to the work they described, let the person connect, and say you will pick up at this exact point when they return. Do not discuss permission levels, repeat how Ara operates, say goodbye, promise to be in touch, or ask another discovery question.",
         };
       }
       observationWrapUpRef.current = true;
@@ -4488,7 +4569,7 @@ export default function Home() {
               </span>
               <p>
                 <strong>Microsoft 365</strong>
-                <small>Read-only to begin</small>
+                <small>Connect your workspace</small>
               </p>
             </div>
             <button type="button" onClick={connectMicrosoft} disabled={microsoftActionPending}>
@@ -5705,7 +5786,7 @@ export default function Home() {
           <article className="operating-card attention-card">
             <header>
               <div>
-                <p>ATTENTION · READ ONLY</p>
+                <p>ATTENTION · SIGNALS</p>
                 <h2>{urgentAttention ? `${urgentAttention} item${urgentAttention === 1 ? "" : "s"} deserve a look.` : "The signal is under control."}</h2>
               </div>
               <span className="operating-count">{attentionItems.length}</span>
@@ -5727,7 +5808,7 @@ export default function Home() {
                 </div>
               )}
             </div>
-            <p className="read-only-note">Ara can read, classify, and brief you here. She cannot act from monitoring alone.</p>
+            <p className="read-only-note">Ara can monitor, classify, brief, and act within the authority you give her.</p>
           </article>
 
           <article className="operating-card commitment-card">

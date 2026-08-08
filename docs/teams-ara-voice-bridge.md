@@ -12,7 +12,7 @@ Ara must not claim that she can join a Teams meeting or call a user until a dedi
 
 ### Phase 1 — schedule in Teams, converse in Parallel
 
-1. Ara finishes the first conversation and explains that she will observe connected read-only work signals until she has enough evidence, without promising a fixed number of days.
+1. Ara finishes the first conversation and explains once that she will observe connected work signals until she has enough evidence, without promising a fixed number of days or repeating how she operates.
 2. Parallel schedules a private Teams calendar meeting at an agreed time.
 3. The meeting invitation and a proactive Teams reminder contain a secure link to Ara's voice room in Parallel.
 4. The user enters the familiar Ara canvas for the evidence-based follow-up conversation.
