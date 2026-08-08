@@ -232,6 +232,8 @@ const prototypeDocument: RecallDocument = {
 const PROFILE_STORAGE_KEY = "parallel:ara-profile";
 const SESSION_AUDIT_STORAGE_KEY = "parallel:ara-session-audit";
 const CAPTIONS_STORAGE_KEY = "parallel:arrival-captions";
+const MICROSOFT_CONVERSATION_RETURN_KEY = "parallel:microsoft-conversation-return";
+const MICROSOFT_CONVERSATION_RETURN_TTL_MS = 30 * 60 * 1000;
 const demoIntroductionInstruction = `This is the first meeting and the only introduction for this session. Use a close, calm, warm, composed voice with no marketing energy or exaggerated emotion. Before the first word, make one quiet, brief audible inhale lasting less than half a second. Do not describe or verbalize the breath. Say exactly: "Hi." Pause. "I’m Ara." Pause. "Welcome to Parallel." Pause. "I don’t know you yet… and I don’t want to pretend that I do." Pause. "What’s your name?" Then listen. If the user is silent, wait comfortably and do not speak again until they say something.`;
 const arrivalVoicePerformance = `Deliver the following exact words as one continuous spoken performance. This is one thought, not a series of clips.
 
@@ -264,7 +266,23 @@ const emptyProfile: UserProfile = {
 const buildFirstMeetingInstruction = (
   onboarding: OnboardingProfile | null | undefined,
   microsoftConnected: boolean,
+  returningFromMicrosoft = false,
 ) => {
+  if (returningFromMicrosoft) {
+    const name = onboarding?.preferred_name || "there";
+    const context = [
+      onboarding?.job_title,
+      onboarding?.company,
+      onboarding?.role_summary,
+    ].filter(Boolean).join(" · ");
+
+    if (microsoftConnected) {
+      return `This is the same first conversation resuming immediately after ${name} completed the secure Microsoft sign-in. Do not replay the arrival, introduce yourself again, ask their name, or repeat earlier questions. Say once, exactly: “Perfect. You’re connected.” Then continue naturally from the point where you both paused. Quiet remembered context: ${context || "the relationship conversation already began"}. Microsoft 365 is connected and the background first read may already be running, so do not ask them to reconnect, narrate a scan, or make them wait. Reestablish the human thread in one short beat, then explain the bounded read-only observation posture only when it is the naturally earned next step.`;
+    }
+
+    return `This is the same first conversation resuming after ${name} returned from Microsoft sign-in, but the connection did not complete. Do not replay the arrival, introduce yourself again, ask their name, or repeat earlier questions. Acknowledge once, calmly, that the connection did not finish and that nothing was changed. Then continue the same human conversation from where it paused without turning the moment into troubleshooting.`;
+  }
+
   if (!onboarding || onboarding.lifecycle_state === "NEW") {
     return demoIntroductionInstruction;
   }
@@ -436,6 +454,7 @@ export default function Home() {
     useRef<MicrosoftMeetingUpdateProposal | null>(null);
   const pendingDocumentRef = useRef<BrandedDocumentDraft | null>(null);
   const initialResponseRef = useRef<string | null>(null);
+  const microsoftConversationReturnRef = useRef(false);
   const autoArrivalAttemptedRef = useRef(false);
   const arrivalScriptActiveRef = useRef(false);
   const arrivalScriptStartedRef = useRef(false);
@@ -2942,8 +2961,18 @@ export default function Home() {
       buildFirstMeetingInstruction(
         platformWorkspaceRef.current?.onboarding,
         Boolean(microsoftSnapshotRef.current),
+        microsoftConversationReturnRef.current,
       );
     initialResponseRef.current = null;
+
+    if (microsoftConversationReturnRef.current) {
+      microsoftConversationReturnRef.current = false;
+      try {
+        window.sessionStorage.removeItem(MICROSOFT_CONVERSATION_RETURN_KEY);
+      } catch {
+        // The durable onboarding state still prevents a repeated introduction.
+      }
+    }
 
     if (opening === demoIntroductionInstruction) {
       sendArrivalPerformance(channel);
@@ -2999,7 +3028,7 @@ export default function Home() {
       return;
     }
 
-    void startVoiceSession(demoIntroductionInstruction);
+    void startVoiceSession();
   };
 
   const handleRealtimeEvent = (
@@ -3412,47 +3441,84 @@ export default function Home() {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    const descentTimer = window.setTimeout(
-      () => setArrivalPhase("descending"),
-      prefersReducedMotion ? 350 : 1600,
-    );
-    const meetingTimer = window.setTimeout(
-      () => setArrivalPhase("meeting"),
-      prefersReducedMotion ? 700 : 6770,
-    );
-    const revealTimer = window.setTimeout(
-      () => setArrivalPhase("revealing"),
-      prefersReducedMotion ? 1050 : 7470,
-    );
-    const rotateTimer = window.setTimeout(
-      () => setArrivalPhase("rotating"),
-      prefersReducedMotion ? 1450 : 10770,
-    );
-    const illuminateTimer = window.setTimeout(() => {
-      setArrivalPhase("illuminating");
-      if (prefersReducedMotion) {
-        arrivalVisualReadyRef.current = true;
-        startPreparedOpening();
+    let descentTimer: number | null = null;
+    let meetingTimer: number | null = null;
+    let revealTimer: number | null = null;
+    let rotateTimer: number | null = null;
+    let illuminateTimer: number | null = null;
+    let breathTimer: number | null = null;
+    let settleTimer: number | null = null;
+
+    const arrivalBootstrapTimer = window.setTimeout(() => {
+      let returningFromMicrosoft = false;
+      try {
+        const rawReturn = window.sessionStorage.getItem(
+          MICROSOFT_CONVERSATION_RETURN_KEY,
+        );
+        const savedReturn = rawReturn
+          ? JSON.parse(rawReturn) as { startedAt?: number }
+          : null;
+        returningFromMicrosoft = Boolean(
+          savedReturn?.startedAt &&
+          Date.now() - savedReturn.startedAt < MICROSOFT_CONVERSATION_RETURN_TTL_MS,
+        );
+        if (!returningFromMicrosoft && rawReturn) {
+          window.sessionStorage.removeItem(MICROSOFT_CONVERSATION_RETURN_KEY);
+        }
+      } catch {
+        returningFromMicrosoft = false;
       }
-    }, prefersReducedMotion ? 1850 : 13720);
-    const breathTimer = prefersReducedMotion
-      ? null
-      : window.setTimeout(() => {
-          setArrivalPhase("breathing");
-          arrivalVisualReadyRef.current = true;
-          startPreparedOpening();
-        }, 15020);
-    const settleTimer = window.setTimeout(
-      () => {
-        if (!arrivalVisualReadyRef.current) {
+      microsoftConversationReturnRef.current = returningFromMicrosoft;
+
+      if (returningFromMicrosoft) {
+        arrivalVisualReadyRef.current = true;
+        setArrivalPhase("settled");
+        setShowStartup(false);
+        return;
+      }
+
+      descentTimer = window.setTimeout(
+        () => setArrivalPhase("descending"),
+        prefersReducedMotion ? 350 : 1600,
+      );
+      meetingTimer = window.setTimeout(
+        () => setArrivalPhase("meeting"),
+        prefersReducedMotion ? 700 : 6770,
+      );
+      revealTimer = window.setTimeout(
+        () => setArrivalPhase("revealing"),
+        prefersReducedMotion ? 1050 : 7470,
+      );
+      rotateTimer = window.setTimeout(
+        () => setArrivalPhase("rotating"),
+        prefersReducedMotion ? 1450 : 10770,
+      );
+      illuminateTimer = window.setTimeout(() => {
+        setArrivalPhase("illuminating");
+        if (prefersReducedMotion) {
           arrivalVisualReadyRef.current = true;
           startPreparedOpening();
         }
-        setArrivalPhase("settled");
-        setShowStartup(false);
-      },
-      prefersReducedMotion ? 2150 : 16020,
-    );
+      }, prefersReducedMotion ? 1850 : 13720);
+      breathTimer = prefersReducedMotion
+        ? null
+        : window.setTimeout(() => {
+            setArrivalPhase("breathing");
+            arrivalVisualReadyRef.current = true;
+            startPreparedOpening();
+          }, 15020);
+      settleTimer = window.setTimeout(
+        () => {
+          if (!arrivalVisualReadyRef.current) {
+            arrivalVisualReadyRef.current = true;
+            startPreparedOpening();
+          }
+          setArrivalPhase("settled");
+          setShowStartup(false);
+        },
+        prefersReducedMotion ? 2150 : 16020,
+      );
+    }, 0);
 
     const hydrateTimer = window.setTimeout(() => {
       setFirstVisit(true);
@@ -3497,13 +3563,14 @@ export default function Home() {
     }, 0);
 
     return () => {
-      window.clearTimeout(descentTimer);
-      window.clearTimeout(meetingTimer);
-      window.clearTimeout(revealTimer);
-      window.clearTimeout(rotateTimer);
-      window.clearTimeout(illuminateTimer);
+      window.clearTimeout(arrivalBootstrapTimer);
+      if (descentTimer !== null) window.clearTimeout(descentTimer);
+      if (meetingTimer !== null) window.clearTimeout(meetingTimer);
+      if (revealTimer !== null) window.clearTimeout(revealTimer);
+      if (rotateTimer !== null) window.clearTimeout(rotateTimer);
+      if (illuminateTimer !== null) window.clearTimeout(illuminateTimer);
       if (breathTimer !== null) window.clearTimeout(breathTimer);
-      window.clearTimeout(settleTimer);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       window.clearTimeout(hydrateTimer);
     };
     // Hydration and the release-aware workspace load run once per document load.
@@ -3582,7 +3649,8 @@ export default function Home() {
   useEffect(() => {
     if (
       !platformReady ||
-      arrivalPhase !== "revealing" ||
+      !["revealing", "settled"].includes(arrivalPhase) ||
+      microsoftStatus === "checking" ||
       autoArrivalAttemptedRef.current ||
       voiceConnected ||
       peerRef.current
@@ -3592,12 +3660,12 @@ export default function Home() {
     const arrivalTimer = window.setTimeout(() => {
       autoArrivalAttemptedRef.current = true;
       setArrivalAttempted(true);
-      void startVoiceSession(demoIntroductionInstruction);
+      void startVoiceSession();
     }, 220);
     return () => window.clearTimeout(arrivalTimer);
     // Prepare voice while the brand reveal is still moving; speech waits for visual settlement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arrivalPhase, platformReady]);
+  }, [arrivalPhase, microsoftStatus, platformReady]);
 
   useEffect(() => {
     return () => {
@@ -4047,6 +4115,42 @@ export default function Home() {
     setMicrosoftStatus("connecting");
     setMicrosoftNote("Taking you to Microsoft’s secure sign-in");
     try {
+      if (onboardingConnectionPrompt) {
+        const onboarding = platformWorkspaceRef.current?.onboarding;
+        try {
+          window.sessionStorage.setItem(
+            MICROSOFT_CONVERSATION_RETURN_KEY,
+            JSON.stringify({ startedAt: Date.now() }),
+          );
+          microsoftConversationReturnRef.current = true;
+        } catch {
+          // Durable onboarding memory still protects the conversation stage.
+        }
+
+        if (onboarding?.preferred_name) {
+          await updatePlatform("onboarding.save_identity", {
+            preferredName: onboarding.preferred_name,
+            fullName: onboarding.full_name || onboarding.preferred_name,
+          }).catch(() => undefined);
+        }
+        if (
+          onboarding &&
+          (onboarding.company || onboarding.job_title || onboarding.role_summary)
+        ) {
+          await updatePlatform("onboarding.save_work_context", {
+            company: onboarding.company,
+            jobTitle: onboarding.job_title,
+            roleSummary: onboarding.role_summary,
+            teamSize: onboarding.team_size,
+            responsibilities: onboarding.responsibilities,
+            systems: onboarding.systems,
+            communicationChannels: onboarding.communication_channels,
+            biggestPressure: onboarding.biggest_pressure,
+            systemicPressure: onboarding.systemic_pressure,
+            protectedWork: onboarding.protected_work,
+          }).catch(() => undefined);
+        }
+      }
       await connectMicrosoft365();
     } catch {
       setMicrosoftStatus("error");
@@ -4230,7 +4334,18 @@ export default function Home() {
         )}
         {onboardingConnectionPrompt && !microsoftConnected && (
           <section className="first-moment-integration" aria-label="Connect Microsoft 365">
-            <p><strong>Microsoft 365</strong></p>
+            <div className="first-moment-integration-identity">
+              <span className="microsoft-window-mark" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+                <i />
+              </span>
+              <p>
+                <strong>Microsoft 365</strong>
+                <small>Read-only to begin</small>
+              </p>
+            </div>
             <button type="button" onClick={connectMicrosoft} disabled={microsoftActionPending}>
               {microsoftActionPending ? "Opening…" : "Connect"}
             </button>

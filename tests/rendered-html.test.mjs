@@ -187,6 +187,21 @@ test("keeps the permanent key on the server and configures live Recall voice", a
   assert.doesNotMatch(page, /permission-preview/);
   assert.match(page, /<strong>Microsoft 365<\/strong>/);
   assert.match(page, /microsoftActionPending \? "Opening…" : "Connect"/);
+  assert.match(page, /MICROSOFT_CONVERSATION_RETURN_KEY/);
+  assert.match(page, /MICROSOFT_CONVERSATION_RETURN_TTL_MS/);
+  assert.match(page, /microsoftConversationReturnRef/);
+  assert.match(page, /Say once, exactly: “Perfect\. You’re connected\.”/);
+  assert.match(
+    page,
+    /!\["revealing", "settled"\]\.includes\(arrivalPhase\)[\s\S]{0,700}void startVoiceSession\(\);/,
+  );
+  assert.match(page, /microsoftStatus === "checking"/);
+  assert.match(page, /sessionStorage\.setItem\([\s\S]*MICROSOFT_CONVERSATION_RETURN_KEY/);
+  assert.match(page, /className="microsoft-window-mark"/);
+  assert.match(page, /<small>Read-only to begin<\/small>/);
+  assert.match(styles, /--bar-rest:\s*14px/);
+  assert.match(styles, /\.first-moment-integration::before/);
+  assert.match(styles, /@keyframes integrationArrive/);
   assert.match(page, /observation-closing/);
   assert.match(styles, /@keyframes observationBreath/);
   assert.match(styles, /@keyframes observationPresenceFade/);
